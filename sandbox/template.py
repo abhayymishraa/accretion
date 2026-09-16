@@ -2,13 +2,12 @@
 
 import argparse
 import json
-from pathlib import Path
 import re
 import sys
+from pathlib import Path
 from uuid import UUID
 
 from e2b import Template, wait_for_url
-
 
 CONTEXT = Path(__file__).resolve().parent
 NAME_PATTERN = r"[a-z0-9][a-z0-9_-]*(?:/[a-z0-9][a-z0-9_-]*)?"
@@ -74,7 +73,9 @@ def main() -> None:
         "promote", help="Move an environment tag to an exact build"
     )
     promote_parser.add_argument("build_ref", type=build_reference)
-    promote_parser.add_argument("--to", choices=("staging", "production"), required=True)
+    promote_parser.add_argument(
+        "--to", choices=("staging", "production"), required=True
+    )
     args = parser.parse_args()
 
     if args.command == "build":

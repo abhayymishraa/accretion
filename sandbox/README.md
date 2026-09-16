@@ -1,24 +1,32 @@
 # WebBuilder React starter
 
-React JSX and Vite, with Tailwind CSS v4 already connected. Edit
-`src/pages/Home.jsx`; add routes in `src/App.jsx` only when needed.
-`src/main.jsx` imports the global stylesheet. Keep that entry point intact.
+React TypeScript/TSX and Vite, with Tailwind CSS v4 already connected. Edit
+`src/pages/Home.tsx`; add routes in `src/App.tsx` only when needed.
+`src/main.tsx` imports the global stylesheet. Keep that entry point intact.
+Use `.tsx` for React components and `.ts` for hooks, services and helpers.
+Keep strict type checking enabled; type props and data boundaries instead of
+using `any` or suppression comments to bypass errors.
 
 ## Installed tools
 
-| Purpose | Package | Pinned version |
-| --- | --- | --- |
-| Runtime | Node LTS | 24.21.0 |
-| UI | React / React DOM | 19.3.0 |
-| Dev server and build | Vite / React plugin | 8.3.0 / 6.1.1 |
-| Styling | Tailwind CSS / Vite plugin | 4.3.3 |
-| Routing | react-router-dom | 7.18.3 |
-| Icons | react-icons | 5.7.0 |
-| Optional animation | motion | 13.2.0 |
-| Lint | oxlint | 1.82.0 |
+| Purpose              | Package                    | Pinned version |
+| -------------------- | -------------------------- | -------------- |
+| Runtime              | Node LTS                   | 24.21.0        |
+| UI                   | React / React DOM          | 19.3.0         |
+| Type checking        | TypeScript                 | 7.0.2          |
+| React types          | @types/react / react-dom   | 19.3.0         |
+| Node types           | @types/node                | 24.13.5        |
+| Dev server and build | Vite / React plugin        | 8.3.0 / 6.1.1  |
+| Styling              | Tailwind CSS / Vite plugin | 4.3.3          |
+| Routing              | react-router-dom           | 7.18.3         |
+| Icons                | react-icons                | 5.7.0          |
+| Optional animation   | motion                     | 13.2.0         |
+| Lint                 | oxlint                     | 1.82.0         |
 
-Use `npm ci` to reproduce the lockfile, `npm run lint` for static checks,
-and `npm run build` for the production bundle. The hosted workspace already
+Use `npm ci` to reproduce the lockfile, `npm run lint` for lint checks,
+and `npm run typecheck` for TypeScript checks. `npm run build` runs type checking
+before creating the production bundle; Vite alone only transpiles TypeScript.
+The hosted workspace already
 runs Vite at port 5173; do not start another server there. To run a downloaded
 project locally, use `npm run dev`.
 
@@ -45,14 +53,14 @@ bugs, and keep controls usable on narrow screens.
 Motion is preinstalled but not imported by the starter. For requested complex
 animation, import from `motion/react`, not an assumed `framer-motion` package:
 
-```jsx
-import { MotionConfig, motion } from 'motion/react'
+```tsx
+import { MotionConfig, motion } from "motion/react";
 
 <MotionConfig reducedMotion="user">
   <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
     Your content
   </motion.div>
-</MotionConfig>
+</MotionConfig>;
 ```
 
 `reducedMotion="user"` suppresses transform/layout animation, not every opacity
@@ -66,7 +74,8 @@ from `react-icons/fi`. Label icon-only controls. Install missing UI kits, charts
 ## Template maintenance
 
 Stable versions were resolved from the npm registry and Node release index on
-2026-09-14. Application and browser-tool dependencies have separate lockfiles.
+2026-09-14; TypeScript and type dependencies were added on 2026-09-16.
+Application and browser-tool dependencies have separate lockfiles.
 Playwright 1.63.0 and Chromium live outside the app at `/opt/webbuilder-checks`
 and `/opt/pw-browsers`; they do not enter generated application bundles.
 
