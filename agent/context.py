@@ -75,7 +75,9 @@ def choose_files(paths, prompt, evidence, limit=8):
     scored_paths = ((rank(path), path) for path in paths)
     useful = [(score, path) for score, path in scored_paths if any(score)]
     selected = [path for _, path in sorted(useful, reverse=True)[:limit]]
-    for path in ('package.json', 'src/App.jsx', 'src/pages/Home.jsx', 'src/index.css', 'src/App.css'):
+    for path in ('package.json', 'src/App.tsx', 'src/pages/Home.tsx',
+                 'src/App.jsx', 'src/pages/Home.jsx', 'src/index.css', 'src/App.css',
+                 'tsconfig.json'):
         if path in paths and path not in selected and len(selected) < limit:
             selected.append(path)
     return selected
