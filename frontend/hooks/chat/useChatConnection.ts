@@ -4,38 +4,30 @@ import { authService } from "@/services/service.auth";
 
 import { WS_URL } from "@/config/env";
 import { getSessionId } from "@/lib/auth/session";
-import { consolidateMessages } from "@/lib/chat/messages";
-import { handleWebSocketMessage } from "@/socket/handleChatEvent";
-import type { Message } from "@/types/chat.type";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
-import type { Dispatch, SetStateAction } from "react";
 type ConnectionOptions = {
     chatId: string;
-    setIsBuilding: Dispatch<SetStateAction<boolean>>;
-    setRunId: Dispatch<SetStateAction<string | null>>;
-    setMessages: Dispatch<SetStateAction<Message[]>>;
-    setAppUrl: Dispatch<SetStateAction<string | null>>;
-    setError: Dispatch<SetStateAction<string | null>>;
+    receiveEvent: (event: MessageEvent) => void;
+    refreshHistory: () => void;
+    setError: (error: string | null) => void;
 };
 export function useChatConnection({
     chatId,
-    setIsBuilding,
-    setRunId,
-    setMessages,
-    setAppUrl,
+    receiveEvent,
+    refreshHistory,
     setError,
 }: ConnectionOptions) {
     const router = useRouter();
     const [wsConnected, setWsConnected] = useState(false);
     const wsRef = useRef<WebSocket | null>(null);
-    const terminalRuns = useRef(new Set<string>());
     // The connection observes a durable run. Reconnect reloads its authoritative snapshot.
     useEffect(() => {
         let disposed = false;
         let retry: ReturnType<typeof setTimeout>;
         let attempt = 0;
+        setWsConnected(false);
         const connect = () => {
             if (disposed) return;
             const token = localStorage.getItem("auth_token");
@@ -51,9 +43,8 @@ export function useChatConnection({
                     ws.close();
                     return;
                 }
-                ws.send(JSON.stringify({ type: "auth", token }));
+                ws.send(JSON.stringify({ type: "auth", token, mode: "events" }));
                 attempt = 0;
-                setWsConnected(true);
                 setError(null);
             };
             ws.onmessage = (event) => {
@@ -64,19 +55,14 @@ export function useChatConnection({
                 } catch {
                     return;
                 }
-                if (incoming.e === "resync") {
-                    ws.send(JSON.stringify({ type: "resync" }));
+                if (incoming.e === "ready" || incoming.e === "resync") {
+                    if (incoming.e === "ready") setWsConnected(true);
+                    // Catch up after subscription: history remains visible during reconnect.
+                    refreshHistory();
                     return;
                 }
-                handleWebSocketMessage(event, {
-                    setIsBuilding,
-                    setRunId,
-                    setMessages,
-                    setAppUrl,
-                    setError,
-                    consolidateMessages,
-                    terminalRuns: terminalRuns.current,
-                });
+                receiveEvent(event);
+                if (incoming.e === "run_started") refreshHistory();
             };
             ws.onclose = async (event) => {
                 if (disposed || wsRef.current !== ws) return;
@@ -97,7 +83,6 @@ export function useChatConnection({
                     } catch {
                         if (disposed || wsRef.current !== ws) return;
                     }
-                    setIsBuilding(false);
                     setError(
                         "Could not reconnect. Check your connection and project access, then reload.",
                     );
@@ -110,11 +95,6 @@ export function useChatConnection({
             };
             ws.onerror = () => ws.close();
         };
-        terminalRuns.current.clear();
-        setMessages([]);
-        setAppUrl(null);
-        setRunId(null);
-        setIsBuilding(false);
         connect();
         return () => {
             disposed = true;
@@ -122,7 +102,7 @@ export function useChatConnection({
             wsRef.current?.close();
             wsRef.current = null;
         };
-    }, [chatId, router, setAppUrl, setError, setIsBuilding, setMessages, setRunId]);
+    }, [chatId, router, receiveEvent, refreshHistory, setError]);
 
-    return { wsConnected, wsRef };
+    return { wsConnected };
 }

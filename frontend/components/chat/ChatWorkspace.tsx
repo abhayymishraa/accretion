@@ -19,6 +19,10 @@ export default function ChatWorkspace({ chatId }: { chatId: string }) {
         input,
         setInput,
         isLoading,
+        hasOlder,
+        loadingOlder,
+        loadOlder,
+        refreshHistory,
         appUrl,
         revisionId,
         isBuilding,
@@ -38,6 +42,7 @@ export default function ChatWorkspace({ chatId }: { chatId: string }) {
         preview,
         handleConversationScroll,
         messagesEndRef,
+        conversationRef,
         containerRef,
         handleSendMessage,
         handleCancel,
@@ -97,6 +102,7 @@ export default function ChatWorkspace({ chatId }: { chatId: string }) {
                         </div>
                         <div
                             className="ember-message-scroll flex-1 min-h-0 overflow-y-auto overscroll-contain py-[25px] px-6 flex flex-col gap-[23px] max-md:py-5 max-md:px-4"
+                            ref={conversationRef}
                             onScroll={handleConversationScroll}
                         >
                             {isLoading && (
@@ -108,15 +114,29 @@ export default function ChatWorkspace({ chatId }: { chatId: string }) {
                                     Loading messages…
                                 </div>
                             )}
+                            {hasOlder && (
+                                <Button
+                                    variant="utility"
+                                    disabled={loadingOlder}
+                                    onClick={loadOlder}
+                                >
+                                    {loadingOlder
+                                        ? "Loading older messages…"
+                                        : "Load older messages"}
+                                </Button>
+                            )}
                             {error && (
                                 <p
                                     className="ember-error text-destructive border border-destructive bg-card py-3 px-[15px] rounded-[8px] text-[13px] leading-[1.5]"
                                     role="alert"
                                 >
                                     {error}
+                                    <Button variant="utility" onClick={refreshHistory}>
+                                        Retry
+                                    </Button>
                                 </p>
                             )}
-                            {!messages.length && !isLoading && (
+                            {!messages.length && !isLoading && !error && (
                                 <div className="ember-chat-intro pt-3 px-0 pb-5 [&>svg]:text-accent-foreground [&>svg]:mb-4.5 [&_h2]:text-[23px] [&_h2]:leading-[1.2] [&_h2]:tracking-[-0.7px] [&_h2]:font-medium [&_p]:text-muted-foreground [&_p]:text-[13px] [&_p]:leading-[1.7] [&_p]:mt-2.5">
                                     <Code2 size={26} />
                                     <h2>Let’s make something useful.</h2>

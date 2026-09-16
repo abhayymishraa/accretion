@@ -1,4 +1,5 @@
 import { clearFileContentCache } from "@/lib/files/contentCache";
+import { clearHistoryCache } from "@/lib/chat/historyCache";
 import type { LoginResponse } from "@/types/auth.type";
 
 export function getSessionId(): string | null {
@@ -8,6 +9,7 @@ export function getSessionId(): string | null {
 }
 
 export function clearSession() {
+    clearHistoryCache();
     clearFileContentCache();
     for (const key of ["auth_token", "refresh_token", "auth_session_id", "user_data"]) {
         localStorage.removeItem(key);
@@ -23,6 +25,7 @@ export function storeTokens(session: LoginResponse) {
 }
 
 export function saveSession(session: LoginResponse) {
+    clearHistoryCache();
     clearFileContentCache();
     try {
         storeTokens(session);

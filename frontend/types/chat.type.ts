@@ -28,6 +28,13 @@ export interface Message {
     activity?: ActivityItem[];
     run_status?: RunStatus;
     finished_at?: string;
+    details_pending?: boolean;
+    details_version?: number;
+}
+export interface HistoryPage {
+    messages: Message[];
+    next_cursor: string | null;
+    active_run_id: string | null;
 }
 export interface RunEvent {
     e: string;

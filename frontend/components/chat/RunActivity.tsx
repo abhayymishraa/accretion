@@ -10,9 +10,13 @@ import styles from "./transcript.module.css";
 import { Elapsed, PixelLoader } from "./RunStatus";
 import { ToolList } from "./ToolList";
 import { RecordedResult } from "./ToolResult";
+import { useRunDetails } from "@/hooks/chat/useRunDetails";
+import { Button } from "@/components/ui/button";
 export function RunActivity({ message, connected }: { message: Message; connected: boolean }) {
     const completionIcon = useRef<SVGSVGElement>(null);
     const [pointerReveal, setPointerReveal] = useState(false);
+    const [expanded, setExpanded] = useState(false);
+    const details = useRunDetails(message, expanded);
     const previousRun = useRef({ id: message.id, status: message.run_status });
 
     useEffect(() => {
@@ -44,8 +48,8 @@ export function RunActivity({ message, connected }: { message: Message; connecte
     const running = message.run_status === "running";
     const failed =
         message.run_status && !["running", "succeeded", "cancelled"].includes(message.run_status);
-    const steps = message.activity || [];
-    const calls = message.tool_calls || [];
+    const steps = details.activity;
+    const calls = details.calls;
     const latest = steps.filter((item) => item.kind === "stage").at(-1)?.message;
     let label = "Recorded steps";
     if (running) {
@@ -84,8 +88,9 @@ export function RunActivity({ message, connected }: { message: Message; connecte
                 </span>
                 <Elapsed start={message.created_at} end={message.finished_at} running={running} />
             </div>
-            {(steps.length > 0 || calls.length > 0) && (
+            {(message.details_pending || steps.length > 0 || calls.length > 0) && (
                 <details
+                    onToggle={(event) => setExpanded(event.currentTarget.open)}
                     data-pointer-reveal={pointerReveal}
                     className={`${styles.buildTrace} transcript-trace [&>summary]:list-none [&>summary]:flex [&>summary]:items-center [&>summary]:gap-2 [&>summary]:cursor-pointer [&>summary]:min-h-11 [&>summary]:text-[12px] [&>summary::-webkit-details-marker]:hidden [&[open]>summary>.transcript-chevron]:rotate-90 [&>summary]:text-muted-foreground`}
                 >
@@ -99,10 +104,19 @@ export function RunActivity({ message, connected }: { message: Message; connecte
                         />
                         Build steps{" "}
                         <span className="transcript-caption font-mono text-[11px] text-muted-foreground">
-                            {steps.length || calls.length}
+                            {steps.length || calls.length || ""}
                         </span>
                     </summary>
                     <div className={styles.buildDetails}>
+                        {details.loading && <p role="status">Loading build steps…</p>}
+                        {details.error && (
+                            <p role="alert">
+                                {details.error}{" "}
+                                <Button variant="utility" onClick={details.retry}>
+                                    Retry
+                                </Button>
+                            </p>
+                        )}
                         <ol className="list-none pt-0 pr-0 pb-2 pl-[7px] m-0 [&>li]:flex [&>li]:items-baseline [&>li]:gap-3 [&>li]:py-1.5 [&>li]:px-0 [&>li]:text-muted-foreground [&>li]:text-[12px] [&>li]:wrap-anywhere [&>li[data-failed=true]]:text-destructive [&>li>div]:min-w-0 [&>li>div]:flex-1 [&_p]:m-0">
                             {steps.map((item) => (
                                 <li key={item.id} data-failed={item.ok === false}>

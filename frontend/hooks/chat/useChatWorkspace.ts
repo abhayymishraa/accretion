@@ -6,9 +6,10 @@ import { usePreviewLifecycle } from "@/hooks/preview/usePreviewLifecycle";
 import type { UserData } from "@/types/auth.type";
 import type { Message } from "@/types/chat.type";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { useProjectFiles } from "@/hooks/files/useProjectFiles";
+import { useChatHistory } from "./useChatHistory";
 import { useChatConnection } from "./useChatConnection";
 import { useWorkspaceLayout } from "./useWorkspaceLayout";
 export function useChatWorkspace(chatId: string) {
@@ -17,7 +18,6 @@ export function useChatWorkspace(chatId: string) {
     const [messages, setMessages] = useState<Message[]>([]);
     const [error, setError] = useState<string | null>(null);
     const [input, setInput] = useState("");
-    const [isLoading, setIsLoading] = useState(true);
     const [appUrl, setAppUrl] = useState<string | null>(null);
     const [isBuilding, setIsBuilding] = useState(false);
     const { projectFiles, revisionId } = useProjectFiles(chatId, isBuilding);
@@ -46,31 +46,23 @@ export function useChatWorkspace(chatId: string) {
 
     const followLatest = useRef(true);
     const messagesEndRef = useRef<HTMLDivElement>(null);
+    const conversationRef = useRef<HTMLDivElement>(null);
+    const prependPosition = useRef<{ height: number; top: number } | null>(null);
 
-    // Check authentication and load initial data
+    // The session client and socket own authentication; this is display data only.
     useEffect(() => {
-        const loadInitialData = async () => {
-            const user = localStorage.getItem("user_data");
+        const user = localStorage.getItem("user_data");
 
-            if (user) {
-                try {
-                    setUserData(JSON.parse(user));
-                } catch (err) {
-                    console.error("Failed to parse user data:", err);
-                }
+        if (user) {
+            try {
+                setUserData(JSON.parse(user));
+            } catch (err) {
+                console.error("Failed to parse user data:", err);
             }
-
-            setIsLoading(false);
-        };
-
-        loadInitialData();
+        }
     }, []);
 
-    useEffect(() => {
-        if (followLatest.current) messagesEndRef.current?.scrollIntoView({ behavior: "auto" });
-    }, [messages, mobilePane]);
-
-    const { wsConnected, wsRef } = useChatConnection({
+    const history = useChatHistory({
         chatId,
         setIsBuilding,
         setRunId,
@@ -78,6 +70,34 @@ export function useChatWorkspace(chatId: string) {
         setAppUrl,
         setError,
     });
+
+    const { wsConnected } = useChatConnection({
+        chatId,
+        receiveEvent: history.receiveEvent,
+        refreshHistory: history.refreshHistory,
+        setError,
+    });
+
+    useLayoutEffect(() => {
+        const position = prependPosition.current;
+        const element = conversationRef.current;
+        if (position && element) {
+            if (!history.loadingOlder) {
+                element.scrollTop = position.top + element.scrollHeight - position.height;
+                prependPosition.current = null;
+            }
+        } else if (followLatest.current) {
+            messagesEndRef.current?.scrollIntoView({ behavior: "auto" });
+        }
+    }, [messages, mobilePane, history.loadingOlder]);
+
+    function loadOlder() {
+        const element = conversationRef.current;
+        if (!element || history.loadingOlder) return;
+        prependPosition.current = { height: element.scrollHeight, top: element.scrollTop };
+        followLatest.current = false;
+        history.loadOlder();
+    }
 
     function handleConversationScroll(event: React.UIEvent<HTMLDivElement>) {
         const element = event.currentTarget;
@@ -104,8 +124,8 @@ export function useChatWorkspace(chatId: string) {
                 localStorage.setItem("user_data", JSON.stringify(updated));
                 setUserData(updated);
             }
-            if (wsRef.current?.readyState === WebSocket.OPEN)
-                wsRef.current.send(JSON.stringify({ type: "resync" }));
+            // The run_started event fetches the accepted prompt for connected observers.
+            if (!wsConnected) history.refreshHistory();
         } catch (err) {
             setIsBuilding(false);
             setError(err instanceof Error ? err.message : "Request was not accepted");
@@ -118,8 +138,7 @@ export function useChatWorkspace(chatId: string) {
             await runService.cancel(runId);
             setIsBuilding(false);
             setRunId(null);
-            if (wsRef.current?.readyState === WebSocket.OPEN)
-                wsRef.current.send(JSON.stringify({ type: "resync" }));
+            history.refreshHistory();
         } catch (err) {
             setError(err instanceof Error ? err.message : "Could not stop the run");
         }
@@ -132,7 +151,11 @@ export function useChatWorkspace(chatId: string) {
         error,
         input,
         setInput,
-        isLoading,
+        isLoading: history.isLoading,
+        hasOlder: history.hasOlder,
+        loadingOlder: history.loadingOlder,
+        loadOlder,
+        refreshHistory: history.refreshHistory,
         appUrl,
         revisionId,
         isBuilding,
@@ -152,6 +175,7 @@ export function useChatWorkspace(chatId: string) {
         preview,
         handleConversationScroll,
         messagesEndRef,
+        conversationRef,
         containerRef,
         handleSendMessage,
         handleCancel,
