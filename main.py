@@ -18,6 +18,7 @@ from agent.archive import safe_path
 from agent.persistence import archive_slots, ensure_revision, revision_bytes, read_object
 from agent.storage import StorageError
 from agent.events import run_events
+from agent.history import conversation_page
 from agent.maintenance import attempt_cleanup, cleanup_project_storage
 from auth.router import router
 from auth.social import social_router, configure_sessions
@@ -85,6 +86,8 @@ async def get_readiness(db: AsyncSession = Depends(get_db)):
 @app.get("/chats/{id}/messages")
 async def get_chat_messages(
     id: str,
+    limit: int = 50,
+    before: str | None = None,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
@@ -98,31 +101,18 @@ async def get_chat_messages(
     if chat.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Not authorized to access this chat")
 
-    # Get all messages for the chat
-    result = await db.execute(
-        select(Message)
-        .where(Message.chat_id == id)
-        .order_by(Message.created_at)
-    )
-    messages = result.scalars().all()
-
+    page = await conversation_page(db, id, limit, before)
+    active_run_id = await db.scalar(select(Run.id).where(Run.chat_id == id,
+        Run.status == 'running').order_by(Run.created_at.desc()).limit(1))
     return {
+        **page,
+        "active_run_id": active_run_id,
         "chat": {
             "id": chat.id,
             "title": chat.title,
             "app_url": chat.app_url,
             "created_at": chat.created_at
         },
-        "messages": [
-            {
-                "id": msg.id,
-                "role": msg.role,
-                "content": msg.content,
-                "event_type": msg.event_type,
-                "created_at": msg.created_at
-            }
-            for msg in messages
-        ]
     }
 
 
@@ -384,14 +374,19 @@ async def ws_listener(websocket: WebSocket, id: str):
                 await queue.put({"e": "resync"})
 
     async def send():
-        await send_snapshot()
+        events_only = first.get('mode') == 'events'
+        if events_only:
+            await websocket.send_json({"e": "ready"})
+        else:
+            # Older frontend releases still expect a socket snapshot during rollout.
+            await send_snapshot()
         while True:
             try:
                 event = await asyncio.wait_for(queue.get(), timeout=25)
             except TimeoutError:
                 await websocket.send_json({"e": "heartbeat"})
                 continue
-            if event.get("e") == "resync":
+            if event.get("e") == "resync" and not events_only:
                 await send_snapshot()
             else:
                 await websocket.send_json(event)
