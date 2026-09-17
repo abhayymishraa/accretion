@@ -47,7 +47,10 @@ export function RunActivity({ message, connected }: { message: Message; connecte
 
     const running = message.run_status === "running";
     const failed =
-        message.run_status && !["running", "succeeded", "cancelled"].includes(message.run_status);
+        message.run_status &&
+        !["running", "succeeded", "cancelled", "awaiting_input", "answered"].includes(
+            message.run_status,
+        );
     const steps = details.activity;
     const calls = details.calls;
     const latest = steps.filter((item) => item.kind === "stage").at(-1)?.message;
@@ -58,6 +61,10 @@ export function RunActivity({ message, connected }: { message: Message; connecte
         label = "Build complete";
     } else if (message.run_status === "cancelled") {
         label = "Run stopped";
+    } else if (message.run_status === "awaiting_input") {
+        label = "Waiting for your response";
+    } else if (message.run_status === "answered") {
+        label = message.workflow?.kind === "answer" ? "Answered" : "Response saved";
     } else if (failed) {
         label = "Run needs attention";
     }
@@ -75,7 +82,9 @@ export function RunActivity({ message, connected }: { message: Message; connecte
                         <PixelLoader />
                     ) : failed ? (
                         <Cross2Icon aria-hidden="true" />
-                    ) : running || message.run_status === "cancelled" ? (
+                    ) : running ||
+                      message.run_status === "cancelled" ||
+                      message.run_status === "awaiting_input" ? (
                         <ClockIcon aria-hidden="true" />
                     ) : (
                         <CheckIcon

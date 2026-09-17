@@ -37,6 +37,7 @@ export function applyRunEvent(messages: Message[], event: RunEvent): Message[] {
               run_status: "running",
           };
     const activity = message.activity!;
+    if (event.workflow) message.workflow = event.workflow;
     if (event.e === "tool_started" || event.e === "tool_completed") {
         const calls = message.tool_calls!;
         const call = {
@@ -65,7 +66,7 @@ export function applyRunEvent(messages: Message[], event: RunEvent): Message[] {
             ok: event.ok,
             checks: event.checks,
         });
-    } else if (event.message) {
+    } else if (event.message && event.e !== "approach") {
         message.content = event.message;
     }
     if (event.e === "run_finished") {
@@ -84,7 +85,9 @@ export function restoreRuns(messages: Message[], runs: RunSnapshot[]): Message[]
     let result = messages;
     for (const run of runs) {
         for (const event of run.events) result = applyRunEvent(result, event);
-        if (run.status !== "running" && !run.events.some((event) => event.e === "run_finished")) {
+        const missingTerminalEvent =
+            run.status !== "running" && !run.events.some((event) => event.e === "run_finished");
+        if (missingTerminalEvent) {
             result = applyRunEvent(result, {
                 e: "run_finished",
                 run_id: run.id,
@@ -94,11 +97,19 @@ export function restoreRuns(messages: Message[], runs: RunSnapshot[]): Message[]
                 status: run.status,
                 message: run.reason || `Run ${run.status}`,
             });
-            // A terminal snapshot without its event has no trustworthy completion time.
-            result = result.map((message) =>
-                message.id === `run:${run.id}` ? { ...message, finished_at: undefined } : message,
-            );
         }
+        // A resolved proposal keeps its original terminal event; the row is authoritative.
+        result = result.map((message) =>
+            message.id === `run:${run.id}`
+                ? {
+                      ...message,
+                      run_status: run.status,
+                      workflow: run.workflow,
+                      // A terminal snapshot without its event has no trustworthy completion time.
+                      ...(missingTerminalEvent ? { finished_at: undefined } : {}),
+                  }
+                : message,
+        );
     }
     return result.sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at));
 }
@@ -127,6 +138,9 @@ export function handleWebSocketMessage(event: MessageEvent, handlers: WebSocketH
         }
         if (!data.run_id) return;
         if (handlers.terminalRuns.has(data.run_id)) return;
+        if (data.e === "run_started") handlers.setPendingRunId(null);
+        if (data.e === "run_finished" && data.status === "awaiting_input")
+            handlers.setPendingRunId(data.run_id);
         handlers.setMessages((previous) => applyRunEvent(previous, data));
         if (data.e === "run_started" || data.e === "stage" || data.e === "tool_started") {
             handlers.setRunId(data.run_id);
@@ -138,7 +152,8 @@ export function handleWebSocketMessage(event: MessageEvent, handlers: WebSocketH
             handlers.setIsBuilding(false);
             handlers.setError(null);
             if (data.status === "succeeded" && data.url) handlers.setAppUrl(data.url);
-            else handlers.setAppUrl(null);
+            else if (data.status !== "awaiting_input" && data.status !== "answered")
+                handlers.setAppUrl(null);
         }
     } catch {
         handlers.setError("Could not read a progress update. Reconnect to reload run status.");

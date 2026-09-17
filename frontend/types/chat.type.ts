@@ -1,5 +1,23 @@
 export type RunStatus =
-    "running" | "succeeded" | "failed" | "cancelled" | "timed_out" | "interrupted";
+    | "running"
+    | "succeeded"
+    | "failed"
+    | "cancelled"
+    | "timed_out"
+    | "interrupted"
+    | "awaiting_input"
+    | "answered";
+export interface WorkflowProposal {
+    kind: "execute" | "clarify" | "plan" | "answer";
+    summary: string;
+    steps: string[];
+    question?: string;
+    options?: string[];
+    revision_id?: string | null;
+    resolution?: DecisionAction;
+    continuation_id?: string | null;
+}
+export type DecisionAction = "approve" | "answer" | "revise" | "dismiss";
 export interface ToolCall {
     id?: string;
     name: string;
@@ -30,11 +48,13 @@ export interface Message {
     finished_at?: string;
     details_pending?: boolean;
     details_version?: number;
+    workflow?: WorkflowProposal | null;
 }
 export interface HistoryPage {
     messages: Message[];
     next_cursor: string | null;
     active_run_id: string | null;
+    pending_run_id?: string | null;
 }
 export interface RunEvent {
     e: string;
@@ -51,6 +71,7 @@ export interface RunEvent {
     duration_ms?: number;
     url?: string | null;
     checks?: unknown;
+    workflow?: WorkflowProposal | null;
 }
 export interface RunSnapshot {
     id: string;
@@ -58,11 +79,13 @@ export interface RunSnapshot {
     status: RunStatus;
     reason?: string;
     events: RunEvent[];
+    workflow?: WorkflowProposal | null;
 }
 export interface WebSocketHandlers {
     terminalRuns: Set<string>;
     setIsBuilding: (value: boolean) => void;
     setRunId: (id: string | null) => void;
+    setPendingRunId: (id: string | null) => void;
     setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
     setAppUrl: (url: string | null) => void;
     setError: (error: string | null) => void;

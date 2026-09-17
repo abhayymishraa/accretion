@@ -32,6 +32,9 @@ interface ChatInputProps {
     onSubmit: (e: React.FormEvent) => void;
     onCancel: () => void;
     canCancel: boolean;
+    awaitingInput?: boolean;
+    mode: "auto" | "plan";
+    onModeChange: (mode: "auto" | "plan") => void;
 }
 
 export function ChatInput({
@@ -43,10 +46,14 @@ export function ChatInput({
     onSubmit,
     onCancel,
     canCancel,
+    awaitingInput = false,
+    mode,
+    onModeChange,
 }: ChatInputProps) {
     const [menu, setMenu] = useState<"files" | "commands" | null>(null);
     const [query, setQuery] = useState("");
     const textarea = useRef<HTMLTextAreaElement>(null);
+    const canCompose = wsConnected && !isBuilding && !awaitingInput;
     const normalizedQuery = query.toLowerCase();
     const choices = (
         menu === "files" ? files.map((file) => ({ name: file, prompt: `@${file} ` })) : commands
@@ -66,7 +73,7 @@ export function ChatInput({
                 className="ember-composer border border-border bg-secondary rounded-[10px] p-3 flex flex-col gap-3 focus-within:border-ring transcript-composer relative [&_.ember-send]:min-w-11 [&_.ember-send]:min-h-11 [&_.ember-composer-footer]:gap-2"
                 onSubmit={onSubmit}
             >
-                {menu && !isBuilding && wsConnected && (
+                {menu && canCompose && (
                     <div
                         className="transcript-menu absolute bottom-[calc(100%_+_8px)] left-0 right-0 z-20 p-2.5 border border-border bg-card rounded-[6px] [box-shadow:0_8px_28px_#0005]"
                         role="dialog"
@@ -152,12 +159,16 @@ export function ChatInput({
                             !event.nativeEvent.isComposing
                         ) {
                             event.preventDefault();
-                            if (wsConnected && !isBuilding && input.trim())
+                            if (canCompose && input.trim())
                                 event.currentTarget.form?.requestSubmit();
                         }
                     }}
-                    placeholder="Describe a change to your app…"
-                    disabled={!wsConnected || isBuilding}
+                    placeholder={
+                        awaitingInput
+                            ? "Answer or dismiss the proposal above to continue"
+                            : "Describe a change to your app…"
+                    }
+                    disabled={!canCompose}
                     rows={2}
                 />
                 <div className="ember-composer-footer flex items-center justify-between gap-[15px] [&>span]:text-[11px] [&>span]:text-muted-foreground">
@@ -165,7 +176,7 @@ export function ChatInput({
                         <Button
                             type="button"
                             variant="utility"
-                            disabled={!wsConnected || isBuilding}
+                            disabled={!canCompose}
                             aria-label="Reference project files"
                             aria-expanded={menu === "files"}
                             onClick={() => openMenu("files")}
@@ -176,13 +187,28 @@ export function ChatInput({
                         <Button
                             type="button"
                             variant="utility"
-                            disabled={!wsConnected || isBuilding}
+                            disabled={!canCompose}
                             aria-label="Prompt commands"
                             aria-expanded={menu === "commands"}
                             onClick={() => openMenu("commands")}
                         >
                             /
                         </Button>
+                        <label className="flex items-center gap-1 text-xs text-muted-foreground">
+                            <span className="sr-only">Request mode</span>
+                            <select
+                                aria-label="Request mode"
+                                value={mode}
+                                disabled={isBuilding || awaitingInput}
+                                onChange={(event) =>
+                                    onModeChange(event.target.value as "auto" | "plan")
+                                }
+                                className="min-h-9 rounded border border-input bg-card px-2 text-foreground focus-visible:outline-2 focus-visible:outline-ring"
+                            >
+                                <option value="auto">Auto</option>
+                                <option value="plan">Plan first</option>
+                            </select>
+                        </label>
                     </div>
                     <span
                         className="ember-connection text-[10px] text-muted-foreground data-[connected=true]:text-accent-foreground"
@@ -209,7 +235,7 @@ export function ChatInput({
                         <Button
                             type="submit"
                             variant="send"
-                            disabled={!wsConnected || !input.trim()}
+                            disabled={!canCompose || !input.trim()}
                             aria-label="Send message"
                         >
                             <ArrowUpIcon />

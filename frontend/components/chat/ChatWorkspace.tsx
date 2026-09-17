@@ -18,6 +18,10 @@ export default function ChatWorkspace({ chatId }: { chatId: string }) {
         error,
         input,
         setInput,
+        mode,
+        setMode,
+        awaitingInput,
+        pendingDecisionId,
         isLoading,
         hasOlder,
         loadingOlder,
@@ -148,6 +152,8 @@ export default function ChatWorkspace({ chatId }: { chatId: string }) {
                                     key={message.id}
                                     message={message}
                                     connected={wsConnected}
+                                    onWorkflowChanged={refreshHistory}
+                                    canRespond={message.id === `run:${pendingDecisionId}`}
                                 />
                             ))}
                             {isBuilding &&
@@ -171,6 +177,9 @@ export default function ChatWorkspace({ chatId }: { chatId: string }) {
                             onSubmit={handleSendMessage}
                             onCancel={handleCancel}
                             canCancel={Boolean(runId)}
+                            awaitingInput={awaitingInput}
+                            mode={mode}
+                            onModeChange={setMode}
                         />
                     </section>
                     {showPreview && (

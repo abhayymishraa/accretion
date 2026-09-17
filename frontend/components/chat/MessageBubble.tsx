@@ -7,6 +7,7 @@ import { CheckIcon, CopyIcon } from "@radix-ui/react-icons";
 import { useState } from "react";
 import { CodeListing } from "./CodeListing";
 import { RunActivity } from "./RunActivity";
+import { WorkflowCard } from "./WorkflowCard";
 
 function MessageContent({ content }: { content: string }) {
     // Parse complete fences before paragraphs so blank lines inside code survive.
@@ -32,9 +33,13 @@ function MessageContent({ content }: { content: string }) {
 export function MessageBubble({
     message,
     connected = true,
+    onWorkflowChanged,
+    canRespond = false,
 }: {
     message: Message;
     connected?: boolean;
+    onWorkflowChanged?: () => void;
+    canRespond?: boolean;
 }) {
     const [copyStatus, setCopyStatus] = useState("");
     if (message.role === "user")
@@ -59,7 +64,14 @@ export function MessageBubble({
                 WebBuilder
             </span>
             {hasRun && <RunActivity message={message} connected={connected} />}
-            {message.content && (
+            {message.workflow && onWorkflowChanged && (
+                <WorkflowCard
+                    message={message}
+                    onChanged={onWorkflowChanged}
+                    canRespond={canRespond}
+                />
+            )}
+            {message.content && message.content !== message.workflow?.summary && (
                 <>
                     <MessageContent content={message.content} />
                     {message.run_status !== "running" && (
