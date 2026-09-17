@@ -48,6 +48,10 @@ rollback() {
     local status=$?
     trap - ERR INT TERM
     echo 'Deployment failed; restoring the previous release.'
+    if [[ -n "$(compose "$release" ps -q api 2>/dev/null || true)" ]]; then
+        compose "$release" ps api || true
+        docker inspect --format 'API health diagnostics: {{json .State.Health}}' "$(compose "$release" ps -q api)" || true
+    fi
     if [[ "$runtime_changed" == true ]]; then
         runtime_tmp=$(mktemp "$root/runtime.env.XXXXXX")
         awk -v value="$previous_template_ref" '
