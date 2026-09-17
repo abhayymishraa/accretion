@@ -39,7 +39,7 @@ async def run_events(db, run_id, after_sequence=0):
 async def archive_run(run_id):
     async with AsyncSessionLocal() as db:
         run = await db.get(Run, run_id)
-        if not run or run.status == 'running' or run.log_sha256:
+        if not run or run.status in ('running', 'awaiting_input') or run.log_sha256:
             return
         events = await run_events(db, run_id)
     if not events:

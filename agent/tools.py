@@ -8,6 +8,7 @@ from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
 from .commands import run_command
+from .browser import PreviewStep
 
 ROOT = '/home/user/react-app'
 MAX_FILE_BYTES = 200_000
@@ -40,6 +41,7 @@ class WorkspaceTools:
         self.revision = 0
         self.preview_revision = 0
         self.screenshot_attempts = 0
+        self.preview_checks = {}
 
     async def read(self, path: str) -> str:
         path = project_path(path)
@@ -110,10 +112,11 @@ class WorkspaceTools:
                 self.revision += 1
 
         @tool
-        async def inspect_preview(viewport: Literal['desktop', 'mobile'] = 'desktop', path: str = '/', screenshot: bool = False) -> dict:
-            """Inspect the current rendered page: text, HTTP status and browser errors. Set screenshot=true only for a concrete visual question; returns one viewport image, at most twice per run. No clicks or forms. Does not replace final build checks."""
+        async def inspect_preview(viewport: Literal['desktop', 'mobile'] = 'desktop', path: str = '/', screenshot: bool = False,
+                                  steps: Annotated[list[PreviewStep], Field(max_length=8)] = []) -> dict:
+            """Inspect the page or exercise its main workflow with up to eight CSS-selector steps ending in an expect_* assertion. Supply a meaningful sequence for desktop and mobile before finishing; the host replays the latest sequence for each after the final edit. Fresh isolated browser state each call. Only local UI interactions: network writes and external navigation are blocked. Optional screenshot returns one viewport image, at most twice per run. Does not replace final build checks."""
             from .browser import inspect_preview as inspect
-            return await inspect(self, viewport=viewport, path=path, screenshot=screenshot)
+            return await inspect(self, viewport=viewport, path=path, screenshot=screenshot, steps=steps)
 
         return [read_files, write_files, execute_command, inspect_preview]
 

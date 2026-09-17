@@ -14,7 +14,7 @@ from fastapi import HTTPException
 from sqlalchemy import select, update, func
 
 from db.base import AsyncSessionLocal
-from db.models import Chat, Message, Run, RunEvent, User
+from db.models import Chat, Message, Run, RunEvent, User, SandboxRuntime
 from .runner import run_editor, RunLimitError, VerificationError, SandboxSetupError
 from .browser import check_browser
 from .commands import CommandStateError
@@ -28,6 +28,8 @@ from .sandbox_runtime import SandboxRuntimes
 from .diagnostics import sandbox_diagnostics
 from .budget import BudgetLimitError, require_allowance
 from .model_budget import spend_scope
+from .workflow import select_workflow, public_workflow
+from .decisions import decision_source, prepare_continuation, resolve_decision
 
 logger = logging.getLogger('webbuilder.runs')
 logger.setLevel(logging.INFO)
@@ -49,6 +51,8 @@ class LiveRun:
     revision_id: str | None = None
     user_id: int | None = None
     message_id: str | None = None
+    workflow: dict = field(default_factory=dict)
+    sandbox_started: bool = False
 
 
 class Service:
@@ -63,14 +67,15 @@ class Service:
         self.maintenance_task = None
         self.opening: set[str] = set()
 
-    async def require_sandbox_capacity(self, chat_id):
+    async def require_sandbox_capacity(self, chat_id, *, requesting_run=None):
         # Paused rows retain ownership without occupying a running slot.
         reserved = await self.runtimes.reserved()
-        reserved |= set(self.sandboxes) | self.opening | {r.chat_id for r in self.active.values()}
+        reserved |= set(self.sandboxes) | self.opening | {r.chat_id for r in self.active.values()
+            if r.sandbox_started and r.id != requesting_run}
         row = await self.runtimes.get(chat_id) if chat_id else None
         if (row and row.state in ('creating', 'retiring')) or (chat_id not in reserved and
                 len(reserved) >= int(os.getenv('MAX_LIVE_SANDBOXES', '2'))):
-            raise HTTPException(429, 'Live preview capacity reached or cleanup is pending; no credit was used.')
+            raise HTTPException(429, 'Live preview capacity reached or cleanup is pending. Try again after a preview closes.')
 
     async def retire_sandbox(self, chat_id):
         async with self.admission:
@@ -90,7 +95,14 @@ class Service:
                 return {'url': None, 'state': 'building'}
             if chat.id in self.opening:
                 return {'url': None, 'state': 'opening'}
-            row = await self.runtimes.get(chat.id)
+            # Ownership was checked by the route. Refresh revision and runtime together
+            # after acquiring admission; its original Chat snapshot may predate a build.
+            async with AsyncSessionLocal() as db:
+                current = (await db.execute(select(Chat, SandboxRuntime).outerjoin(
+                    SandboxRuntime, SandboxRuntime.chat_id == Chat.id).where(Chat.id == chat.id))).one_or_none()
+            if current is None:
+                raise HTTPException(404, 'Project not found')
+            chat, row = current
             if row and row.reusable and row.state != 'retiring' and row.revision_id == chat.latest_saved_revision_id:
                 try:
                     if await self.runtimes.state(row) == 'running' and chat.app_url:
@@ -98,7 +110,7 @@ class Service:
                         return {'url': chat.app_url, 'state': 'active', 'revision_id': row.revision_id}
                 except Exception:
                     raise HTTPException(503, 'Preview status temporarily unavailable') from None
-            return {'url': None, 'state': 'sleeping'}
+            return {'url': None, 'state': 'sleeping', 'revision_id': chat.latest_saved_revision_id}
 
     async def startup(self):
         if self.maintenance_task and not self.maintenance_task.done():
@@ -128,20 +140,39 @@ class Service:
         async with self.admission:
             await self.runtimes.maintain(set(), shutdown=True)
 
-    async def admit(self, user_id: int, prompt: str, chat_id: str | None = None):
+    async def admit(self, user_id: int, prompt: str, chat_id: str | None = None, *, mode='auto', response=None):
         prompt = prompt.strip()
-        if not prompt or len(prompt) > 12000:
+        if (not prompt and response is None) or len(prompt) > 12000:
             raise HTTPException(422, 'Describe a change in 1–12000 characters')
         async with self.admission:
+            # Resolve retries before capacity/credit checks: no duplicate run or charge.
+            if response is not None:
+                async with AsyncSessionLocal.begin() as db:
+                    parent, fingerprint = await decision_source(db, user_id, *response)
+                    if parent.workflow.get('response_hash'):
+                        child = await db.get(Run, parent.workflow['continuation_id']) if parent.workflow.get('continuation_id') else None
+                        return {'chat_id': parent.chat_id, 'run_id': child.id if child else None,
+                                'status': child.status if child else parent.status}
+                    if response[1] == 'dismiss':
+                        resolve_decision(parent, fingerprint, 'dismiss')
+                        # Commit before telling other tabs to fetch the resolved state.
+                        await db.commit()
+                        self.publish(parent.chat_id, {'e': 'resync'})
+                        return {'chat_id': parent.chat_id, 'run_id': None, 'status': 'cancelled'}
+                    chat_id = parent.chat_id
             if self.stopping or len(self.active) + len(self.opening) >= int(os.getenv('MAX_CONCURRENT_RUNS', '2')):
                 raise HTTPException(429, 'The builder is busy. Try again shortly; no credit was used.')
-            await self.require_sandbox_capacity(chat_id)
+            workflow, metrics = {'mode': mode}, {}
             async with AsyncSessionLocal.begin() as db:
                 user = await db.scalar(select(User).where(User.id == user_id).with_for_update())
                 if not user:
                     raise HTTPException(401, 'User not found')
                 if not user.email_verified:
                     raise HTTPException(403, 'Verify your email before continuing.')
+                parent = None
+                if response is not None:
+                    parent, fingerprint = await decision_source(db, user_id, *response)
+                    workflow, metrics = await prepare_continuation(db, parent, response[1], response[2])
                 try:
                     await require_allowance(db, user)
                 except BudgetLimitError as exc:
@@ -156,19 +187,28 @@ class Service:
                         raise HTTPException(404, 'Project not found')
                     if chat_id in self.opening or any(r.chat_id == chat_id for r in self.active.values()):
                         raise HTTPException(409, 'This project already has a running request; no credit was used.')
+                    pending = await db.scalar(select(Run.id).where(Run.chat_id == chat_id,
+                        Run.status == 'awaiting_input').limit(1))
+                    if pending and (not parent or pending != parent.id):
+                        raise HTTPException(409, 'Answer or dismiss the pending question or plan first.')
                 else:
                     chat_id = str(uuid.uuid4())
                     db.add(Chat(id=chat_id, user_id=user_id, title=prompt[:100]))
                     await db.flush()
-                if not user.use_token():
+                if parent is None and not user.use_token():
                     raise HTTPException(403, 'No credits remaining. Try after your daily reset.')
                 run_id = str(uuid.uuid4())
-                db.add(Run(id=run_id, chat_id=chat_id, prompt=prompt, status='running'))
+                db.add(Run(id=run_id, chat_id=chat_id, prompt=prompt, status='running', workflow=workflow, metrics=metrics))
+                if parent is not None:
+                    resolve_decision(parent, fingerprint, response[1], run_id)
                 message_id = str(uuid.uuid4())
                 db.add(Message(id=message_id, chat_id=chat_id, role='user', content=prompt))
                 credits = user.tokens_remaining
-            live = LiveRun(run_id, chat_id, prompt, user_id=user_id, message_id=message_id)
+            live = LiveRun(run_id, chat_id, prompt, user_id=user_id, message_id=message_id,
+                           workflow=workflow, metrics=metrics)
             self.active[run_id] = live
+            if parent is not None:
+                self.publish(chat_id, {'e': 'resync'})
             live.task = asyncio.create_task(self.execute(live), name=f'run:{run_id}')
             return {'chat_id': chat_id, 'run_id': run_id, 'status': 'running', 'tokens_remaining': credits}
 
@@ -217,7 +257,7 @@ class Service:
         try:
             await sandbox.commands.run('python3 -c "import hashlib, zipfile; assert hasattr(hashlib, \'file_digest\')"', timeout=10)
         except Exception:
-            raise SandboxSetupError('Sandbox archive tools are unavailable. Rebuild sandbox/Dockerfile with Python 3.11 or later. No model request was made.') from None
+            raise SandboxSetupError('Sandbox archive tools are unavailable. Rebuild sandbox/e2b.Dockerfile with Python 3.11 or later. No editing model request was made.') from None
         if revision:
             # Stop watchers before replacing their source tree or dependencies.
             await control_preview(sandbox, 'stop')
@@ -296,6 +336,7 @@ class Service:
     async def finish(self, live, status, reason, result=None):
         event = self.event(live, 'run_finished', **{'event_id': f'{live.id}:terminal',
                  'status': status, 'message': reason, 'metrics': live.metrics,
+                 'workflow': public_workflow(live.workflow),
                  'url': result['url'] if result and status == 'succeeded' else None,
                  'revision_id': live.revision_id})
         async with AsyncSessionLocal.begin() as db:
@@ -308,14 +349,20 @@ class Service:
                                            .where(RunEvent.run_id == live.id))
             event['sequence'] = last_sequence + 1
             await db.execute(update(Run).where(Run.id == live.id).values(status=status, reason=reason,
-                metrics=redact(live.metrics), finished_at=datetime.now(timezone.utc)))
-            changes = {'app_url': event['url']}
+                metrics=redact(live.metrics), workflow=live.workflow, finished_at=datetime.now(timezone.utc)))
+            changes = {'app_url': event['url']} if live.sandbox_started else {}
             if status == 'succeeded' and live.revision_id:
                 await self.runtimes.mark_reusable(db, live.chat_id, live.revision_id)
                 changes['latest_verified_revision_id'] = live.revision_id
-            await db.execute(update(Chat).where(Chat.id == live.chat_id).values(**changes))
+            if changes:
+                await db.execute(update(Chat).where(Chat.id == live.chat_id).values(**changes))
             db.add(RunEvent(run_id=live.id, sequence=event['sequence'], payload=event))
-            db.add(Message(id=live.id, chat_id=live.chat_id, role='assistant', content=reason, event_type='run_summary'))
+            transcript = reason
+            if status == 'awaiting_input':
+                transcript += '\nProposed, not implemented:\n' + '\n'.join(live.workflow.get('steps', []))
+                if live.workflow.get('question'):
+                    transcript += '\n' + live.workflow['question']
+            db.add(Message(id=live.id, chat_id=live.chat_id, role='assistant', content=transcript, event_type='run_summary'))
         live.events.append(event)
         self.publish(live.chat_id, event)
         logger.info(json.dumps({'run_id': live.id, 'status': status, **{
@@ -324,21 +371,45 @@ class Service:
     async def execute(self, live):
         scope_token = spend_scope.set({'user_id': live.user_id, 'run_id': live.id, 'limit_error': None})
         started = time.monotonic()
+        previous_elapsed = live.metrics.get('elapsed_ms', 0)
         status, reason, result = 'failed', 'The run failed. Submit a new request to retry.', None
         diagnose_sandbox = False
         try:
-            async with asyncio.timeout(int(os.getenv('RUN_TIMEOUT_SECONDS', '600'))):
+            remaining_time = int(os.getenv('RUN_TIMEOUT_SECONDS', '600')) - previous_elapsed / 1000
+            if remaining_time <= 0:
+                raise RunLimitError('The request reached its active time limit. Submit a smaller request.')
+            async with asyncio.timeout(remaining_time):
                 await self.emit(live, 'run_started', message='Starting your request')
+                await self.emit(live, 'stage', message='Understanding your request')
+                live.workflow = await select_workflow(live)
+                await self.emit(live, 'approach', message=live.workflow['summary'],
+                                workflow=public_workflow(live.workflow))
+                if live.workflow['kind'] != 'execute':
+                    status = 'answered' if live.workflow['kind'] == 'answer' else 'awaiting_input'
+                    reason = live.workflow['summary']
+                    return
+                async with self.admission:
+                    await self.require_sandbox_capacity(live.chat_id, requesting_run=live.id)
+                    live.sandbox_started = True
                 live.sandbox = await self.get_e2b_sandbox(live.chat_id)
                 # Commit unsafe state before the first possible mutation.
                 await self.runtimes.invalidate(live.chat_id)
                 result = await run_editor(live.sandbox, live.prompt,
                     lambda kind, **data: self.emit(live, kind, **data),
                     lambda dirty=False: self.checkpoint(live, dirty), live.metrics,
+                    request_context={'continuation': live.workflow.get('context'),
+                        'approach': public_workflow(live.workflow),
+                        'plan_approved': live.workflow.get('approved', False)},
                     memory=ProjectContext(live.chat_id, live.user_id, live.message_id)
                     if live.user_id is not None and live.message_id is not None else None)
+                if 'decision' in result:
+                    current = await latest_revision(live.chat_id)
+                    live.workflow = {**live.workflow, **redact(result['decision']),
+                        'revision_id': current.id if current else None, 'approved': False}
+                    status, reason = 'awaiting_input', live.workflow['summary']
+                    return
                 await self.save_files(live)
-                status, reason = 'succeeded', result['summary'] + '\n\nProduction build and desktop/mobile browser smoke checks passed.'
+                status, reason = 'succeeded', result['summary'] + '\n\nProduction build and the selected desktop/mobile acceptance checks passed.'
         except TimeoutError:
             status, reason = 'timed_out', 'The run reached its time limit. Partial changes may remain; submit a smaller request.'
             diagnose_sandbox = True
@@ -349,6 +420,9 @@ class Service:
             reason = str(exc)
             live.metrics['error_type'] = type(exc).__name__
             diagnose_sandbox = isinstance(exc, (SandboxSetupError, PreviewError))
+        except HTTPException as exc:
+            reason = str(exc.detail)
+            live.metrics['error_type'] = 'AdmissionError'
         except StorageError as exc:
             reason = str(exc) + '. The last acknowledged checkpoint is safe. No automatic AI retry was started.'
             live.metrics['error_type'] = 'StorageError'
@@ -368,9 +442,10 @@ class Service:
             logger.error('Run failed run_id=%s error_type=%s', live.id, type(exc).__name__)
         finally:
             # Creation registers ownership before restoring files; cancellation can interrupt restoration.
-            live.sandbox = live.sandbox or self.sandboxes.get(live.chat_id)
-            live.metrics['elapsed_ms'] = round((time.monotonic() - started) * 1000)
-            if status != 'succeeded':
+            if live.sandbox_started:
+                live.sandbox = live.sandbox or self.sandboxes.get(live.chat_id)
+            live.metrics['elapsed_ms'] = previous_elapsed + round((time.monotonic() - started) * 1000)
+            if status != 'succeeded' and live.sandbox_started:
                 # Completed mutation batches are already saved. Never archive a half-finished command.
                 if live.sandbox:
                     self.sandboxes[live.chat_id] = live.sandbox
@@ -391,7 +466,8 @@ class Service:
             try:
                 await self.finish(live, status, reason, result)
             except Exception:
-                await self.retire_sandbox(live.chat_id)
+                if live.sandbox_started:
+                    await self.retire_sandbox(live.chat_id)
                 logger.error('Could not persist terminal state run_id=%s', live.id)
                 self.publish(live.chat_id, {'e': 'resync'})
             if live.chat_id in self.sandboxes:
@@ -421,6 +497,7 @@ class Service:
                     row.status, row.reason = 'interrupted', 'Run stopped before a final state was saved. Submit a new request to continue.'
                     row.finished_at = datetime.now(timezone.utc)
                 runs.append({'id': row.id, 'status': row.status, 'reason': row.reason, 'created_at': row.created_at.isoformat(),
+                    'workflow': public_workflow(row.workflow),
                     'events': await run_events(db, row.id), 'metrics': redact(live.metrics) if live else row.metrics})
             return runs
 

@@ -74,7 +74,7 @@ async def maintain(service):
                         row.status = 'failed'
 
     async with AsyncSessionLocal() as db:
-        run_ids = list((await db.scalars(select(Run.id).where(Run.status != 'running', Run.log_sha256.is_(None),
+        run_ids = list((await db.scalars(select(Run.id).where(Run.status.not_in(('running', 'awaiting_input')), Run.log_sha256.is_(None),
             Run.id.in_(select(RunEvent.run_id)))
             .order_by(Run.finished_at).limit(20))).all())
     for run_id in run_ids:

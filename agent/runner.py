@@ -6,6 +6,8 @@ from collections import Counter
 
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from langchain_core.utils.function_calling import convert_to_openai_tool
+from langchain_core.tools import tool
+from typing import Literal
 from .prompts import SYSTEM_PROMPT
 from .tools import FileWriteError, WorkspaceTools, list_files
 from .context import CONTEXT_RULES, choose_files
@@ -64,17 +66,23 @@ def estimate_input_tokens(model, messages, tool_schema: str) -> tuple[int, str]:
 
 
 async def verify(workspace: WorkspaceTools) -> dict:
+    missing = [view for view in ('desktop', 'mobile') if view not in workspace.preview_checks]
+    if missing:
+        return {'ok': False, 'browser': {'checked': False, 'errors': [
+            'Use inspect_preview with steps ending in an assertion for: ' + ', '.join(missing) +
+            '. Exercise the requested workflow (including mobile controls). For static content, assert its visibility.']}}
     build = await workspace.command('npm run build', timeout=90)
     if not build['ok']:
         return {'ok': False, 'build': build, 'browser': {'checked': False}}
     # Flush only after a successful build; infrastructure failures escape repair.
     await ensure_preview_current(workspace)
-    browser = await check_browser(workspace)
+    browser = await check_browser(workspace, checks=workspace.preview_checks)
     return {'ok': browser['ok'], 'build': build, 'browser': browser}
 
 
-async def run_editor(sandbox, prompt, emit, checkpoint, metrics, model=None, memory=None):
+async def run_editor(sandbox, prompt, emit, checkpoint, metrics, model=None, memory=None, request_context=None):
     workspace = WorkspaceTools(sandbox)
+    workspace.screenshot_attempts = metrics.get('preview_screenshot_attempts', 0)
     await emit('stage', message='Checking sandbox browser tools')
     metrics['sandbox_check'] = await check_browser(workspace, preflight=True)
     if not metrics['sandbox_check']['ok']:
@@ -88,6 +96,20 @@ async def run_editor(sandbox, prompt, emit, checkpoint, metrics, model=None, mem
         from .agent import llm
         model = llm
     tools = {t.name: t for t in workspace.definitions()}
+    @tool
+    async def request_decision(kind: Literal['clarify', 'plan'], summary: str,
+                               steps: list[str], question: str = '', options: list[str] = []) -> dict:
+        """Pause only for a newly discovered material user choice. Never combine with other calls.
+
+        For clarify, supply one nonempty question and up to three suggested options.
+        For plan, supply a summary and 1–5 steps; question must be "" and options [].
+        The UI supplies plan approval controls. Keep each step or option within 300 characters.
+        """
+        from .workflow import WorkflowDecision
+        decision = WorkflowDecision(kind=kind, summary=summary, steps=steps,
+                                    question=question, options=options)
+        return {'ok': True, 'decision': decision.model_dump()}
+    tools[request_decision.name] = request_decision
     skills = RuntimeSkills()
     skill_prompt = skills.prompt()
     if skill_prompt:
@@ -117,13 +139,15 @@ async def run_editor(sandbox, prompt, emit, checkpoint, metrics, model=None, mem
     messages = [SystemMessage(content=SYSTEM_PROMPT + '\n' + CONTEXT_RULES + skill_prompt +
         '\nInitial files may be excerpts. Read complete files before replacing them.'),
         HumanMessage(content=json.dumps({'project_context': context, 'request': prompt,
+                                        'request_context': request_context,
                                         'files': initial, 'paths': paths}, ensure_ascii=False))]
     cache_key = prompt_cache_key(messages[0].content, formatted_tools, getattr(memory, 'chat_id', ''))
     repeated = Counter()
-    repairs = 0
-    for turn in range(max_turns):
+    repairs = metrics.get('repairs', 0)
+    for turn in range(metrics.get('turns', 0), max_turns):
         metrics['turns'] = turn + 1
-        await emit('stage', message='Implementing changes' if not repairs else 'Repairing verification errors')
+        if repairs:
+            await emit('stage', message='Repairing verification errors')
         await checkpoint()
         # Bound growing conversation inputs as well as measured provider usage.
         if sum(len(str(m.content)) for m in without_preview_images(messages)) > 180_000:
@@ -153,11 +177,13 @@ async def run_editor(sandbox, prompt, emit, checkpoint, metrics, model=None, mem
         messages.append(response)
         if response.invalid_tool_calls:
             raise VerificationError('Model returned an invalid tool call')
+        if any(call['name'] == 'request_decision' for call in response.tool_calls) and len(response.tool_calls) != 1:
+            raise VerificationError('A decision request cannot be combined with editing tools. No calls in this batch were executed.')
         if not response.tool_calls:
             await emit('stage', message='Checking production build and browser')
             checks = await verify(workspace)
             metrics['checks'] = checks
-            await emit('verification', ok=checks['ok'], message='Build and browser smoke passed' if checks['ok'] else 'Verification failed', checks=checks)
+            await emit('verification', ok=checks['ok'], message='Build and selected desktop/mobile acceptance checks passed' if checks['ok'] else 'Verification failed', checks=checks)
             await checkpoint()
             if checks['ok']:
                 return {'summary': response.text()[:1500] or 'Application updated.',
@@ -180,6 +206,11 @@ async def run_editor(sandbox, prompt, emit, checkpoint, metrics, model=None, mem
             if repeated[key] >= 3:
                 raise RunLimitError('Stopped repetitive tool calls without progress')
             call_id = call['id']
+            stage = {'read_files': 'Inspecting existing files', 'read_skill': 'Loading relevant guidance',
+                     'write_files': 'Editing project files', 'execute_command': 'Running a workspace command',
+                     'inspect_preview': 'Checking the requested interactions'}.get(call['name'])
+            if stage:
+                await emit('stage', message=stage)
             await emit('tool_started', call_id=call_id, name=call['name'],
                        details=public_tool_details(call['name'], args=call['args']))
             started = time.monotonic()
@@ -194,6 +225,7 @@ async def run_editor(sandbox, prompt, emit, checkpoint, metrics, model=None, mem
                     fatal_error = exc
                     result.update(error_type=type(exc).__name__, status='unknown')
             duration = round((time.monotonic() - started) * 1000)
+            metrics['preview_screenshot_attempts'] = workspace.screenshot_attempts
             image = result.pop('_image', None) if call['name'] == 'inspect_preview' else None
             serialized = json.dumps(result, ensure_ascii=False)
             detail = public_tool_details(call['name'], args=call['args'], result=result)
@@ -208,5 +240,8 @@ async def run_editor(sandbox, prompt, emit, checkpoint, metrics, model=None, mem
                 content = [{'type': 'text', 'text': serialized}, image]
                 metrics['preview_screenshots'] = metrics.get('preview_screenshots', 0) + 1
             messages.append(ToolMessage(content=content, tool_call_id=call_id, status='success' if result.get('ok') else 'error'))
+            if call['name'] == 'request_decision' and result.get('ok'):
+                await checkpoint()
+                return {'decision': result['decision']}
         await checkpoint(workspace.revision != before_revision)
     raise RunLimitError('Model-turn budget reached')

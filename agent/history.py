@@ -7,6 +7,7 @@ from fastapi import HTTPException
 from sqlalchemy import exists, literal, select, tuple_, union_all
 
 from db.models import Message, Run
+from .workflow import public_workflow
 
 
 def cursor_value(value):
@@ -43,7 +44,7 @@ async def conversation_page(db, chat_id, limit=50, before=None):
     messages = (await db.scalars(select(Message).where(Message.chat_id == chat_id,
         Message.id.in_(message_ids)))).all() if message_ids else []
     # Select only summary columns, never the legacy events/metrics JSON blobs.
-    summaries = (await db.execute(select(Run.id, Run.status, Run.reason, Run.created_at, Run.finished_at)
+    summaries = (await db.execute(select(Run.id, Run.status, Run.reason, Run.created_at, Run.finished_at, Run.workflow)
         .where(Run.chat_id == chat_id, Run.id.in_(run_ids)))).all() if run_ids else []
     items = {('message', m.id): {'id': m.id, 'role': m.role, 'content': m.content,
         'event_type': m.event_type, 'tool_calls': m.tool_calls, 'created_at': m.created_at.isoformat()}
@@ -51,6 +52,7 @@ async def conversation_page(db, chat_id, limit=50, before=None):
     items.update({('run', r.id): {'id': f'run:{r.id}', 'role': 'assistant', 'content': r.reason or '',
         'event_type': 'run', 'created_at': r.created_at.isoformat(), 'run_status': r.status,
         'finished_at': r.finished_at.isoformat() if r.finished_at else None,
+        'workflow': public_workflow(r.workflow),
         'details_pending': True} for r in summaries})
     cursor = None
     if len(rows) > limit:

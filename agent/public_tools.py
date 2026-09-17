@@ -71,6 +71,9 @@ def public_tool_details(name, *, args=None, result=None):
                                 if isinstance(item, str)][:10]
             fields['viewports'] = [page['viewport'] for page in result.get('pages', [])
                                    if isinstance(page, dict) and page.get('viewport') in {'desktop', 'mobile'}]
+            fields['steps'] = [{'action': step.get('action'), 'ok': step.get('ok') is True}
+                              for page in result.get('pages', []) if isinstance(page, dict)
+                              for step in page.get('steps', []) if isinstance(step, dict)][:8]
             screenshot = result.get('screenshot')
             if isinstance(screenshot, dict):
                 fields['screenshot_captured'] = screenshot.get('captured') is True
@@ -95,14 +98,14 @@ def preflight_failure(result):
             or 'context deadline exceeded' in lowered or 'timed out' in lowered
             or 'timeout' in lowered and 'exceeded' in lowered):
         return ('browser_check_timeout',
-                'The sandbox browser startup check timed out. No model request was made. '
+                'The sandbox browser startup check timed out. No editing model request was made. '
                 'Browser startup needs investigation; this does not prove the template is missing dependencies.')
     if ("cannot find module '/opt/webbuilder-checks/node_modules/playwright'" in lowered
             or "executable doesn't exist" in lowered):
         return ('browser_tools_missing',
                 'The sandbox is missing the required browser tooling. Check E2B_TEMPLATE_ID and use '
                 'the webbuilder-react-verified template with Playwright and Chromium installed. '
-                'No model request was made.')
+                'No editing model request was made.')
     return ('browser_check_failed',
             'The sandbox browser startup check failed. Inspect the recorded diagnostic before changing '
-            'the template. No model request was made.')
+            'the template. No editing model request was made.')
