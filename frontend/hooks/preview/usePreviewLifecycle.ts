@@ -29,6 +29,18 @@ export function usePreviewLifecycle({
     const checkNow = useRef<(() => void) | null>(null);
     const retryNow = useRef<(() => void) | null>(null);
     const previousRevision = useRef<string | null>(null);
+    const emptyProject = useRef(false);
+
+    useEffect(() => {
+        const previous = previousRevision.current;
+        previousRevision.current = revisionId;
+        // Initial file metadata must not restart an in-flight preview request.
+        if (revisionId && ((previous && previous !== revisionId) || emptyProject.current)) {
+            entry.current.failure = null;
+            entry.current.waitingUntil = 0;
+            checkNow.current?.();
+        }
+    }, [revisionId]);
 
     useEffect(() => {
         const wasBuilding = controls.current.isBuilding;
@@ -43,19 +55,15 @@ export function usePreviewLifecycle({
     }, [enabled, isBuilding]);
 
     useEffect(() => {
-        if (!revisionId) return;
-        if (previousRevision.current !== revisionId) {
-            previousRevision.current = revisionId;
-            entry.current.failure = null;
-            entry.current.waitingUntil = 0;
-        }
         let disposed = false;
         let checking = false;
+        let recheck = false;
         let active = false;
         let timer: ReturnType<typeof setTimeout>;
         const requests = new AbortController();
         const eligible = () =>
             !disposed && controls.current.enabled && document.visibilityState === "visible";
+        const canObserve = () => !recheck && eligible() && !controls.current.isBuilding;
         const fail = (message: string) => {
             entry.current.failure = message;
             entry.current.waitingUntil = 0;
@@ -64,6 +72,7 @@ export function usePreviewLifecycle({
             onPreviewOpen(null);
         };
         const observe = (status: PreviewStatus) => {
+            emptyProject.current = status.state === "sleeping" && !status.revision_id;
             if (status.state === "opening" || status.state === "building") {
                 active = false;
                 entry.current.attempted = true;
@@ -77,10 +86,8 @@ export function usePreviewLifecycle({
                 setPhase(status.state);
                 onPreviewOpen(null);
             } else if (status.state === "active" && status.url) {
-                if (status.revision_id !== revisionId) {
-                    fail(
-                        "The saved project changed while opening. Reopen the project to view its latest version.",
-                    );
+                if (!status.revision_id) {
+                    fail("Preview revision is unavailable. Reopen the project to try again.");
                     return;
                 }
                 active = true;
@@ -106,15 +113,30 @@ export function usePreviewLifecycle({
             if (checking || !eligible() || entry.current.failure) return;
             clearTimeout(timer);
             checking = true;
+            recheck = false;
             try {
                 if (controls.current.isBuilding) {
                     observe({ state: "building", url: null });
                     return;
                 }
+                const requestedRevision = previousRevision.current;
                 const current = await status();
+                // A legacy file import may save the first revision during this GET.
+                if (
+                    !current.revision_id &&
+                    previousRevision.current &&
+                    requestedRevision !== previousRevision.current
+                )
+                    recheck = true;
                 // Recheck visibility and run state after awaiting the status response.
-                if (!eligible() || controls.current.isBuilding) return;
-                if (current.state !== "sleeping" || entry.current.attempted) {
+                if (!canObserve()) return;
+                // The server checks the runtime against the latest saved revision.
+                // Files can load independently, including while the sandbox resumes.
+                if (
+                    current.state !== "sleeping" ||
+                    !current.revision_id ||
+                    entry.current.attempted
+                ) {
                     observe(current);
                     return;
                 }
@@ -129,16 +151,15 @@ export function usePreviewLifecycle({
                         requests.signal,
                         STARTUP_TIMEOUT_MS,
                     );
-                    if (!disposed && !controls.current.isBuilding)
-                        observe({ ...data, state: "active" });
+                    if (canObserve()) observe({ ...data, state: "active" });
                 } catch {
-                    if (disposed) return;
+                    if (!canObserve()) return;
                     // Another tab may own startup. Observe it; never loop startup POSTs.
                     const current = await status();
-                    if (!disposed) observe(current);
+                    if (canObserve()) observe(current);
                 }
             } catch {
-                if (!disposed && !active)
+                if (canObserve() && !active)
                     fail(
                         "Preview is temporarily unavailable. Your saved files are still available. Please retry.",
                     );
@@ -146,9 +167,11 @@ export function usePreviewLifecycle({
             } finally {
                 checking = false;
                 if (!disposed && !entry.current.failure) {
-                    const delay = entry.current.waitingUntil
-                        ? STARTUP_POLL_INTERVAL_MS
-                        : ACTIVE_POLL_INTERVAL_MS;
+                    const delay = recheck
+                        ? 0
+                        : entry.current.waitingUntil
+                          ? STARTUP_POLL_INTERVAL_MS
+                          : ACTIVE_POLL_INTERVAL_MS;
                     timer = setTimeout(() => {
                         void check();
                     }, delay);
@@ -156,6 +179,12 @@ export function usePreviewLifecycle({
             }
         };
         const wake = () => {
+            // A revision/run change during I/O must not publish the old response.
+            // Coalesce it into one fresh status check after the current request settles.
+            if (checking) {
+                recheck = true;
+                return;
+            }
             void check();
         };
         checkNow.current = wake;
@@ -179,7 +208,7 @@ export function usePreviewLifecycle({
             checkNow.current = null;
             retryNow.current = null;
         };
-    }, [projectId, revisionId, onPreviewOpen]);
+    }, [projectId, onPreviewOpen]);
 
     return { phase, error, retry: () => retryNow.current?.() };
 }

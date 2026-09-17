@@ -59,7 +59,7 @@ export function PreviewPanel({
         const timer = setTimeout(() => setRetainPreview(false), 60_000);
         return () => clearTimeout(timer);
     }, [activeTab, previewReady, appUrl]);
-    const preparing = Boolean(revisionId) && (phase === "checking" || phase === "opening");
+    const preparing = phase === "checking" || phase === "opening";
     const building = isBuilding || phase === "building";
 
     let emptyTitle = "Your canvas is ready.";
@@ -181,7 +181,7 @@ export function PreviewPanel({
                             <p role={preparing || building ? "status" : undefined}>
                                 {emptyDescription}
                             </p>
-                            {revisionId && !preparing && !building && (
+                            {(revisionId || previewError) && !preparing && !building && (
                                 <Button variant="default" onClick={onRetry}>
                                     {previewError ? "Retry" : "Resume preview"}
                                 </Button>

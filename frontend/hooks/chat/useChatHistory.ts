@@ -30,12 +30,16 @@ function mergeMessages(previous: Message[], incoming: Message[], older = false) 
     );
 }
 
-type Options = Omit<WebSocketHandlers, "terminalRuns" | "consolidateMessages"> & { chatId: string };
+type Options = Omit<
+    WebSocketHandlers,
+    "terminalRuns" | "consolidateMessages" | "setPendingRunId"
+> & { chatId: string };
 export function useChatHistory(options: Options) {
     const { chatId, setMessages, setIsBuilding, setRunId, setAppUrl, setError } = options;
     const [isLoading, setIsLoading] = useState(true);
     const [loadingOlder, setLoadingOlder] = useState(false);
     const [nextCursor, setNextCursor] = useState<string | null>(null);
+    const [pendingRunId, setPendingRunId] = useState<string | null>(null);
     const control = useRef<{
         refresh: () => void;
         receive: (event: MessageEvent) => void;
@@ -59,6 +63,7 @@ export function useChatHistory(options: Options) {
             setMessages,
             setIsBuilding,
             setRunId,
+            setPendingRunId,
             setAppUrl,
             setError,
             terminalRuns,
@@ -72,6 +77,7 @@ export function useChatHistory(options: Options) {
         setLoadingOlder(false);
         setIsBuilding(Boolean(cached?.active_run_id));
         setRunId(cached?.active_run_id || null);
+        setPendingRunId(cached?.pending_run_id || null);
         setAppUrl(null);
         setError(null);
 
@@ -102,6 +108,7 @@ export function useChatHistory(options: Options) {
                     setMessages((previous) => mergeMessages(previous, page.messages));
                     if (!olderLoaded) setNextCursor(page.next_cursor);
                     setRunId(page.active_run_id);
+                    setPendingRunId(page.pending_run_id || null);
                     setIsBuilding(Boolean(page.active_run_id));
                     setError(null);
                     setIsLoading(false);
@@ -175,6 +182,7 @@ export function useChatHistory(options: Options) {
     }, [nextCursor]);
     return {
         isLoading,
+        pendingRunId,
         loadingOlder,
         hasOlder: Boolean(nextCursor),
         loadOlder,

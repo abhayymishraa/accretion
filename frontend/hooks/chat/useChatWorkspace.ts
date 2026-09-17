@@ -18,6 +18,7 @@ export function useChatWorkspace(chatId: string) {
     const [messages, setMessages] = useState<Message[]>([]);
     const [error, setError] = useState<string | null>(null);
     const [input, setInput] = useState("");
+    const [mode, setMode] = useState<"auto" | "plan">("auto");
     const [appUrl, setAppUrl] = useState<string | null>(null);
     const [isBuilding, setIsBuilding] = useState(false);
     const { projectFiles, revisionId } = useProjectFiles(chatId, isBuilding);
@@ -113,7 +114,7 @@ export function useChatWorkspace(chatId: string) {
         setError(null);
         followLatest.current = true;
         try {
-            const data = await runService.start(chatId, prompt);
+            const data = await runService.start(chatId, prompt, mode);
             setRunId(data.run_id);
             setInput("");
             if (userData) {
@@ -151,6 +152,10 @@ export function useChatWorkspace(chatId: string) {
         error,
         input,
         setInput,
+        mode,
+        setMode,
+        pendingDecisionId: history.pendingRunId,
+        awaitingInput: Boolean(history.pendingRunId),
         isLoading: history.isLoading,
         hasOlder: history.hasOlder,
         loadingOlder: history.loadingOlder,
