@@ -2,7 +2,8 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, JSONResponse
 from fastapi.encoders import jsonable_encoder
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from typing import Literal
 import asyncio
 from anyio import CancelScope
 import json
@@ -28,6 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from db.base import get_db, AsyncSessionLocal, engine
 
 from auth.utils import decode_token
+from request_timing import measure, request_timing, timed
 
 
 from contextlib import asynccontextmanager, suppress
@@ -44,6 +46,7 @@ async def lifespan(app):
 
 
 app = FastAPI(title="WebBuilder", lifespan=lifespan)
+app.middleware('http')(request_timing)
 
 origins = [
     origin.strip()
@@ -57,6 +60,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["Server-Timing"],
 )
 
 configure_sessions(app)
@@ -67,6 +71,12 @@ app.include_router(social_router)
 
 class ChatPayload(BaseModel):
     prompt: str
+    mode: Literal['auto', 'plan'] = 'auto'
+
+
+class DecisionPayload(BaseModel):
+    action: Literal['approve', 'answer', 'revise', 'dismiss']
+    text: str = Field(default='', max_length=4000)
 
 
 @app.get("/")
@@ -84,6 +94,7 @@ async def get_readiness(db: AsyncSession = Depends(get_db)):
 
 
 @app.get("/chats/{id}/messages")
+@timed('history')
 async def get_chat_messages(
     id: str,
     limit: int = 50,
@@ -102,11 +113,12 @@ async def get_chat_messages(
         raise HTTPException(status_code=403, detail="Not authorized to access this chat")
 
     page = await conversation_page(db, id, limit, before)
-    active_run_id = await db.scalar(select(Run.id).where(Run.chat_id == id,
-        Run.status == 'running').order_by(Run.created_at.desc()).limit(1))
+    active = (await db.execute(select(Run.id, Run.status).where(Run.chat_id == id,
+        Run.status.in_(('running', 'awaiting_input'))).order_by(Run.created_at.desc()).limit(2))).all()
     return {
         **page,
-        "active_run_id": active_run_id,
+        "active_run_id": next((row.id for row in active if row.status == 'running'), None),
+        "pending_run_id": next((row.id for row in active if row.status == 'awaiting_input'), None),
         "chat": {
             "id": chat.id,
             "title": chat.title,
@@ -118,12 +130,19 @@ async def get_chat_messages(
 
 @app.post("/chat")
 async def create_project(payload: ChatPayload, current_user: User = Depends(get_current_user)):
-    return await agent_service.admit(current_user.id, payload.prompt)
+    return await agent_service.admit(current_user.id, payload.prompt, mode=payload.mode)
 
 
 @app.post("/chats/{id}/runs")
 async def create_run(id: str, payload: ChatPayload, current_user: User = Depends(get_current_user)):
-    return await agent_service.admit(current_user.id, payload.prompt, id)
+    return await agent_service.admit(current_user.id, payload.prompt, id, mode=payload.mode)
+
+
+@app.post('/runs/{run_id}/respond')
+async def respond_to_run(run_id: str, payload: DecisionPayload, current_user: User = Depends(get_current_user)):
+    text = payload.text.strip()
+    prompt = text or ('Approved, build it.' if payload.action == 'approve' else 'Dismissed proposal.')
+    return await agent_service.admit(current_user.id, prompt, response=(run_id, payload.action, text))
 
 
 async def owned_chat(id: str, user: User, db: AsyncSession, *, for_update=False):
@@ -159,8 +178,11 @@ async def storage_error_handler(request, exc):
 
 @app.get("/projects/{id}/files")
 async def get_project_files(id: str, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    await owned_chat(id, current_user, db)
-    revision = await ensure_revision(id)
+    with measure('metadata'):
+        await owned_chat(id, current_user, db)
+        # Release this read transaction before helpers acquire their own connection.
+        await db.close()
+        revision = await ensure_revision(id)
     return {"project_id": id, "files": list(revision.manifest) if revision else [],
             "revision_id": revision.id if revision else None,
             "sandbox_active": id in agent_service.sandboxes}
@@ -174,13 +196,16 @@ async def get_file_content(id: str, file_path: str, raw: bool = False, revision_
         file_path = safe_path(file_path)
     except ValueError:
         raise HTTPException(422, "Invalid project path") from None
-    revision = await saved_revision(id, revision_id, db)
+    with measure('metadata'):
+        revision = await saved_revision(id, revision_id, db)
+    await db.close()
     if file_path not in revision.manifest:
         raise HTTPException(404, "File not found in saved revision")
-    async with archive_slots:
-        data = await revision_bytes(revision)
-        with zipfile.ZipFile(io.BytesIO(data)) as archive:
-            content = archive.read(file_path)
+    with measure('storage'):
+        async with archive_slots:
+            data = await revision_bytes(revision)
+            with zipfile.ZipFile(io.BytesIO(data)) as archive:
+                content = archive.read(file_path)
     if raw:
         from urllib.parse import quote
         return Response(content, media_type="application/octet-stream",
@@ -195,8 +220,12 @@ async def get_file_content(id: str, file_path: str, raw: bool = False, revision_
 
 
 async def saved_revision(chat_id, revision_id, db):
-    revision = await db.scalar(select(ProjectRevision).where(ProjectRevision.id == revision_id,
-        ProjectRevision.chat_id == chat_id, ProjectRevision.status == 'ready')) if revision_id else await ensure_revision(chat_id)
+    if revision_id:
+        revision = await db.scalar(select(ProjectRevision).where(ProjectRevision.id == revision_id,
+            ProjectRevision.chat_id == chat_id, ProjectRevision.status == 'ready'))
+    else:
+        await db.close()
+        revision = await ensure_revision(chat_id)
     if not revision:
         raise HTTPException(404, "No saved revision available")
     return revision
@@ -242,8 +271,11 @@ async def get_run_events(run_id: str, after_sequence: int = 0,
 @app.post("/projects/{id}/preview")
 async def open_project_preview(id: str, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     await owned_chat(id, current_user, db)
+    # Sandbox startup can take tens of seconds; do not hold a pool slot throughout.
+    await db.close()
     try:
-        return await agent_service.open_preview(id)
+        with measure('preview_open'):
+            return await agent_service.open_preview(id)
     except HTTPException:
         raise
     except BudgetLimitError as exc:
@@ -272,7 +304,9 @@ async def get_run_logs(run_id: str, current_user: User = Depends(get_current_use
 @app.get("/projects/{id}/preview")
 async def get_preview_status(id: str, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     chat = await owned_chat(id, current_user, db)
-    return await agent_service.preview_status(chat)
+    await db.close()
+    with measure('preview_status'):
+        return await agent_service.preview_status(chat)
 
 
 @app.get("/projects")

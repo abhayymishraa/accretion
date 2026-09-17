@@ -166,6 +166,8 @@ class Run(Base):
     prompt: Mapped[str] = mapped_column(Text)
     events: Mapped[list] = mapped_column(JSON, default=list)
     metrics: Mapped[dict] = mapped_column(JSON, default=dict)
+    # Immutable proposal + atomically recorded continuation; separate from prunable diagnostics.
+    workflow: Mapped[dict] = mapped_column(JSON, default=dict, server_default='{}')
     reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
