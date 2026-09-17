@@ -5,11 +5,13 @@ from sqlalchemy import select
 from db.models import User
 from db.base import get_db
 from .utils import decode_token
+from request_timing import timed
 
 
 security = HTTPBearer()
 
 
+@timed('auth')
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
     db: AsyncSession = Depends(get_db),
