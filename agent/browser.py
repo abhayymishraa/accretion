@@ -6,20 +6,41 @@ import os
 from pathlib import Path
 import shlex
 from uuid import uuid4
+from typing import Literal
+
+from pydantic import BaseModel, Field, model_validator
 
 MAX_SCREENSHOT_BYTES = 200_000
 
 
-async def check_browser(workspace, *, preflight=False, viewport=None, path='/', screenshot_path=None) -> dict:
+class PreviewStep(BaseModel):
+    action: Literal['click', 'fill', 'check', 'press', 'expect_visible', 'expect_hidden',
+                    'expect_text', 'expect_checked']
+    selector: str = Field(min_length=1, max_length=300)
+    value: str = Field(default='', max_length=200)
+
+    @model_validator(mode='after')
+    def validate_value(self):
+        if self.action == 'expect_text' and not self.value.strip():
+            raise ValueError('Text assertions need a nonempty expected value')
+        if self.action == 'press' and self.value not in {'Enter', 'Escape', 'Tab', 'Space', 'ArrowDown', 'ArrowUp'}:
+            raise ValueError('Use Enter, Escape, Tab, Space, ArrowDown or ArrowUp')
+        return self
+
+
+async def check_browser(workspace, *, preflight=False, viewport=None, path='/', screenshot_path=None, checks=None) -> dict:
     script = Path(__file__).with_name('browser-check.cjs').read_text()
-    command = 'PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers node -e ' + shlex.quote(script)
+    args = []
     if preflight:
-        command += ' -- --preflight'
+        args = ['--preflight']
     elif viewport is not None:
-        command += ' -- --inspect ' + shlex.quote(viewport) + ' ' + shlex.quote(path)
+        args = ['--inspect', viewport, path]
         if screenshot_path is not None:
-            command += ' ' + shlex.quote(screenshot_path)
-    return await workspace.command(command, timeout=45)
+            args.append(screenshot_path)
+    if checks:
+        args += ['--checks', json.dumps(checks)]
+    command = 'PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers ' + shlex.join(['node', '-e', script, '--', *args])
+    return await workspace.command(command, timeout=90 if checks else 45)
 
 
 async def ensure_preview_current(workspace) -> None:
@@ -30,12 +51,17 @@ async def ensure_preview_current(workspace) -> None:
         workspace.preview_revision = workspace.revision
 
 
-async def inspect_preview(workspace, *, viewport, path, screenshot=False) -> dict:
+async def inspect_preview(workspace, *, viewport, path, screenshot=False, steps=None) -> dict:
     if (not path.startswith('/') or path.startswith('//') or '\\' in path
             or any(ord(char) < 32 for char in path) or len(path) > 512):
         raise ValueError('Use a local preview path such as / or /settings')
     if viewport not in {'desktop', 'mobile'}:
         raise ValueError('Use the desktop or mobile viewport')
+    if steps:
+        if len(steps) > 8 or not steps[-1].action.startswith('expect_'):
+            raise ValueError('Use at most eight steps, ending with an assertion of the result')
+        # Keep one replayable acceptance sequence per viewport, including failed attempts.
+        workspace.preview_checks[viewport] = {'path': path, 'steps': [step.model_dump() for step in steps]}
     if screenshot:
         if os.getenv('PREVIEW_SCREENSHOTS_ENABLED', 'true').lower() != 'true':
             raise ValueError('Screenshot observations are disabled for this model deployment')
@@ -45,7 +71,9 @@ async def inspect_preview(workspace, *, viewport, path, screenshot=False) -> dic
     await ensure_preview_current(workspace)
     screenshot_path = f'/tmp/webbuilder-preview-{uuid4().hex}.jpg' if screenshot else None
     try:
-        result = await check_browser(workspace, viewport=viewport, path=path, screenshot_path=screenshot_path)
+        checks = {viewport: workspace.preview_checks[viewport]} if steps else None
+        result = await check_browser(workspace, viewport=viewport, path=path,
+                                     screenshot_path=screenshot_path, checks=checks)
         observation = parse_observation(result, workspace.revision)
         if screenshot and observation.get('checked'):
             observation['screenshot'] = {'captured': False}

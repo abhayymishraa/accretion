@@ -7,7 +7,11 @@ const { chromium } = require('/opt/webbuilder-checks/node_modules/playwright');
   const inspecting = inspectAt !== -1;
   const requestedViewport = process.argv[inspectAt + 1];
   const path = inspecting ? process.argv[inspectAt + 2] || '/' : '/';
-  const screenshotPath = inspecting ? process.argv[inspectAt + 3] : undefined;
+  const screenshotArg = inspecting ? process.argv[inspectAt + 3] : undefined;
+  const screenshotPath = screenshotArg && !screenshotArg.startsWith('--') ? screenshotArg : undefined;
+  const checksAt = process.argv.indexOf('--checks');
+  const checks = checksAt === -1 ? {} : JSON.parse(process.argv[checksAt + 1]);
+  const origin = 'http://127.0.0.1:5173';
   const addError = message => {
     if (errors.length < 10) errors.push(String(message).slice(0, 500));
   };
@@ -19,32 +23,89 @@ const { chromium } = require('/opt/webbuilder-checks/node_modules/playwright');
     const viewports = { desktop: { width: 1280, height: 800 }, mobile: { width: 390, height: 844 } };
     for (const [name, viewport] of Object.entries(viewports)) {
       if (inspecting && name !== requestedViewport) continue;
-      const page = await browser.newPage({ viewport, deviceScaleFactor: 1,
-        serviceWorkers: inspecting ? 'block' : 'allow' });
+      const plan = checks[name];
+      const context = await browser.newContext({ viewport, deviceScaleFactor: 1,
+        serviceWorkers: 'block' });
+      const page = await context.newPage();
       page.setDefaultTimeout(5000);
-      if (inspecting) {
+      if (inspecting || plan) {
         // Keep navigation local, including redirects. Assets can still load from CDNs.
-        await page.route('**/*', route => {
+        await context.route('**/*', route => {
           const request = route.request();
-          if (request.isNavigationRequest() && new URL(request.url()).origin !== 'http://127.0.0.1:5173') {
+          if ((request.isNavigationRequest() && new URL(request.url()).origin !== origin) ||
+              (plan && !['GET', 'HEAD', 'OPTIONS'].includes(request.method()))) {
+            if (plan) addError('Blocked a network write or external navigation; only local UI flows can be verified');
             return route.abort();
           }
           return route.continue();
         });
       }
+      if (plan) {
+        // Mock sockets without an upstream connection. Closing them immediately
+        // makes Vite's HMR client report a false connection failure.
+        await context.routeWebSocket('**/*', socket => socket.onMessage(() => {}));
+        context.on('page', popup => {
+          addError('Popup actions are not supported by local acceptance checks');
+          void popup.close();
+        });
+        page.on('download', download => {
+          addError('Download actions are not supported by local acceptance checks');
+          void download.cancel();
+        });
+      }
       page.on('pageerror', error => addError(error.message));
-      if (inspecting) page.on('console', message => {
+      page.on('console', message => {
         if (message.type() === 'error') addError(message.text());
       });
       const observation = { viewport: name, width: viewport.width, height: viewport.height };
+      // Closing the context cancels a hung navigation/action, not just its caller.
+      const deadline = setTimeout(() => {
+        addError(name + ' browser deadline exceeded');
+        void context.close();
+      }, 35000);
       try {
-        const url = new URL(path, 'http://127.0.0.1:5173');
-        if (url.origin !== 'http://127.0.0.1:5173') throw Error('Only local preview paths are allowed');
+        const url = new URL(plan?.path || path, origin);
+        if (url.origin !== origin) throw Error('Only local preview paths are allowed');
         const response = await page.goto(url.href, { waitUntil: 'networkidle', timeout: 20000 });
         if (new URL(page.url()).origin !== url.origin) throw Error('Preview navigated outside the local app');
         observation.http_status = response?.status() ?? null;
         if (!response || !response.ok()) addError('Preview HTTP failure');
         if (await page.locator('vite-error-overlay').count()) addError('Vite error overlay');
+        observation.steps = [];
+        for (const step of plan?.steps || []) {
+          const record = { action: step.action, selector: step.selector, ok: false };
+          observation.steps.push(record);
+          try {
+            const target = page.locator(step.selector);
+            switch (step.action) {
+              case 'click': await target.click(); break;
+              case 'fill': await target.fill(step.value); break;
+              case 'check': await target.setChecked(true); break;
+              case 'press': await target.press(step.value); break;
+              case 'expect_visible': await target.waitFor({ state: 'visible' }); break;
+              case 'expect_hidden': await target.waitFor({ state: 'hidden' }); break;
+              case 'expect_text':
+                await target.filter({ hasText: step.value }).waitFor({ state: 'visible' }); break;
+              case 'expect_checked': {
+                await target.waitFor({ state: 'visible' });
+                const until = Date.now() + 5000;
+                while (!await target.isChecked()) {
+                  if (Date.now() >= until) throw Error('Expected checked control');
+                  await page.waitForTimeout(100);
+                }
+                break;
+              }
+              default: throw Error('Unknown acceptance action');
+            }
+            record.ok = true;
+          } catch (error) {
+            addError(name + ' step ' + observation.steps.length + ' (' + step.action + '): ' + error.message);
+            break;
+          }
+        }
+        if (await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1)) {
+          addError(name + ' page has horizontal overflow');
+        }
         const content = await page.locator('#root').evaluate(el => {
           // Collect visible text with a bounded DOM walk; never send full HTML.
           const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
@@ -72,13 +133,15 @@ const { chromium } = require('/opt/webbuilder-checks/node_modules/playwright');
       } catch (error) {
         addError(error.message);
       } finally {
-        if (inspecting) pages.push(observation);
-        await page.close();
+        clearTimeout(deadline);
+        pages.push(observation);
+        await context.close();
       }
     }
     if (inspecting && !pages.length) addError('Unknown viewport');
-    console.log(JSON.stringify({ ok: errors.length === 0, errors,
-      ...(inspecting ? { checked: true, pages } : { checks: ['desktop render', 'mobile render', 'uncaught browser errors'] }) }));
+    console.log(JSON.stringify({ ok: errors.length === 0, errors, checked: true, pages,
+      ...(!inspecting && { checks: ['desktop render', 'mobile render', 'browser errors', 'horizontal overflow',
+        ...(checksAt !== -1 ? ['selected desktop/mobile acceptance sequences'] : [])] }) }));
     process.exitCode = errors.length ? 1 : 0;
   } finally { await browser.close(); }
 })().catch(error => { console.error(error.message); process.exitCode = 1; });
