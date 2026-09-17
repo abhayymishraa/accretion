@@ -97,7 +97,7 @@ Open http://localhost:3000 and create a local account. AI generation still uses
 the configured OpenAI and E2B services.
 
 Use the `webbuilder-react-design-20260914` E2B template (`dwel3q1jkunk4chqfw7h`
-in the existing deployment account), or build your own from `sandbox/Dockerfile`.
+in the existing deployment account), or build your own from `sandbox/e2b.Dockerfile`.
 Templates without Playwright under `/opt/webbuilder-checks` cannot
 run this backend's browser checks. The runner checks browser tooling before
 calling the model and stops with a setup error if it is unavailable.
@@ -125,44 +125,42 @@ Updates use current stable releases at template release time, never floating
 `latest` installs during a user's build. Generated apps only bundle Motion if
 they import it. Full component kits, charts and 3D libraries remain on demand.
 
-The host-side [template release command](sandbox/template.py) uses the pinned
-E2B Python SDK and the existing Dockerfile. It starts Vite during the template
-build, waits for HTTP 200 with E2B's `wait_for_url`, and snapshots the running
-process. This handles initial startup; the runtime still restarts Vite after
+The [E2B Dockerfile](sandbox/e2b.Dockerfile) owns the environment. The
+`template-build` Makefile target calls the pinned E2B CLI directly; there is no
+custom Python template builder. It starts Vite and waits for HTTP 200 before
+E2B snapshots the running process. The runtime still restarts Vite after
 restoring or changing project files.
 
-With `E2B_API_KEY` in your private `.env`, run from the repository root after
-obtaining approval for the E2B build:
+Authenticate the E2B CLI, or export `E2B_API_KEY` in your shell. The Makefile target
+does not load `.env`. From the repository root, after approval for the E2B build:
 
 ```bash
-uv run --frozen --env-file .env python sandbox/template.py build webbuilder-react-design:v2026-09-14-1
+make template-build TEMPLATE_NAME=webbuilder-react-design-20260917-1
 ```
 
-Use a fresh `v...` release label for each build. Logs go to stderr; stdout returns
-JSON containing `build_ref` and the exact `E2B_TEMPLATE_ID` assignment. Tags are
-mutable; the returned build UUID pins the artifact. The build does not move the
-staging/production tags or change any backend environment.
+Use a fresh release name for each build. The CLI logs `Template created with ID`
+and `Build ID` during creation; those IDs alone do not prove the build succeeded.
+Wait for successful completion before using the artifact. This command uses E2B
+quota and does not change any backend environment.
 
-Copy the returned `build_ref` into `BUILD_REF`, then promote that exact artifact:
+After an approved disposable-sandbox check, set staging's private environment to
+that exact successful build:
 
-```bash
-BUILD_REF='webbuilder-react-design:<build-UUID-from-output>'
-uv run --frozen --env-file .env python sandbox/template.py promote "$BUILD_REF" --to staging
-# After approved disposable-sandbox build, browser and restore/restart checks:
-uv run --frozen --env-file .env python sandbox/template.py promote "$BUILD_REF" --to production
+```dotenv
+E2B_TEMPLATE_ID=webbuilder-react-design-20260917-1:<build-UUID-from-successful-build>
 ```
 
-Promotion uses E2B's `Template.assign_tags`; it neither rebuilds nor runs checks.
-It accepts an exact build UUID, not a moving release/environment tag. Set each
-backend's private `E2B_TEMPLATE_ID` to that same **build_ref**, not `:production`
-or a bare template name, and restart after active generations finish. Retain
-the previous exact reference for rollback. The backend continues recording
-that reference with saved revisions, so moving a tag cannot upgrade them.
+After staging checks pass, use the same reference in production and restart the
+backend after active generations finish. Retain the previous exact reference for
+rollback. No custom staging/production tag promotion is needed: the environment
+pins the artifact directly. Saved revisions continue recording their template
+reference. Never use a floating template name or `:latest` for a new deployment.
 
 Existing projects keep their recorded template references and dependencies.
 Legacy bare IDs remain supported; their original build pins are not backfilled.
-The earlier template ID `dwel3q1jkunk4chqfw7h` remains available. No new template
-has been built or validated by adding these release commands.
+The earlier template ID `dwel3q1jkunk4chqfw7h` remains available. An isolated
+Dockerfile-built candidate passed the [2026-09-17 acceptance trial](docs/research/e2b-dockerfile-audit-2026-09-17.md);
+that trial did not update staging or production.
 
 References: [E2B start/readiness](https://docs.e2b.dev/template/start-ready-command)
 and [template tags/build IDs](https://docs.e2b.dev/template/tags).
