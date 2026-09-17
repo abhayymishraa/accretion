@@ -81,15 +81,27 @@ and `/opt/pw-browsers`; they do not enter generated application bundles.
 
 For a release, review current stable versions, update exact manifest versions,
 regenerate both lockfiles, and run lint/build plus desktop/mobile browser checks
-with approval. Use the host-side `sandbox/template.py build <name>:<v-release>`
-command from the repository root. It uses E2B's native start/readiness snapshot
-and returns an exact `name:build-UUID` reference. Promote that reference to staging
-with `sandbox/template.py promote <build-ref> --to staging`. Smoke-check a
-disposable sandbox before using `--to production`. Set the backend's `E2B_TEMPLATE_ID` to the exact
-build reference and restart that backend. Promotion does not run checks or update
-the backend environment. Do not resolve
-`latest` during user runs. Node tags and Debian system packages are not digest
-locked, so the entire operating-system image is not bit-for-bit reproducible.
+with approval. From the repository root, build the single `sandbox/e2b.Dockerfile`
+using the pinned native E2B CLI:
+
+```bash
+make template-build TEMPLATE_NAME=webbuilder-react-design-20260917-1
+```
+
+Authenticate the CLI or export `E2B_API_KEY` first; this target does not read `.env`.
+Choose a fresh release name, wait for build success, and record its logged Build ID.
+The Makefile preserves the Vite start command, HTTP-200 readiness check, 1 CPU,
+and 1024 MB memory. Each readiness request has a 2-second connect timeout and a
+5-second total timeout. The build requests 2048 MiB of free disk space after
+installation; this is a best-effort target, not a disk quota or guarantee.
+It does not change backend environments.
+
+Smoke-check an approved disposable sandbox, then configure staging's private
+`E2B_TEMPLATE_ID` as `<release-name>:<build-UUID>`. After staging validation, use
+that same exact reference in production and restart the backend. Keep the previous
+reference for rollback. Do not resolve `latest` during user runs. Node tags and
+Debian system packages are not digest locked, so the entire operating-system image
+is not bit-for-bit reproducible.
 
 Existing saved projects retain their recorded template IDs and package files.
 They are not automatically upgraded. No generation-speed or design-quality
