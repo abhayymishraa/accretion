@@ -64,10 +64,11 @@ Check the starter production build, desktop/mobile browser rendering, and a
 source restore followed by the existing Vite restart. Template HTTP readiness
 alone does not establish that these paths work.
 
-Set `E2B_TEMPLATE_ID` in the VM's private runtime file to the returned exact
-`build_ref`, retain the old value for rollback, and restart the backend after
-current generations finish. Do not configure a moving `:production` tag or bare
-name for new releases: saved revisions must retain a reproducible build reference.
+Set the repository's `E2B_TEMPLATE_ID` secret to the returned exact `build_ref`.
+The backend deploy workflow validates the reference and writes it to the VM's
+private runtime file before migrating and restarting the API. Retain the old
+value for rollback. Do not configure a moving `:production` tag or bare name for
+new releases: saved revisions must retain a reproducible build reference.
 Tag promotion does not change the VM environment or deploy the backend.
 Deploy accompanying agent guidance with the backend when needed.
 

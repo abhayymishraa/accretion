@@ -50,12 +50,14 @@ jobs:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
           DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          E2B_TEMPLATE_ID: ${{ secrets.E2B_TEMPLATE_ID }}
           BACKEND_DOMAIN: ${{ vars.BACKEND_DOMAIN }}
         run: |
           set -euo pipefail
           : "${DEPLOY_HOST:?Missing DEPLOY_HOST}"
           : "${DEPLOY_SSH_KEY:?Missing DEPLOY_SSH_KEY}"
           : "${DEPLOY_KNOWN_HOSTS:?Missing DEPLOY_KNOWN_HOSTS}"
+          : "${E2B_TEMPLATE_ID:?Missing E2B_TEMPLATE_ID}"
           [[ "$BACKEND_DOMAIN" =~ ^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$ ]]
           install -d -m 700 ~/.ssh
           printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
@@ -68,7 +70,7 @@ jobs:
           ssh "${ssh_args[@]}" "$destination" "mkdir -p '$directory/deploy'"
           scp "${ssh_args[@]}" backend-image.tar.gz "$destination:$directory/"
           scp "${ssh_args[@]}" deploy/deploy.sh deploy/compose.yaml deploy/Caddyfile "$destination:$directory/deploy/"
-          ssh "${ssh_args[@]}" "$destination" "sudo bash '$directory/deploy/deploy.sh' '$GITHUB_SHA' '$BACKEND_DOMAIN'"
+          ssh "${ssh_args[@]}" "$destination" "sudo bash '$directory/deploy/deploy.sh' '$GITHUB_SHA' '$BACKEND_DOMAIN' '$E2B_TEMPLATE_ID'"
           ssh "${ssh_args[@]}" "$destination" "rm -rf '$directory'"
           curl --fail --silent --show-error --retry 10 --retry-all-errors --retry-delay 6 \
             --max-time 15 "https://$BACKEND_DOMAIN/health/ready"

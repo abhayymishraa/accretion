@@ -4,8 +4,13 @@ umask 077
 
 sha=${1:?Provide the commit SHA}
 domain=${2:?Provide the backend domain}
+template_ref=${3-}
 [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || exit 2
 [[ "$domain" =~ ^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$ ]] || exit 2
+if [[ -n "$template_ref" ]] && [[ ! "$template_ref" =~ ^[a-z0-9][a-z0-9_-]*(/[a-z0-9][a-z0-9_-]*)?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; then
+    echo 'Invalid E2B template reference; use template-name:<exact-build-UUID>'
+    exit 2
+fi
 [[ $(id -u) == 0 ]] || { echo 'Run with sudo'; exit 2; }
 
 artifact_dir=$(cd "$(dirname "$0")/.." && pwd)
@@ -29,6 +34,8 @@ grep -qE '^SECRET_KEY=.{32,}$' "$root/runtime.env" || { echo 'SECRET_KEY must co
 previous=$(readlink -f "$root/current" 2>/dev/null || true)
 [[ -f "$previous/compose.yaml" ]] || previous=
 [[ "$previous" != "$release" ]] || { echo 'This release is already deployed'; exit 0; }
+previous_template_ref=$(sed -n 's/^E2B_TEMPLATE_ID=//p' "$root/runtime.env")
+runtime_changed=false
 
 compose() {
     local directory=$1
@@ -41,6 +48,17 @@ rollback() {
     local status=$?
     trap - ERR INT TERM
     echo 'Deployment failed; restoring the previous release.'
+    if [[ "$runtime_changed" == true ]]; then
+        runtime_tmp=$(mktemp "$root/runtime.env.XXXXXX")
+        awk -v value="$previous_template_ref" '
+            /^E2B_TEMPLATE_ID=/ { print "E2B_TEMPLATE_ID=" value; found=1; next }
+            { print }
+            END { if (!found) print "E2B_TEMPLATE_ID=" value }
+        ' "$root/runtime.env" > "$runtime_tmp"
+        chown --reference="$root/runtime.env" "$runtime_tmp"
+        chmod --reference="$root/runtime.env" "$runtime_tmp"
+        mv -f "$runtime_tmp" "$root/runtime.env"
+    fi
     if [[ -n "$previous" ]]; then
         compose "$previous" up -d --remove-orphans || true
     else
@@ -61,6 +79,18 @@ compose "$release" config --quiet
 compose "$release" pull proxy
 trap rollback ERR
 trap 'false' INT TERM
+if [[ -n "$template_ref" ]] && [[ "$template_ref" != "$previous_template_ref" ]]; then
+    runtime_tmp=$(mktemp "$root/runtime.env.XXXXXX")
+    awk -v value="$template_ref" '
+        /^E2B_TEMPLATE_ID=/ { print "E2B_TEMPLATE_ID=" value; found=1; next }
+        { print }
+        END { if (!found) print "E2B_TEMPLATE_ID=" value }
+    ' "$root/runtime.env" > "$runtime_tmp"
+    chown --reference="$root/runtime.env" "$runtime_tmp"
+    chmod --reference="$root/runtime.env" "$runtime_tmp"
+    mv -f "$runtime_tmp" "$root/runtime.env"
+    runtime_changed=true
+fi
 # Drain the old writer before migrating legacy event arrays into ordered rows.
 if [[ -n "$previous" ]]; then compose "$previous" stop api; fi
 docker run --rm --env-file "$root/runtime.env" "$image" python -m db.migrate
