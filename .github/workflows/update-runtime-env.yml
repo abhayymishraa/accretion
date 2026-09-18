@@ -69,7 +69,8 @@ jobs:
             'bash -s' <<'REMOTE'
           set -euo pipefail
           file=/opt/webbuilder/runtime.env
-          [[ -s "$file" ]] || { echo 'Missing runtime.env'; exit 1; }
+          # Root-owned and mode 600, so the existence test needs sudo too.
+          sudo test -s "$file" || { echo 'Missing runtime.env'; exit 1; }
 
           backup="${file}.bak.$(date -u +%Y%m%dT%H%M%SZ)"
           sudo cp -p "$file" "$backup"
