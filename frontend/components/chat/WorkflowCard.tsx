@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowRight, Check, CircleHelp, ListChecks } from "lucide-react";
+import { Check } from "lucide-react";
 import { useId, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -33,7 +33,7 @@ function WorkflowDecisionCard({ message, onChanged, canRespond }: WorkflowCardPr
     const pending = message.run_status === "awaiting_input" && !proposal.resolution;
     const waiting = canRespond && pending;
     const runId = message.id.replace(/^run:/, "");
-    const Icon = question ? CircleHelp : ListChecks;
+    const options = proposal.options ?? [];
     const heading = question
         ? "A quick question"
         : plan
@@ -57,72 +57,77 @@ function WorkflowDecisionCard({ message, onChanged, canRespond }: WorkflowCardPr
 
     return (
         <section
-            className="my-3 min-w-0 overflow-hidden rounded-xl border border-border bg-card text-sm"
+            className="my-3 min-w-0 animate-in overflow-hidden rounded-xl border border-border bg-card fade-in slide-in-from-bottom-1 duration-200 ease-out motion-reduce:slide-in-from-bottom-0"
             aria-labelledby={headingId}
             aria-busy={busy}
         >
-            <div className={question ? "space-y-2 p-3" : "space-y-4 p-4 sm:p-5"}>
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                    <h3
-                        id={headingId}
-                        className="flex items-center gap-2 text-xs font-medium text-muted-foreground"
-                    >
-                        <Icon aria-hidden="true" className="size-4 text-accent-foreground" />
-                        {heading}
-                    </h3>
-                    {status && !(question && pending) && (
-                        <span className="rounded-md bg-secondary px-2 py-1 text-[11px] text-muted-foreground">
-                            {status}
-                        </span>
-                    )}
+            <div className="space-y-2 p-4">
+                <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                    <span>{heading}</span>
+                    {status && !(question && pending) && <span>{status}</span>}
                 </div>
+                <h3
+                    id={headingId}
+                    className="text-[15px] font-medium leading-snug wrap-anywhere whitespace-pre-wrap"
+                >
+                    {question && proposal.question ? proposal.question : proposal.summary}
+                </h3>
                 {question && proposal.question && (
-                    <p className="whitespace-pre-wrap wrap-anywhere font-medium leading-snug">
-                        {proposal.question}
-                    </p>
-                )}
-                {question && proposal.question ? (
                     <details className="text-xs text-muted-foreground">
                         <summary className="cursor-pointer rounded-sm py-1 focus-visible:outline-2 focus-visible:outline-ring">
                             Why this question?
                         </summary>
-                        <p className="mt-1 whitespace-pre-wrap wrap-anywhere leading-relaxed">
+                        <p className="mt-1 leading-relaxed wrap-anywhere whitespace-pre-wrap">
                             {proposal.summary}
                         </p>
                     </details>
-                ) : (
-                    <p className="whitespace-pre-wrap wrap-anywhere leading-relaxed">
-                        {proposal.summary}
-                    </p>
-                )}
-                {proposal.steps.length > 0 && (
-                    <ol className="space-y-3 border-t border-border pt-4">
-                        {proposal.steps.map((step, index) => (
-                            <li className="flex gap-3" key={index}>
-                                <span
-                                    aria-hidden="true"
-                                    className="flex size-6 shrink-0 items-center justify-center rounded-md border border-border font-mono text-[11px] text-muted-foreground"
-                                >
-                                    {String(index + 1).padStart(2, "0")}
-                                </span>
-                                <span className="min-w-0 wrap-anywhere leading-relaxed">
-                                    {step}
-                                </span>
-                            </li>
-                        ))}
-                    </ol>
                 )}
             </div>
-            {waiting && (
+            {proposal.steps.length > 0 && (
+                <ol className="divide-y divide-border border-t border-border">
+                    {proposal.steps.map((step, index) => (
+                        <li
+                            className="flex min-h-12 items-start gap-3 px-4 py-2.5 text-sm"
+                            key={index}
+                        >
+                            <span aria-hidden="true" className="tabular-nums text-muted-foreground">
+                                {index + 1}
+                            </span>
+                            <span className="min-w-0 leading-relaxed wrap-anywhere">{step}</span>
+                        </li>
+                    ))}
+                </ol>
+            )}
+            {waiting && !plan && options.length > 0 && (
                 <div
-                    className={
-                        question
-                            ? "border-t border-border p-3"
-                            : "border-t border-border bg-secondary/25 p-4 sm:p-5"
-                    }
+                    role="group"
+                    aria-label="Suggested answers"
+                    className="divide-y divide-border border-t border-border"
                 >
+                    {options.map((option, index) => (
+                        <Button
+                            variant="utility"
+                            aria-pressed={text === option}
+                            disabled={busy}
+                            key={`${index}:${option}`}
+                            onClick={() => setText(option)}
+                            className="min-h-12 w-full justify-start gap-3 rounded-none px-4 py-2.5 text-left text-sm whitespace-normal text-foreground aria-pressed:text-accent-foreground"
+                        >
+                            <span
+                                aria-hidden="true"
+                                className="flex size-4 shrink-0 items-center justify-center rounded-full border border-input"
+                            >
+                                {text === option && <Check className="size-3" />}
+                            </span>
+                            <span className="min-w-0 wrap-anywhere">{option}</span>
+                        </Button>
+                    ))}
+                </div>
+            )}
+            {waiting && (
+                <div className="border-t border-border p-4">
                     {plan && !revising ? (
-                        <div className="space-y-4">
+                        <div className="space-y-3">
                             <p className="text-xs leading-relaxed text-muted-foreground">
                                 Review the plan. Building starts when you approve.
                             </p>
@@ -147,67 +152,37 @@ function WorkflowDecisionCard({ message, onChanged, canRespond }: WorkflowCardPr
                                         onClick={() => respond(runId, "approve")}
                                     >
                                         {busy ? "Saving…" : "Approve and build"}
-                                        <ArrowRight aria-hidden="true" className="size-4" />
                                     </Button>
                                 </div>
                             </div>
                         </div>
                     ) : (
                         <form
-                            className={question ? "space-y-3" : "space-y-4"}
+                            className="space-y-3"
                             onSubmit={(event) => {
                                 event.preventDefault();
                                 if (text.trim())
                                     void respond(runId, plan ? "revise" : "answer", text.trim());
                             }}
                         >
-                            {!plan && Boolean(proposal.options?.length) && (
-                                <div
-                                    role="group"
-                                    aria-label="Suggested answers"
-                                    className="flex flex-wrap gap-2"
-                                >
-                                    {proposal.options?.map((option, index) => (
-                                        <Button
-                                            type="button"
-                                            variant="secondary"
-                                            className="h-auto min-h-11 max-w-full justify-start gap-2 whitespace-normal rounded-lg px-3 py-2 text-left aria-pressed:border-primary aria-pressed:bg-accent aria-pressed:text-accent-foreground"
-                                            aria-pressed={text === option}
-                                            disabled={busy}
-                                            key={`${index}:${option}`}
-                                            onClick={() => setText(option)}
-                                        >
-                                            <span
-                                                aria-hidden="true"
-                                                className="flex size-4 shrink-0 items-center justify-center rounded-full border border-current/40"
-                                            >
-                                                {text === option && <Check className="size-3" />}
-                                            </span>
-                                            <span className="min-w-0 wrap-anywhere">{option}</span>
-                                        </Button>
-                                    ))}
-                                </div>
-                            )}
-                            <div className="space-y-2">
-                                <label
-                                    className={
-                                        plan ? "block text-xs text-muted-foreground" : "sr-only"
-                                    }
-                                    htmlFor={fieldId}
-                                >
-                                    {plan ? "What should change?" : "Your answer"}
-                                </label>
-                                <Input
-                                    id={fieldId}
-                                    value={text}
-                                    onChange={(event) => setText(event.target.value)}
-                                    maxLength={4000}
-                                    disabled={busy}
-                                    placeholder={
-                                        plan ? "Describe your changes…" : "Or write something else…"
-                                    }
-                                />
-                            </div>
+                            <label
+                                className="block text-xs text-muted-foreground"
+                                htmlFor={fieldId}
+                            >
+                                {plan
+                                    ? "What should change?"
+                                    : options.length > 0
+                                      ? "Or write something else"
+                                      : "Your answer"}
+                            </label>
+                            <Input
+                                id={fieldId}
+                                value={text}
+                                onChange={(event) => setText(event.target.value)}
+                                maxLength={4000}
+                                disabled={busy}
+                                placeholder={plan ? "Describe your changes…" : "Your answer"}
+                            />
                             <div className="flex flex-wrap items-center justify-between gap-2">
                                 <Button
                                     type="button"
@@ -222,7 +197,6 @@ function WorkflowDecisionCard({ message, onChanged, canRespond }: WorkflowCardPr
                                 </Button>
                                 <Button type="submit" disabled={busy || !text.trim()}>
                                     {busy ? "Saving…" : plan ? "Update plan" : "Continue"}
-                                    <ArrowRight aria-hidden="true" className="size-4" />
                                 </Button>
                             </div>
                         </form>
