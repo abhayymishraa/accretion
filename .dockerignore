@@ -3,6 +3,7 @@
 !pyproject.toml
 !uv.lock
 !main.py
+!request_timing.py
 !agent/
 !agent/*.py
 !agent/*.cjs
