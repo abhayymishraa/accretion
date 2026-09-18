@@ -20,3 +20,4 @@ deploy/deployment.env
 .DS_Store
 .codex
 .github/hooks/
+AGENT_HANDOFF_SAFE.md
