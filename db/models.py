@@ -1,4 +1,5 @@
 from .base import Base
+from plans import DEFAULT_PLAN, month_window, plan_credits
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from datetime import date, datetime, timezone, timedelta
 from typing import List, Optional
@@ -42,8 +43,14 @@ class User(Base):
         DateTime(timezone=True), nullable=True, default=None
     )
 
-    # Token/Credits system - users get 2 tokens per day
-    tokens_remaining: Mapped[int] = mapped_column(Integer, default=2)
+    # Credits are the only limit a user sees. One credit per root run; follow-ups
+    # inside a run are free. The grant and the reset month come from plans.py.
+    plan: Mapped[str] = mapped_column(
+        String(32), nullable=False, default=DEFAULT_PLAN, server_default=DEFAULT_PLAN
+    )
+    tokens_remaining: Mapped[int] = mapped_column(
+        Integer, default=plan_credits(DEFAULT_PLAN)
+    )
     tokens_reset_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True, default=None
     )
@@ -57,23 +64,26 @@ class User(Base):
 
     @property
     def credits_unlimited(self) -> bool:
-        return self.email == "grabhaymishra@gmail.com"
+        return plan_credits(self.plan) is None
+
+    @property
+    def credits_limit(self) -> int:
+        return plan_credits(self.plan) or 0
 
     def use_token(self) -> bool:
-        """Use one token and return True if successful, False if no tokens left"""
+        """Spend one credit. False when this month's credits are gone."""
         if self.credits_unlimited:
             return True
-
-        if (
-            self.tokens_reset_at is None
-            or datetime.now(timezone.utc) >= self.tokens_reset_at
-        ):
-            self.tokens_remaining = 2
-            self.tokens_reset_at = datetime.now(timezone.utc) + timedelta(hours=24)
-
+        now = datetime.now(timezone.utc)
+        # Grant this month's credits on first use. The reset instant is the month
+        # boundary itself, not `now` plus a duration, so it cannot drift away from
+        # the cost windows in agent/budget.py.
+        if self.tokens_reset_at is None or now >= self.tokens_reset_at:
+            self.tokens_remaining = self.credits_limit
+            self.tokens_reset_at = month_window(now)[1]
         if self.tokens_remaining > 0:
             self.tokens_remaining -= 1
-            self.last_query_at = datetime.now(timezone.utc)
+            self.last_query_at = now
             return True
         return False
 

@@ -23,6 +23,25 @@ async def migrate():
                     "ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT FALSE"
                 )
             )
+            await connection.execute(
+                text(
+                    "ALTER TABLE users ADD COLUMN IF NOT EXISTS plan VARCHAR(32) NOT NULL DEFAULT 'free'"
+                )
+            )
+            # credits_unlimited used to be a hardcoded email check in db/models.py.
+            # Carry that grant onto the plan column so the account keeps its access.
+            # Grant others later with: UPDATE users SET plan='unlimited' WHERE email=...
+            await connection.execute(
+                text("UPDATE users SET plan='unlimited' WHERE email='grabhaymishra@gmail.com'")
+            )
+            # Credits moved from a rolling 24h window to the UTC calendar month.
+            # Clear only the old rolling instants so those users refill immediately.
+            # Month boundaries are the new format and must survive: migrate runs on
+            # every start, and clearing them would re-grant credits on every deploy.
+            await connection.execute(
+                text("UPDATE users SET tokens_reset_at = NULL WHERE tokens_reset_at IS NOT NULL "
+                     "AND tokens_reset_at <> date_trunc('month', tokens_reset_at)")
+            )
             for column in ('latest_saved_revision_id', 'latest_verified_revision_id'):
                 await connection.execute(text(f'ALTER TABLE chats ADD COLUMN IF NOT EXISTS {column} VARCHAR(36)'))
             await connection.execute(text('ALTER TABLE runs ADD COLUMN IF NOT EXISTS log_key VARCHAR(512)'))
