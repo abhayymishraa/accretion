@@ -1,5 +1,10 @@
 """Atomic cost admission. Integers are billionths of USD, never binary floats.
 
+These ceilings are internal circuit breakers against runaway compute, not a
+second allowance. Credits (plans.py) are the limit a user sees, and these are
+sized so they do not bind before credits do. Reaching one is an incident, so
+the messages say so rather than blaming the user's credits.
+
 Uncertain requests retain their reservation as a conservative charge. Entries
 crossing a UTC reset count in both windows; a reset cannot free in-flight money.
 """
@@ -12,6 +17,7 @@ from sqlalchemy import func, select
 
 from db.base import AsyncSessionLocal
 from db.models import SpendEntry, User
+from plans import METERED_PLANS, month_window
 
 NANOS = 1_000_000_000
 
@@ -28,12 +34,12 @@ def dollar_nanos(name, default):
 
 
 def windows(now):
+    # Shares month_window with the credit reset so the two clocks cannot drift.
     day = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    month = day.replace(day=1)
-    next_month = (month.replace(day=28) + timedelta(days=4)).replace(day=1)
+    month, next_month = month_window(now)
     return (
-        ('daily', day, day + timedelta(days=1), dollar_nanos('FREE_DAILY_COST_USD', '0.20')),
-        ('monthly', month, next_month, dollar_nanos('FREE_MONTHLY_COST_USD', '2.00')),
+        ('daily', day, day + timedelta(days=1), dollar_nanos('FREE_DAILY_COST_USD', '8.00')),
+        ('monthly', month, next_month, dollar_nanos('FREE_MONTHLY_COST_USD', '8.00')),
     )
 
 
@@ -43,6 +49,14 @@ async def used_in_window(db, user_id, start, end, exclude=None):
     if exclude:
         query = query.where(SpendEntry.id != exclude)
     return await db.scalar(query)
+
+
+async def free_tier_used(db, start, end):
+    return await db.scalar(
+        select(func.coalesce(func.sum(SpendEntry.amount_nanos), 0))
+        .join(User, User.id == SpendEntry.user_id)
+        .where(SpendEntry.starts_at < end, SpendEntry.ends_at >= start,
+               User.plan.in_(METERED_PLANS)))
 
 
 async def allowance(db, user, now=None):
@@ -60,10 +74,22 @@ async def require_allowance(db, user):
     if user.credits_unlimited:
         return
     now = datetime.now(timezone.utc)
+    # Per-user limits cannot bound total spend; the user count is unbounded. Checked
+    # ahead of them so only new work is refused, never a run already in flight. 0 disables.
+    budget = dollar_nanos('FREE_TIER_MONTHLY_BUDGET_USD', '50.00')
+    if budget:
+        month_start, month_end = month_window(now)
+        if await free_tier_used(db, month_start, month_end) >= budget:
+            raise BudgetLimitError(
+                'Free capacity for this month is used up across all accounts. This is a '
+                'service-wide ceiling, not your credits, and none were spent. It clears at '
+                f'{month_end:%Y-%m-%d %H:%M} UTC.')
     for name, start, end, limit in windows(now):
         if await used_in_window(db, user.id, start, end) >= limit:
-            raise BudgetLimitError(f'Your {name} free usage allowance is used or reserved. '
-                                   f'It resets at {end:%Y-%m-%d %H:%M} UTC. Saved files remain available.')
+            raise BudgetLimitError(
+                f'A {name} compute safety limit was reached, so new work is paused. This is not '
+                f'your credits: none were spent. It clears at {end:%Y-%m-%d %H:%M} UTC, saved '
+                'files remain available, and support can raise it.')
 
 
 def runtime_amount(entry, end):
@@ -97,9 +123,11 @@ async def reserve(user_id, kind, amount, duration, details, run_id=None, replace
                 if old and old.starts_at < finish and min(now, old.ends_at) >= start:
                     used += old_amount
                 if used + amount > limit:
-                    raise BudgetLimitError(f'Not enough {name} free usage allowance for the next operation. '
-                        f'Other builds or previews may have funds reserved. Reset: {finish:%Y-%m-%d %H:%M} UTC. '
-                        'Saved files remain available.')
+                    raise BudgetLimitError(
+                        f'A {name} compute safety limit would be exceeded by this operation, so it '
+                        'was not started. This is not your credits. Open previews hold compute '
+                        f'until they stop. Clears: {finish:%Y-%m-%d %H:%M} UTC. Saved files remain '
+                        'available.')
         if old:
             old.amount_nanos, old.state = old_amount, 'settled'
             old.ends_at = max(old.starts_at, min(now, old.ends_at))
