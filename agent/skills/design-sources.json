@@ -154,7 +154,8 @@
       "ui-ux-pro-max/scripts/tests/test_text_layout_resilience.py": "8db3b873f958b93906abb8f4e4d6ef75a344c76e",
       "ui-ux-pro-max/scripts/tests/test_web_stack_freshness.py": "c43eb4488f58ddea4d29828f5639652644ef67ca",
       "ui-ux-pro-max/scripts/validate_data.py": "8b6c7941f6ad3e51cb9d412b11185133e7763001"
-    }
+    },
+    "upstream_prefix": ".claude/skills/"
   },
   {
     "repository": "pbakaus/impeccable",
@@ -277,7 +278,8 @@
       "impeccable/scripts/live-browser-session.js": "1514bf472a5bb6dffdec1c67176713e3fab47af6",
       "impeccable/scripts/live-browser.js": "ac6f185861ed917d88f039a696b0602a1b7ad9f2",
       "impeccable/scripts/modern-screenshot.umd.js": "a9c5208f6b141d3bafdb8eb843d6fcbdcf23e370"
-    }
+    },
+    "upstream_prefix": ".agent/skills/"
   },
   {
     "repository": "emilkowalski/skills",
@@ -290,7 +292,8 @@
     "upstream_git_blobs": {
       "emil-design-eng/LICENSE": "57b46f1fd11dc62351ea548104a88aa3f659c11b",
       "emil-design-eng/SKILL.md": "1e14a5013714ee5b00382c210053134a48ae2168"
-    }
+    },
+    "upstream_prefix": "skills/"
   },
   {
     "repository": "vercel-labs/agent-skills",
@@ -451,6 +454,21 @@
       "react-best-practices/rules/server-parallel-fetching.md": "1affc835a601a894fd02de08e6c9cdfd76d34b64",
       "react-best-practices/rules/server-parallel-nested-fetching.md": "be1dc25075e40e6bda46cb24dc5a6f42b916b0e8",
       "react-best-practices/rules/server-serialization.md": "39c5c4164c31be7f171ea2f4b3b32fe47709a651"
+    },
+    "upstream_prefix": "skills/"
+  },
+  {
+    "repository": "anthropics/skills",
+    "commit": "34040c9c568585f6929bedeaad110ad08f079624",
+    "upstream_prefix": "skills/",
+    "directory": "frontend-design",
+    "files": {
+      "frontend-design/LICENSE.txt": "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594",
+      "frontend-design/SKILL.md": "d91970639e9f5c37682ac7ab60094d35f1c7c1f38d731bd56396563aee10c1d3"
+    },
+    "upstream_git_blobs": {
+      "frontend-design/LICENSE.txt": "f433b1a53f5b830a205fd2df78e2b34974656c7b",
+      "frontend-design/SKILL.md": "a5333457c414d20d625f307df945842c0952ecc3"
     }
   }
 ]

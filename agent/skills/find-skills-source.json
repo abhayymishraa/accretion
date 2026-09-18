@@ -8,5 +8,6 @@
   "upstream_git_blobs": {
     "find-skills/SKILL.md": "a41bdd074bb587afd861332cf2f473f3154de4d7",
     "find-skills/LICENSE": "eabe3008f6c0275929faa8b07d406e82717648cc"
-  }
+  },
+  "upstream_prefix": "skills/"
 }

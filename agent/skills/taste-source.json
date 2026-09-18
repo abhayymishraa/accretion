@@ -34,5 +34,6 @@
     "taste-skill-v1/SKILL.md": "4054982cd292c7fe6d01170c2372e986a427d776",
     "taste-skill/SKILL.md": "b72132fcd466da605623ffe96e370b3991fc5285",
     "TASTE-LICENSE": "48a2f6640b81ff8eca9ce7f6a96337692713ef5b"
-  }
+  },
+  "upstream_prefix": "skills/"
 }
