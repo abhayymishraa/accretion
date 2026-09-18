@@ -1,0 +1,111 @@
+name: Update runtime env
+
+# Manual only. Patches an allowlisted set of cost ceilings in the Oracle runtime
+# file, then reruns the backend deploy so the next release picks them up.
+on:
+  workflow_dispatch:
+    inputs:
+      RUN_MAX_TOKENS:
+        description: Total tokens across all model calls in one run
+        default: "1000000"
+      FREE_DAILY_COST_USD:
+        description: Per-user daily circuit breaker, USD
+        default: "8.00"
+      FREE_MONTHLY_COST_USD:
+        description: Per-user monthly circuit breaker, USD
+        default: "8.00"
+      FREE_TIER_MONTHLY_BUDGET_USD:
+        description: Monthly spend across every metered account, USD. 0 disables
+        default: "50.00"
+      redeploy:
+        description: Rerun deploy-backend.yml afterwards
+        type: boolean
+        default: true
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Patch allowlisted runtime variables
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          NEW_RUN_MAX_TOKENS: ${{ inputs.RUN_MAX_TOKENS }}
+          NEW_FREE_DAILY_COST_USD: ${{ inputs.FREE_DAILY_COST_USD }}
+          NEW_FREE_MONTHLY_COST_USD: ${{ inputs.FREE_MONTHLY_COST_USD }}
+          NEW_FREE_TIER_MONTHLY_BUDGET_USD: ${{ inputs.FREE_TIER_MONTHLY_BUDGET_USD }}
+        run: |
+          set -euo pipefail
+          : "${DEPLOY_HOST:?Missing DEPLOY_HOST}"
+          : "${DEPLOY_SSH_KEY:?Missing DEPLOY_SSH_KEY}"
+          : "${DEPLOY_KNOWN_HOSTS:?Missing DEPLOY_KNOWN_HOSTS}"
+
+          # Reject anything that is not a plain non-negative number.
+          for key in RUN_MAX_TOKENS FREE_DAILY_COST_USD FREE_MONTHLY_COST_USD FREE_TIER_MONTHLY_BUDGET_USD; do
+            eval "value=\${NEW_${key}}"
+            [[ "$value" =~ ^[0-9]+(\.[0-9]+)?$ ]] || { echo "Invalid value for $key"; exit 1; }
+          done
+
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/deploy_key ~/.ssh/known_hosts
+          trap 'rm -f ~/.ssh/deploy_key' EXIT
+          ssh_args=(-i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o BatchMode=yes
+                    -o StrictHostKeyChecking=yes -o ConnectTimeout=15)
+
+          # Values travel as environment variables, never on the command line.
+          ssh "${ssh_args[@]}" \
+            "ubuntu@$DEPLOY_HOST" \
+            NEW_RUN_MAX_TOKENS="$NEW_RUN_MAX_TOKENS" \
+            NEW_FREE_DAILY_COST_USD="$NEW_FREE_DAILY_COST_USD" \
+            NEW_FREE_MONTHLY_COST_USD="$NEW_FREE_MONTHLY_COST_USD" \
+            NEW_FREE_TIER_MONTHLY_BUDGET_USD="$NEW_FREE_TIER_MONTHLY_BUDGET_USD" \
+            'bash -s' <<'REMOTE'
+          set -euo pipefail
+          file=/opt/webbuilder/runtime.env
+          [[ -s "$file" ]] || { echo 'Missing runtime.env'; exit 1; }
+
+          backup="${file}.bak.$(date -u +%Y%m%dT%H%M%SZ)"
+          sudo cp -p "$file" "$backup"
+          sudo chmod 600 "$backup"
+          echo "Backed up to $(basename "$backup")"
+
+          tmp=$(mktemp)
+          sudo cat "$file" | awk '
+            BEGIN {
+              split("RUN_MAX_TOKENS FREE_DAILY_COST_USD FREE_MONTHLY_COST_USD FREE_TIER_MONTHLY_BUDGET_USD", a, " ")
+              for (i in a) want[a[i]] = ENVIRON["NEW_" a[i]]
+            }
+            {
+              eq = index($0, "=")
+              key = eq ? substr($0, 1, eq - 1) : ""
+              if (key != "" && (key in want)) { print key "=" want[key]; seen[key] = 1 }
+              else { print }
+            }
+            END { for (k in want) if (!(k in seen)) print k "=" want[k] }
+          ' > "$tmp"
+
+          # tee preserves the inode, owner and mode of the existing file.
+          sudo tee "$file" < "$tmp" > /dev/null
+          rm -f "$tmp"
+
+          # Report key names and whether they changed. Never print other lines.
+          for k in RUN_MAX_TOKENS FREE_DAILY_COST_USD FREE_MONTHLY_COST_USD FREE_TIER_MONTHLY_BUDGET_USD; do
+            before=$(sudo grep -E "^${k}=" "$backup" | head -1 | cut -d= -f2- || true)
+            after=$(sudo grep -E "^${k}=" "$file" | head -1 | cut -d= -f2- || true)
+            printf '  %-32s %s -> %s\n' "$k" "${before:-<unset>}" "$after"
+          done
+          echo "runtime.env line count: $(sudo wc -l < "$file")"
+          REMOTE
+
+      - name: Rerun the backend deploy
+        if: ${{ inputs.redeploy }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run deploy-backend.yml --ref main --repo "$GITHUB_REPOSITORY"
