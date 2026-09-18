@@ -77,3 +77,27 @@
         }
     }
 }
+
+@layer components {
+    .composerMenu {
+        transform-origin: bottom left;
+        animation: composer-menu 120ms var(--ease-out);
+    }
+    @keyframes composer-menu {
+        from {
+            opacity: 0;
+            transform: translateY(4px) scale(0.98);
+        }
+    }
+    @media (prefers-reduced-motion: reduce) {
+        .composerMenu {
+            animation-name: composer-menu-reduced;
+            animation-duration: 80ms;
+        }
+    }
+    @keyframes composer-menu-reduced {
+        from {
+            opacity: 0;
+        }
+    }
+}
