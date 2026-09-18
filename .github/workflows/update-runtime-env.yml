@@ -19,10 +19,10 @@ on:
         default: "50.00"
       MAX_CONCURRENT_RUNS:
         description: Builds running at once across the whole service
-        default: "8"
+        default: "18"
       MAX_LIVE_SANDBOXES:
-        description: Sandboxes alive at once. Keep below the E2B plan limit
-        default: "12"
+        description: Running sandboxes at once. E2B Hobby allows 20; paused ones do not count
+        default: "18"
       redeploy:
         description: Rerun deploy-backend.yml afterwards
         type: boolean
