@@ -11,6 +11,10 @@ const labels: Record<string, string> = {
     list_files: "List files",
 };
 
+export function toolLabel(name: string) {
+    return labels[name] || name.replaceAll("_", " ");
+}
+
 /** Present only fields in the recorded public result; never infer edits or commands. */
 export function presentTool(tool: ToolCall) {
     let parsed: unknown;
@@ -62,6 +66,8 @@ export function presentTool(tool: ToolCall) {
     } else if (fileCount) {
         const action = targetFiles ? "targeted" : record?.changed_files ? "updated" : "read";
         summary = `${fileCount} ${fileCount === 1 ? "file" : "files"} ${action}`;
+    } else if (skillName) {
+        summary = text("resource") || skillName;
     } else if (record?.message_ids !== undefined) {
         summary = `${references.length} matching ${references.length === 1 ? "message" : "messages"}`;
     } else if (tool.name === "inspect_preview" && record?.checked === true) {
@@ -79,9 +85,7 @@ export function presentTool(tool: ToolCall) {
         truncatedFields,
         command: text("command"),
         inputOmitted: record?.input_omitted === true,
-        title: skillName
-            ? `Read skill · ${skillName}`
-            : labels[tool.name] || tool.name.replaceAll("_", " "),
+        title: skillName ? `Read skill · ${skillName}` : toolLabel(tool.name),
         summary,
         files,
         references,
@@ -93,4 +97,23 @@ export function presentTool(tool: ToolCall) {
         changed: Boolean(record?.changed_files),
         parsed,
     };
+}
+
+export type TouchedFile = {
+    path: string;
+    changed: boolean;
+    title: string;
+    summary: string;
+    durationMs?: number;
+};
+
+/** One entry per distinct path across a run; the last tool to touch it wins. */
+export function touchedFiles(calls: ToolCall[]): TouchedFile[] {
+    const index = new Map<string, TouchedFile>();
+    for (const tool of calls) {
+        const { files, changed, title, summary } = presentTool(tool);
+        for (const path of files)
+            index.set(path, { path, changed, title, summary, durationMs: tool.duration_ms });
+    }
+    return [...index.values()];
 }
