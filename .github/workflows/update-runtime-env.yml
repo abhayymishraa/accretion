@@ -87,7 +87,9 @@ jobs:
           sudo chmod 600 "$backup"
           echo "Backed up to $(basename "$backup")"
           # Every backup is another full secrets copy, so do not let them pile up.
-          sudo ls -1t "${file}".bak.* 2>/dev/null | tail -n +6 | sudo xargs -r rm -f
+          # The whole pipeline runs under sudo: the glob expands in the calling
+          # shell, which cannot read the directory. Housekeeping never aborts the job.
+          sudo sh -c "ls -1t '${file}'.bak.* 2>/dev/null | tail -n +6 | xargs -r rm -f" || true
 
           tmp=$(mktemp)
           # Holds a full copy of the runtime file, secrets included, until tee lands it.
