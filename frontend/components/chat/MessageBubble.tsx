@@ -2,12 +2,15 @@
 
 import { Button } from "@/components/ui/button";
 
-import type { Message } from "@/types/chat.type";
+import type { Message, WorkflowProposal } from "@/types/chat.type";
 import { CheckIcon, CopyIcon } from "@radix-ui/react-icons";
 import { useState } from "react";
 import { CodeListing } from "./CodeListing";
 import { RunActivity } from "./RunActivity";
 import { WorkflowCard } from "./WorkflowCard";
+
+// An approved plan replays as kind "execute"; the run trace shows it instead.
+const CARD_KINDS: WorkflowProposal["kind"][] = ["clarify", "plan", "answer"];
 
 function MessageContent({ content }: { content: string }) {
     // Parse complete fences before paragraphs so blank lines inside code survive.
@@ -64,13 +67,15 @@ export function MessageBubble({
                 WebBuilder
             </span>
             {hasRun && <RunActivity message={message} connected={connected} />}
-            {message.workflow && onWorkflowChanged && (
-                <WorkflowCard
-                    message={message}
-                    onChanged={onWorkflowChanged}
-                    canRespond={canRespond}
-                />
-            )}
+            {message.workflow &&
+                CARD_KINDS.includes(message.workflow.kind) &&
+                onWorkflowChanged && (
+                    <WorkflowCard
+                        message={message}
+                        onChanged={onWorkflowChanged}
+                        canRespond={canRespond}
+                    />
+                )}
             {message.content && message.content !== message.workflow?.summary && (
                 <>
                     <MessageContent content={message.content} />
