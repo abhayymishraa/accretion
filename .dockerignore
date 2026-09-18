@@ -4,6 +4,7 @@
 !uv.lock
 !main.py
 !request_timing.py
+!plans.py
 !agent/
 !agent/*.py
 !agent/*.cjs

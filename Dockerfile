@@ -13,7 +13,7 @@ WORKDIR /app
 RUN groupadd --gid 10001 app && useradd --uid 10001 --gid app --no-create-home app \
     && mkdir /app/projects && chown app:app /app/projects
 COPY --from=builder /app/.venv /app/.venv
-COPY main.py request_timing.py ./
+COPY main.py request_timing.py plans.py ./
 COPY agent/ ./agent/
 COPY auth/ ./auth/
 COPY db/ ./db/
