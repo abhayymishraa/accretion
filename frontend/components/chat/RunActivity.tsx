@@ -51,7 +51,7 @@ export function RunActivity({ message, connected }: { message: Message; connecte
     const running = message.run_status === "running";
     const failed =
         message.run_status &&
-        !["running", "succeeded", "cancelled", "awaiting_input", "answered"].includes(
+        !["running", "succeeded", "cancelled", "stopped", "awaiting_input", "answered"].includes(
             message.run_status,
         );
     const steps = details.activity;
@@ -79,6 +79,8 @@ export function RunActivity({ message, connected }: { message: Message; connecte
         label = "Build complete";
     } else if (message.run_status === "cancelled") {
         label = "Run stopped";
+    } else if (message.run_status === "stopped") {
+        label = "Paused at its limit";
     } else if (message.run_status === "awaiting_input") {
         label = "Waiting for your response";
     } else if (message.run_status === "answered") {
@@ -102,6 +104,7 @@ export function RunActivity({ message, connected }: { message: Message; connecte
                         <Cross2Icon aria-hidden="true" />
                     ) : running ||
                       message.run_status === "cancelled" ||
+                      message.run_status === "stopped" ||
                       message.run_status === "awaiting_input" ? (
                         <ClockIcon aria-hidden="true" />
                     ) : (

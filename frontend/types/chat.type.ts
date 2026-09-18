@@ -3,6 +3,7 @@ export type RunStatus =
     | "succeeded"
     | "failed"
     | "cancelled"
+    | "stopped"
     | "timed_out"
     | "interrupted"
     | "awaiting_input"

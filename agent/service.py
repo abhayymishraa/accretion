@@ -196,7 +196,9 @@ class Service:
                     db.add(Chat(id=chat_id, user_id=user_id, title=prompt[:100]))
                     await db.flush()
                 if parent is None and not user.use_token():
-                    raise HTTPException(403, 'No credits remaining. Try after your daily reset.')
+                    raise HTTPException(403, f'You have used all {user.credits_limit} credits for '
+                        f'this month. They reset on {user.tokens_reset_at:%-d %B} UTC. '
+                        'Saved projects and previews remain available.')
                 run_id = str(uuid.uuid4())
                 db.add(Run(id=run_id, chat_id=chat_id, prompt=prompt, status='running', workflow=workflow, metrics=metrics))
                 if parent is not None:
@@ -377,7 +379,7 @@ class Service:
         try:
             remaining_time = int(os.getenv('RUN_TIMEOUT_SECONDS', '600')) - previous_elapsed / 1000
             if remaining_time <= 0:
-                raise RunLimitError('The request reached its active time limit. Submit a smaller request.')
+                raise RunLimitError('The request reached its active time limit')
             async with asyncio.timeout(remaining_time):
                 await self.emit(live, 'run_started', message='Starting your request')
                 await self.emit(live, 'stage', message='Understanding your request')
@@ -416,7 +418,15 @@ class Service:
         except asyncio.CancelledError:
             status = 'interrupted' if self.stopping else 'cancelled'
             reason = 'Server stopped; submit a new request to continue.' if self.stopping else 'Stopped at your request. The last acknowledged checkpoint remains available.'
-        except (RunLimitError, VerificationError, ContextError, PreviewError, BudgetLimitError) as exc:
+        except RunLimitError as exc:
+            # A limit is a stopping point, not a failure: the checkpoint holds the work and
+            # the next message continues from it. Rendering this as a broken run is what
+            # made users think the product itself had failed.
+            status = 'stopped'
+            reason = (f'{str(exc).rstrip(".")}. Your work so far is saved. '
+                      'Send another message to continue from here.')
+            live.metrics['error_type'] = type(exc).__name__
+        except (VerificationError, ContextError, PreviewError, BudgetLimitError) as exc:
             reason = str(exc)
             live.metrics['error_type'] = type(exc).__name__
             diagnose_sandbox = isinstance(exc, (SandboxSetupError, PreviewError))
