@@ -29,9 +29,8 @@ from .dependencies import get_current_user
 from .verification import email_configured, send_verification, consume_token
 from datetime import datetime, timezone
 
-from plans import month_window
-
 from disposable_email_domains import blocklist
+from plans import month_window
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 

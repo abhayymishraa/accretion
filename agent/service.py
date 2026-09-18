@@ -196,11 +196,13 @@ class Service:
                     db.add(Chat(id=chat_id, user_id=user_id, title=prompt[:100]))
                     await db.flush()
                 if parent is None:
+                    if not user.use_token():
+                        raise HTTPException(403, f'You have used all {user.credits_limit} credits '
+                            f'for this month. They reset on {user.tokens_reset_at:%-d %B} UTC. '
+                            'Saved projects and previews remain available.')
+                    # Recorded only once the credit is actually taken, so a refund
+                    # cannot return one that was never spent.
                     metrics['credit_spent'] = True
-                if parent is None and not user.use_token():
-                    raise HTTPException(403, f'You have used all {user.credits_limit} credits for '
-                        f'this month. They reset on {user.tokens_reset_at:%-d %B} UTC. '
-                        'Saved projects and previews remain available.')
                 run_id = str(uuid.uuid4())
                 db.add(Run(id=run_id, chat_id=chat_id, prompt=prompt, status='running', workflow=workflow, metrics=metrics))
                 if parent is not None:
