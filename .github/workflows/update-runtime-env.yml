@@ -55,8 +55,8 @@ jobs:
 
           # Reject anything that is not a plain non-negative number.
           for key in RUN_MAX_TOKENS FREE_DAILY_COST_USD FREE_MONTHLY_COST_USD FREE_TIER_MONTHLY_BUDGET_USD MAX_CONCURRENT_RUNS MAX_LIVE_SANDBOXES; do
-            eval "value=\${NEW_${key}}"
-            [[ "$value" =~ ^[0-9]+(\.[0-9]+)?$ ]] || { echo "Invalid value for $key"; exit 1; }
+            var="NEW_${key}"
+            [[ "${!var}" =~ ^[0-9]+(\.[0-9]+)?$ ]] || { echo "Invalid value for $key"; exit 1; }
           done
 
           install -d -m 700 ~/.ssh
@@ -86,8 +86,12 @@ jobs:
           sudo cp -p "$file" "$backup"
           sudo chmod 600 "$backup"
           echo "Backed up to $(basename "$backup")"
+          # Every backup is another full secrets copy, so do not let them pile up.
+          sudo ls -1t "${file}".bak.* 2>/dev/null | tail -n +6 | sudo xargs -r rm -f
 
           tmp=$(mktemp)
+          # Holds a full copy of the runtime file, secrets included, until tee lands it.
+          trap 'rm -f "$tmp"' EXIT
           sudo cat "$file" | awk '
             BEGIN {
               split("RUN_MAX_TOKENS FREE_DAILY_COST_USD FREE_MONTHLY_COST_USD FREE_TIER_MONTHLY_BUDGET_USD MAX_CONCURRENT_RUNS MAX_LIVE_SANDBOXES", a, " ")
@@ -112,7 +116,7 @@ jobs:
             after=$(sudo grep -E "^${k}=" "$file" | head -1 | cut -d= -f2- || true)
             printf '  %-32s %s -> %s\n' "$k" "${before:-<unset>}" "$after"
           done
-          echo "runtime.env line count: $(sudo wc -l < "$file")"
+          echo "runtime.env line count: $(sudo wc -l "$file" | awk '{print $1}')"
           REMOTE
 
       - name: Rerun the backend deploy
