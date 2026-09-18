@@ -2,24 +2,46 @@
 
 // Interaction patterns adapted from Beautiful UI, MIT © 2026 Shane Levine.
 // See ../ember/BEAUTIFUL-UI-LICENSE. All progress comes from recorded run events.
-import { presentTool } from "@/lib/tool-presentation";
+import { presentTool, toolLabel, type TouchedFile } from "@/lib/tool-presentation";
 import type { ToolCall } from "@/types/chat.type";
-import { CheckIcon, ChevronRightIcon, ClockIcon, Cross2Icon } from "@radix-ui/react-icons";
-import { memo, useState } from "react";
+import {
+    ChevronRightIcon,
+    ClockIcon,
+    CodeIcon,
+    Cross2Icon,
+    CubeIcon,
+    FileTextIcon,
+    MagnifyingGlassIcon,
+    Pencil1Icon,
+} from "@radix-ui/react-icons";
+import { memo, useId, useState } from "react";
+import { createPortal } from "react-dom";
 import styles from "./transcript.module.css";
 
 import { PixelLoader } from "./RunStatus";
 import { ToolResult } from "./ToolResult";
-const ToolRow = memo(function ToolRow({ tool }: { tool: ToolCall }) {
+
+const icons: Record<string, typeof CubeIcon> = {
+    write_files: Pencil1Icon,
+    read_files: FileTextIcon,
+    list_files: FileTextIcon,
+    run_command: CodeIcon,
+    read_skill: MagnifyingGlassIcon,
+};
+export const ToolRow = memo(function ToolRow({ tool }: { tool: ToolCall }) {
     const result = presentTool(tool);
     // Errors open by default. A user's explicit expand/collapse choice takes precedence.
     const [choice, setChoice] = useState<boolean | null>(null);
     const expanded = choice ?? tool.status === "error";
+    const Glyph = icons[tool.name] || CubeIcon;
+    // One chip per row: the command, else the first path, else the plain summary.
+    const chip = result.command || result.files[0] || result.summary;
+    const mono = Boolean(result.command || result.files[0]);
     return (
         <details
             className={
                 styles.tool +
-                " transcript-tool [&[data-state=error]>summary]:text-destructive [&>summary]:list-none [&>summary]:flex [&>summary]:gap-2 [&>summary]:cursor-pointer [&>summary]:min-h-11 [&>summary]:text-[12px] [&>summary::-webkit-details-marker]:hidden [&[open]>summary>.transcript-chevron]:rotate-90 border border-border bg-card rounded-[5px] min-w-0 [&>summary:hover]:bg-secondary [&[data-state=running]]:border-primary [&[data-state=success]>summary>svg:not(.transcript-chevron)]:text-accent-foreground max-[481px]:[&>summary]:py-0 max-[481px]:[&>summary]:px-2 max-[481px]:[&>summary]:gap-1.5 [&>summary]:items-start [&>summary]:py-[11px] [&>summary]:px-2.5 [&[data-state=error]_.transcript-toolSummary]:text-destructive"
+                " transcript-tool min-w-0 [&>summary]:list-none [&>summary]:flex [&>summary]:min-h-9 [&>summary]:cursor-pointer [&>summary]:items-center [&>summary]:gap-2 [&>summary]:rounded-md [&>summary]:px-1 [&>summary]:text-[12.5px] [&>summary::-webkit-details-marker]:hidden [&[open]>summary>.transcript-chevron]:rotate-90 [&>summary:hover]:bg-secondary [&[data-state=error]>summary]:text-destructive [&[data-state=error]_.transcript-toolSummary]:text-destructive"
             }
             data-state={tool.status}
             open={expanded}
@@ -28,111 +50,158 @@ const ToolRow = memo(function ToolRow({ tool }: { tool: ToolCall }) {
             }}
         >
             <summary>
-                <ChevronRightIcon
-                    className="transcript-chevron w-[13px] shrink-0 [transition:transform_.18s_ease-out] motion-reduce:[transition:none]"
-                    aria-hidden="true"
-                />
-                {tool.status === "running" ? (
-                    <PixelLoader />
-                ) : tool.status === "success" ? (
-                    <CheckIcon aria-hidden="true" />
-                ) : result.interrupted ? (
-                    <ClockIcon aria-hidden="true" />
-                ) : (
-                    <Cross2Icon aria-hidden="true" />
-                )}
-                <span className="transcript-toolInfo flex flex-col flex-1 gap-1 min-w-0">
-                    <span
-                        className={
-                            styles.toolName +
-                            " transcript-toolName flex-1 min-w-0 wrap-anywhere font-medium"
-                        }
-                    >
-                        {result.title}
-                    </span>
-                    <span className="transcript-toolSummary text-muted-foreground text-[12px] leading-[1.5] wrap-anywhere">
-                        {result.summary}
-                    </span>
-                    {result.files.length > 0 && (
-                        <span className="transcript-fileChips flex flex-wrap items-center gap-[5px] mt-0.5 min-w-0">
-                            {result.files.slice(0, 2).map((file) => (
-                                <span
-                                    key={file}
-                                    className="transcript-fileChip max-w-full overflow-hidden text-ellipsis whitespace-nowrap border border-border rounded-[3px] py-0.5 px-[5px] text-secondary-foreground bg-background [font:11px/1.5_ui-monospace,_monospace]"
-                                    title={file}
-                                >
-                                    {file}
-                                </span>
-                            ))}
-                            {result.fileCount > 2 && (
-                                <span className="transcript-caption font-mono text-[11px] text-muted-foreground">
-                                    +{result.fileCount - Math.min(result.files.length, 2)} more
-                                </span>
-                            )}
-                        </span>
+                <span className="group/glyph relative flex size-4 shrink-0 items-center justify-center text-muted-foreground">
+                    {tool.status === "running" ? (
+                        <PixelLoader />
+                    ) : tool.status === "error" ? (
+                        <Cross2Icon aria-hidden="true" />
+                    ) : result.interrupted ? (
+                        <ClockIcon aria-hidden="true" />
+                    ) : (
+                        <Glyph aria-hidden="true" />
                     )}
                 </span>
-                <span className="transcript-toolMeta flex flex-col items-end gap-[5px] pt-[1px] shrink-0">
-                    <span className="transcript-caption font-mono text-[11px] text-muted-foreground">
-                        {tool.status === "success"
-                            ? "Done"
-                            : result.interrupted
-                              ? "Stopped"
-                              : tool.status === "error"
-                                ? "Failed"
-                                : "Running"}
+                <span
+                    className={`${styles.toolName} transcript-toolName shrink-0 font-medium text-foreground`}
+                >
+                    {result.title}
+                </span>
+                <span
+                    className={`transcript-toolSummary mr-auto min-w-0 truncate rounded-md bg-secondary px-1.5 py-0.5 text-[11.5px] text-muted-foreground ${mono ? "font-mono" : ""}`}
+                    title={chip}
+                >
+                    {chip}
+                </span>
+                {result.fileCount > 1 && (
+                    <span className="shrink-0 font-mono text-[11px] text-muted-foreground tabular-nums">
+                        +{result.fileCount - 1}
                     </span>
-                    {typeof tool.duration_ms === "number" && (
-                        <span className="transcript-duration font-mono text-[11px] text-muted-foreground shrink-0 tabular-nums">
-                            {(tool.duration_ms / 1000).toFixed(1)}s
-                        </span>
-                    )}
+                )}
+                {typeof tool.duration_ms === "number" && (
+                    <span className="shrink-0 font-mono text-[11px] text-muted-foreground tabular-nums">
+                        {(tool.duration_ms / 1000).toFixed(1)}s
+                    </span>
+                )}
+                <ChevronRightIcon
+                    className="transcript-chevron w-[13px] shrink-0 text-muted-foreground [transition:transform_.18s_var(--ease-out)] motion-reduce:[transition:none]"
+                    aria-hidden="true"
+                />
+                <span className="sr-only">
+                    {tool.status === "success"
+                        ? "Completed"
+                        : result.interrupted
+                          ? "Stopped"
+                          : tool.status === "error"
+                            ? "Failed"
+                            : "Running"}
                 </span>
             </summary>
             {expanded && (
-                <div className="transcript-result pt-0 px-3 pb-3 min-w-0">
-                    <ToolResult tool={tool} result={result} />
+                <div className="transcript-result min-w-0 px-1 pt-0.5 pb-2">
+                    <div className="border-l border-border pl-3">
+                        <ToolResult tool={tool} result={result} />
+                    </div>
                 </div>
             )}
         </details>
     );
 });
 
-export function ToolList({ calls }: { calls: ToolCall[] }) {
-    // Collapse only an uninterrupted prefix of successful calls: preserve event order
-    // and never tuck a failed or running operation away in an older-results group.
-    const firstUnfinished = calls.findIndex((tool) => tool.status !== "success");
-    const prefix = firstUnfinished === -1 ? calls.length : firstUnfinished;
-    const hiddenCount = Math.min(prefix, Math.max(0, calls.length - 3));
-    const count = hiddenCount >= 4 ? hiddenCount : 0;
-    const [open, setOpen] = useState(false);
+/** A burst of the same successful tool, collapsed to one row with its calls inside. */
+export function ToolGroup({ name, calls }: { name: string; calls: ToolCall[] }) {
+    const Glyph = icons[name] || CubeIcon;
     return (
-        <div className="transcript-tools grid gap-[5px]">
-            {count > 0 && (
-                <details
-                    className="transcript-trace [&_li[data-failed=true]]:text-destructive [&>summary]:list-none [&>summary]:flex [&>summary]:items-center [&>summary]:gap-2 [&>summary]:cursor-pointer [&>summary]:min-h-11 [&>summary]:text-[12px] [&>summary::-webkit-details-marker]:hidden [&[open]>summary>.transcript-chevron]:rotate-90 [&>summary]:text-muted-foreground [&_ol]:list-none [&_ol]:pt-0 [&_ol]:pr-0 [&_ol]:pb-2 [&_ol]:pl-[7px] [&_ol]:m-0 [&_li]:flex [&_li]:items-baseline [&_li]:gap-3 [&_li]:py-1.5 [&_li]:px-0 [&_li]:text-muted-foreground [&_li]:text-[12px] [&_li]:wrap-anywhere [&_li>div]:min-w-0 [&_li>div]:flex-1 [&_p]:m-0"
-                    open={open}
-                    onToggle={(event) => setOpen(event.currentTarget.open)}
+        <details className="min-w-0 [&>summary]:flex [&>summary]:min-h-9 [&>summary]:cursor-pointer [&>summary]:items-center [&>summary]:gap-2 [&>summary]:rounded-md [&>summary]:px-1 [&>summary]:text-[12.5px] [&>summary]:list-none [&>summary::-webkit-details-marker]:hidden [&[open]>summary>.transcript-chevron]:rotate-90 [&>summary:hover]:bg-secondary">
+            <summary>
+                <span className="flex size-4 shrink-0 items-center justify-center text-muted-foreground">
+                    <Glyph aria-hidden="true" />
+                </span>
+                <span className="shrink-0 font-medium text-foreground">{toolLabel(name)}</span>
+                <span className="mr-auto rounded-md bg-secondary px-1.5 py-0.5 font-mono text-[11.5px] text-muted-foreground tabular-nums">
+                    {calls.length} calls
+                </span>
+                <ChevronRightIcon
+                    className="transcript-chevron w-[13px] shrink-0 text-muted-foreground [transition:transform_.18s_var(--ease-out)] motion-reduce:[transition:none]"
+                    aria-hidden="true"
+                />
+            </summary>
+            <div className="ml-2 grid gap-1 border-l border-border pl-3">
+                {calls.map((tool, index) => (
+                    <ToolRow key={tool.id || index} tool={tool} />
+                ))}
+            </div>
+        </details>
+    );
+}
+
+// Header row plus three body lines; enough to decide whether the preview fits below.
+const PREVIEW_HEIGHT = 102;
+
+type Anchor = { file: TouchedFile; x: number; top?: number; bottom?: number };
+
+export function FileChips({ files }: { files: TouchedFile[] }) {
+    const previewId = useId();
+    // Portalled: the run trace animates its height, and an absolute child would be clipped.
+    const [anchor, setAnchor] = useState<Anchor | null>(null);
+    const openAt = (file: TouchedFile) => (event: React.SyntheticEvent) => {
+        const rect = (event.currentTarget as Element).getBoundingClientRect();
+        const fitsBelow = rect.bottom + PREVIEW_HEIGHT <= window.innerHeight - 12;
+        setAnchor({
+            file,
+            x: Math.max(12, Math.min(rect.left, window.innerWidth - 300)),
+            ...(fitsBelow
+                ? { top: rect.bottom + 6 }
+                : { bottom: window.innerHeight - rect.top + 6 }),
+        });
+    };
+    // touchedFiles rebuilds its objects each render, so identity is not stable: match on path.
+    const close = (file: TouchedFile) => () =>
+        setAnchor((current) => (current?.file.path === file.path ? null : current));
+    return (
+        <div className="mt-2.5 flex max-w-full flex-wrap gap-1.5 border-t border-border pt-2.5">
+            {files.map((file) => (
+                <button
+                    type="button"
+                    key={file.path}
+                    aria-describedby={anchor?.file.path === file.path ? previewId : undefined}
+                    onMouseEnter={openAt(file)}
+                    onMouseLeave={close(file)}
+                    onFocus={openAt(file)}
+                    onBlur={close(file)}
+                    className="inline-flex h-7 max-w-full cursor-pointer items-center gap-2 rounded-md bg-card px-2 font-mono text-[11.5px] text-foreground focus-visible:outline-2 focus-visible:outline-ring pointer-fine:hover:bg-secondary"
                 >
-                    <summary>
-                        <ChevronRightIcon
-                            className="transcript-chevron w-[13px] shrink-0 [transition:transform_.18s_ease-out] motion-reduce:[transition:none]"
-                            aria-hidden="true"
-                        />
-                        {count} earlier completed operations
-                    </summary>
-                    {open && (
-                        <div className="transcript-tools grid gap-[5px]">
-                            {calls.slice(0, count).map((tool, i) => (
-                                <ToolRow key={tool.id || i} tool={tool} />
-                            ))}
-                        </div>
-                    )}
-                </details>
-            )}
-            {calls.slice(count).map((tool, i) => (
-                <ToolRow key={tool.id || i + count} tool={tool} />
+                    <span className="min-w-0 truncate">{file.path}</span>
+                    <span
+                        className={`shrink-0 ${file.changed ? "text-accent-foreground" : "text-muted-foreground"}`}
+                    >
+                        {file.changed ? "edited" : "read"}
+                    </span>
+                </button>
             ))}
+            {anchor &&
+                createPortal(
+                    <div
+                        id={previewId}
+                        role="tooltip"
+                        className="fixed z-50 w-72 animate-in overflow-hidden rounded-lg border border-border bg-card zoom-in-95 fade-in duration-150 ease-out motion-reduce:animate-none"
+                        style={{ left: anchor.x, top: anchor.top, bottom: anchor.bottom }}
+                    >
+                        <div className="flex items-center justify-between border-b border-border px-2.5 py-1.5 font-mono text-[11px] text-muted-foreground">
+                            <span className="min-w-0 truncate">{anchor.file.path}</span>
+                            <span className="shrink-0 tabular-nums">
+                                {((anchor.file.durationMs ?? 0) / 1000).toFixed(1)}s
+                            </span>
+                        </div>
+                        <div className="flex flex-col gap-0.5 px-2.5 py-1.5 font-mono text-[11px] leading-[1.7] text-muted-foreground">
+                            <span className="text-foreground">{anchor.file.title}</span>
+                            <span>{anchor.file.summary}</span>
+                            <span className="text-[10.5px]">
+                                Run history records no file contents.
+                            </span>
+                        </div>
+                    </div>,
+                    document.body,
+                )}
         </div>
     );
 }

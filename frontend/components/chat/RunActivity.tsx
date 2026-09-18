@@ -4,13 +4,16 @@
 // See ../ember/BEAUTIFUL-UI-LICENSE. All progress comes from recorded run events.
 import type { Message } from "@/types/chat.type";
 import { CheckIcon, ChevronRightIcon, ClockIcon, Cross2Icon } from "@radix-ui/react-icons";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import styles from "./transcript.module.css";
 
 import { Elapsed, PixelLoader } from "./RunStatus";
-import { ToolList } from "./ToolList";
+import { RelativeTime, RunMenu } from "./RunMenu";
+import { FileChips, ToolGroup, ToolRow } from "./ToolList";
 import { RecordedResult } from "./ToolResult";
 import { useRunDetails } from "@/hooks/chat/useRunDetails";
+import { groupTimeline, timelineEntries } from "@/lib/chat/run-timeline";
+import { touchedFiles } from "@/lib/tool-presentation";
 import { Button } from "@/components/ui/button";
 export function RunActivity({ message, connected }: { message: Message; connected: boolean }) {
     const completionIcon = useRef<SVGSVGElement>(null);
@@ -53,6 +56,21 @@ export function RunActivity({ message, connected }: { message: Message; connecte
         );
     const steps = details.activity;
     const calls = details.calls;
+    // An approved plan is replayed as kind "execute"; it belongs in the trace, not the transcript.
+    const approach = message.workflow?.kind === "execute" ? message.workflow : null;
+    // Both walk every tool call and presentTool parses each result, so they are
+    // recomputed only when the run's steps or calls actually change.
+    const timeline = useMemo(() => groupTimeline(timelineEntries(steps, calls)), [steps, calls]);
+    const files = useMemo(() => touchedFiles(calls), [calls]);
+    const transcript = timeline
+        .map((entry) =>
+            entry.kind === "stage"
+                ? entry.item.message || "Verification"
+                : entry.kind === "group"
+                  ? `${entry.name} x${entry.items.length}`
+                  : entry.item.name,
+        )
+        .join("\n");
     const latest = steps.filter((item) => item.kind === "stage").at(-1)?.message;
     let label = "Recorded steps";
     if (running) {
@@ -95,7 +113,15 @@ export function RunActivity({ message, connected }: { message: Message; connecte
                     )}
                     {label}
                 </span>
-                <Elapsed start={message.created_at} end={message.finished_at} running={running} />
+                <span className="flex shrink-0 items-center gap-2.5">
+                    <Elapsed
+                        start={message.created_at}
+                        end={message.finished_at}
+                        running={running}
+                    />
+                    {!running && <RelativeTime iso={message.finished_at || message.created_at} />}
+                    <RunMenu runId={message.id.replace(/^run:/, "")} transcript={transcript} />
+                </span>
             </div>
             {(message.details_pending || steps.length > 0 || calls.length > 0) && (
                 <details
@@ -113,10 +139,23 @@ export function RunActivity({ message, connected }: { message: Message; connecte
                         />
                         Build steps{" "}
                         <span className="transcript-caption font-mono text-[11px] text-muted-foreground">
-                            {steps.length || calls.length || ""}
+                            {timeline.length || ""}
                         </span>
                     </summary>
                     <div className={styles.buildDetails}>
+                        {approach && (
+                            <div className="pb-2 pl-[7px] text-[12px] text-muted-foreground">
+                                <p className="m-0 pb-1 wrap-anywhere">{approach.summary}</p>
+                                {approach.steps.map((step, index) => (
+                                    <p className="m-0 flex gap-3 py-1 wrap-anywhere" key={index}>
+                                        <span aria-hidden="true" className="tabular-nums">
+                                            {index + 1}
+                                        </span>
+                                        <span className="min-w-0">{step}</span>
+                                    </p>
+                                ))}
+                            </div>
+                        )}
                         {details.loading && <p role="status">Loading build steps…</p>}
                         {details.error && (
                             <p role="alert">
@@ -126,23 +165,51 @@ export function RunActivity({ message, connected }: { message: Message; connecte
                                 </Button>
                             </p>
                         )}
-                        <ol className="list-none pt-0 pr-0 pb-2 pl-[7px] m-0 [&>li]:flex [&>li]:items-baseline [&>li]:gap-3 [&>li]:py-1.5 [&>li]:px-0 [&>li]:text-muted-foreground [&>li]:text-[12px] [&>li]:wrap-anywhere [&>li[data-failed=true]]:text-destructive [&>li>div]:min-w-0 [&>li>div]:flex-1 [&_p]:m-0">
-                            {steps.map((item) => (
-                                <li key={item.id} data-failed={item.ok === false}>
-                                    <span className="transcript-stageDot [flex:0_0_4px] h-1 bg-current rounded-full" />
-                                    <div>
-                                        <p>{item.message || "Verification"}</p>
-                                        {item.checks !== undefined && (
-                                            <RecordedResult
-                                                label="Check results"
-                                                output={JSON.stringify(item.checks, null, 2)}
-                                            />
-                                        )}
+                        <div className="grid gap-1 pt-0 pr-0 pb-2 pl-[7px]">
+                            {timeline.map((entry) =>
+                                entry.kind === "group" ? (
+                                    <ToolGroup
+                                        key={`${entry.name}:${entry.order}`}
+                                        name={entry.name}
+                                        calls={entry.items}
+                                    />
+                                ) : entry.kind === "tool" ? (
+                                    <ToolRow
+                                        key={entry.item.event_id || entry.item.id}
+                                        tool={entry.item}
+                                    />
+                                ) : (
+                                    <div
+                                        key={entry.item.id}
+                                        data-failed={entry.item.ok === false}
+                                        className="flex min-h-9 min-w-0 items-center gap-2 px-1 text-[12.5px] text-muted-foreground data-[failed=true]:text-destructive"
+                                    >
+                                        <span
+                                            aria-hidden="true"
+                                            className="flex size-4 shrink-0 items-center justify-center"
+                                        >
+                                            <span className="size-1 rounded-full bg-current" />
+                                        </span>
+                                        <div className="min-w-0 flex-1 wrap-anywhere">
+                                            <p className="m-0">
+                                                {entry.item.message || "Verification"}
+                                            </p>
+                                            {entry.item.checks !== undefined && (
+                                                <RecordedResult
+                                                    label="Check results"
+                                                    output={JSON.stringify(
+                                                        entry.item.checks,
+                                                        null,
+                                                        2,
+                                                    )}
+                                                />
+                                            )}
+                                        </div>
                                     </div>
-                                </li>
-                            ))}
-                        </ol>
-                        {calls.length > 0 && <ToolList calls={calls} />}
+                                ),
+                            )}
+                        </div>
+                        {files.length > 0 && <FileChips files={files} />}
                     </div>
                 </details>
             )}
