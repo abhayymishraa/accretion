@@ -195,6 +195,8 @@ class Service:
                     chat_id = str(uuid.uuid4())
                     db.add(Chat(id=chat_id, user_id=user_id, title=prompt[:100]))
                     await db.flush()
+                if parent is None:
+                    metrics['credit_spent'] = True
                 if parent is None and not user.use_token():
                     raise HTTPException(403, f'You have used all {user.credits_limit} credits for '
                         f'this month. They reset on {user.tokens_reset_at:%-d %B} UTC. '
@@ -213,6 +215,16 @@ class Service:
                 self.publish(chat_id, {'e': 'resync'})
             live.task = asyncio.create_task(self.execute(live), name=f'run:{run_id}')
             return {'chat_id': chat_id, 'run_id': run_id, 'status': 'running', 'tokens_remaining': credits}
+
+    async def refund_credit(self, live):
+        if not live.metrics.get('credit_spent') or live.metrics.get('credit_refunded'):
+            return
+        async with AsyncSessionLocal.begin() as db:
+            user = await db.get(User, live.user_id, with_for_update=True)
+            if user:
+                user.refund_token()
+        live.metrics['credit_refunded'] = True
+        logger.warning('Refunded a credit after an infrastructure fault run_id=%s', live.id)
 
     def publish(self, chat_id, event):
         for queue in list(self.subscribers.get(chat_id, set())):
@@ -444,6 +456,9 @@ class Service:
             reason = 'The build sandbox could not complete an operation. Retry the request; if it keeps failing, check the E2B template and service availability.'
             live.metrics['error_type'] = type(exc).__name__
             diagnose_sandbox = True
+            # The provider never gave this run a machine, so the credit buys nothing.
+            # Deliberately not done for RunLimitError: that run spent real compute.
+            await self.refund_credit(live)
             logger.error('Sandbox operation failed run_id=%s error_type=%s stage=%s',
                          live.id, type(exc).__name__, live.metrics.get('stage'))
         except Exception as exc:

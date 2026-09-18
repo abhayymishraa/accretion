@@ -70,6 +70,15 @@ class User(Base):
     def credits_limit(self) -> int:
         return plan_credits(self.plan) or 0
 
+    def refund_token(self) -> None:
+        """Return a credit for a run that never got service.
+
+        Only for infrastructure faults. A run that spent its budget consumed real
+        compute, so refunding that would make an impossible request free to retry.
+        """
+        if not self.credits_unlimited and self.tokens_remaining < self.credits_limit:
+            self.tokens_remaining += 1
+
     def use_token(self) -> bool:
         """Spend one credit. False when this month's credits are gone."""
         if self.credits_unlimited:
