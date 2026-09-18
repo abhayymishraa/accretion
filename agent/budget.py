@@ -10,6 +10,7 @@ crossing a UTC reset count in both windows; a reset cannot free in-flight money.
 """
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, ROUND_CEILING
+import logging
 import os
 import uuid
 
@@ -18,6 +19,8 @@ from sqlalchemy import func, select
 from db.base import AsyncSessionLocal
 from db.models import SpendEntry, User
 from plans import METERED_PLANS, month_window
+
+logger = logging.getLogger('webbuilder.runs')
 
 NANOS = 1_000_000_000
 
@@ -79,7 +82,14 @@ async def require_allowance(db, user):
     budget = dollar_nanos('FREE_TIER_MONTHLY_BUDGET_USD', '50.00')
     if budget:
         month_start, month_end = month_window(now)
-        if await free_tier_used(db, month_start, month_end) >= budget:
+        used = float(await free_tier_used(db, month_start, month_end))
+        # Warn before the ceiling bites: reaching it refuses every free account at
+        # once, so the operator needs a chance to raise it first.
+        if used >= budget * 0.8:
+            level = logger.error if used >= budget else logger.warning
+            level('Free tier at %d%% of its monthly ceiling: %.2f of %.2f USD',
+                  used * 100 // budget, used / NANOS, budget / NANOS)
+        if used >= budget:
             raise BudgetLimitError(
                 'Free capacity for this month is used up across all accounts. This is a '
                 'service-wide ceiling, not your credits, and none were spent. It clears at '

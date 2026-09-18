@@ -17,6 +17,12 @@ on:
       FREE_TIER_MONTHLY_BUDGET_USD:
         description: Monthly spend across every metered account, USD. 0 disables
         default: "50.00"
+      MAX_CONCURRENT_RUNS:
+        description: Builds running at once across the whole service
+        default: "8"
+      MAX_LIVE_SANDBOXES:
+        description: Sandboxes alive at once. Keep below the E2B plan limit
+        default: "12"
       redeploy:
         description: Rerun deploy-backend.yml afterwards
         type: boolean
@@ -39,6 +45,8 @@ jobs:
           NEW_FREE_DAILY_COST_USD: ${{ inputs.FREE_DAILY_COST_USD }}
           NEW_FREE_MONTHLY_COST_USD: ${{ inputs.FREE_MONTHLY_COST_USD }}
           NEW_FREE_TIER_MONTHLY_BUDGET_USD: ${{ inputs.FREE_TIER_MONTHLY_BUDGET_USD }}
+          NEW_MAX_CONCURRENT_RUNS: ${{ inputs.MAX_CONCURRENT_RUNS }}
+          NEW_MAX_LIVE_SANDBOXES: ${{ inputs.MAX_LIVE_SANDBOXES }}
         run: |
           set -euo pipefail
           : "${DEPLOY_HOST:?Missing DEPLOY_HOST}"
@@ -46,7 +54,7 @@ jobs:
           : "${DEPLOY_KNOWN_HOSTS:?Missing DEPLOY_KNOWN_HOSTS}"
 
           # Reject anything that is not a plain non-negative number.
-          for key in RUN_MAX_TOKENS FREE_DAILY_COST_USD FREE_MONTHLY_COST_USD FREE_TIER_MONTHLY_BUDGET_USD; do
+          for key in RUN_MAX_TOKENS FREE_DAILY_COST_USD FREE_MONTHLY_COST_USD FREE_TIER_MONTHLY_BUDGET_USD MAX_CONCURRENT_RUNS MAX_LIVE_SANDBOXES; do
             eval "value=\${NEW_${key}}"
             [[ "$value" =~ ^[0-9]+(\.[0-9]+)?$ ]] || { echo "Invalid value for $key"; exit 1; }
           done
@@ -66,6 +74,8 @@ jobs:
             NEW_FREE_DAILY_COST_USD="$NEW_FREE_DAILY_COST_USD" \
             NEW_FREE_MONTHLY_COST_USD="$NEW_FREE_MONTHLY_COST_USD" \
             NEW_FREE_TIER_MONTHLY_BUDGET_USD="$NEW_FREE_TIER_MONTHLY_BUDGET_USD" \
+            NEW_MAX_CONCURRENT_RUNS="$NEW_MAX_CONCURRENT_RUNS" \
+            NEW_MAX_LIVE_SANDBOXES="$NEW_MAX_LIVE_SANDBOXES" \
             'bash -s' <<'REMOTE'
           set -euo pipefail
           file=/opt/webbuilder/runtime.env
@@ -80,7 +90,7 @@ jobs:
           tmp=$(mktemp)
           sudo cat "$file" | awk '
             BEGIN {
-              split("RUN_MAX_TOKENS FREE_DAILY_COST_USD FREE_MONTHLY_COST_USD FREE_TIER_MONTHLY_BUDGET_USD", a, " ")
+              split("RUN_MAX_TOKENS FREE_DAILY_COST_USD FREE_MONTHLY_COST_USD FREE_TIER_MONTHLY_BUDGET_USD MAX_CONCURRENT_RUNS MAX_LIVE_SANDBOXES", a, " ")
               for (i in a) want[a[i]] = ENVIRON["NEW_" a[i]]
             }
             {
@@ -97,7 +107,7 @@ jobs:
           rm -f "$tmp"
 
           # Report key names and whether they changed. Never print other lines.
-          for k in RUN_MAX_TOKENS FREE_DAILY_COST_USD FREE_MONTHLY_COST_USD FREE_TIER_MONTHLY_BUDGET_USD; do
+          for k in RUN_MAX_TOKENS FREE_DAILY_COST_USD FREE_MONTHLY_COST_USD FREE_TIER_MONTHLY_BUDGET_USD MAX_CONCURRENT_RUNS MAX_LIVE_SANDBOXES; do
             before=$(sudo grep -E "^${k}=" "$backup" | head -1 | cut -d= -f2- || true)
             after=$(sudo grep -E "^${k}=" "$file" | head -1 | cut -d= -f2- || true)
             printf '  %-32s %s -> %s\n' "$k" "${before:-<unset>}" "$after"
