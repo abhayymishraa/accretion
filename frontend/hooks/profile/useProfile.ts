@@ -5,7 +5,7 @@ import { clearSession } from "@/lib/auth/session";
 import { authService } from "@/services/service.auth";
 import { type AuthOptions, type UserData } from "@/types/auth.type";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 export function useProfile() {
@@ -16,18 +16,6 @@ export function useProfile() {
     const [error, setError] = useState("");
     const [message, setMessage] = useState("");
     const [attempt, setAttempt] = useState(0);
-
-    const refreshCredits = useCallback(() => {
-        authService
-            .getCurrentUser()
-            .then((value) => {
-                setUser(value);
-                localStorage.setItem("user_data", JSON.stringify(value));
-            })
-            .catch(() =>
-                setError("Could not refresh your credits. Reload to see the latest balance."),
-            );
-    }, []);
 
     useEffect(() => {
         if (!localStorage.getItem("auth_token")) {
@@ -108,7 +96,6 @@ export function useProfile() {
         error,
         message,
         setAttempt,
-        refreshCredits,
         signOut,
         save,
         connect,

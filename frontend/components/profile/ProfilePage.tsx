@@ -4,8 +4,6 @@ import { Button } from "@/components/ui/button";
 
 import { ChatNavbar } from "@/components/layout/ChatNavbar";
 import { WorkspaceSidebar } from "@/components/layout/WorkspaceSidebar";
-import { CreditReset } from "@/components/profile/CreditReset";
-import { UsageAllowance } from "@/components/profile/UsageAllowance";
 import { ProfileIdentityCard } from "@/components/profile/ProfileIdentityCard";
 import { ProfileSkeleton } from "@/components/profile/ProfileSkeleton";
 import { Check, Mail } from "lucide-react";
@@ -14,18 +12,8 @@ import { SiGithub, SiGoogle } from "react-icons/si";
 import { useProfile } from "@/hooks/profile/useProfile";
 
 export default function ProfilePage() {
-    const {
-        user,
-        options,
-        busy,
-        error,
-        message,
-        setAttempt,
-        refreshCredits,
-        signOut,
-        save,
-        connect,
-    } = useProfile();
+    const { user, options, busy, error, message, setAttempt, signOut, save, connect } =
+        useProfile();
     return (
         <>
             <ChatNavbar isAuthenticated={!!user} userData={user} onSignOut={signOut} />
@@ -67,29 +55,28 @@ export default function ProfilePage() {
                                 <section aria-labelledby="credits-title">
                                     <h2 id="credits-title">Build credits</h2>
                                     <p className="mt-4 text-3xl! font-medium text-foreground!">
-                                        {user.credits_unlimited
-                                            ? "Unlimited"
-                                            : user.tokens_remaining}
+                                        {user.credits_unlimited ? (
+                                            "Unlimited"
+                                        ) : (
+                                            <>
+                                                {user.tokens_remaining}
+                                                <span className="text-muted-foreground">
+                                                    {" / "}
+                                                    {user.credits_limit}
+                                                </span>
+                                            </>
+                                        )}
                                     </p>
                                     <p className="mt-2">
                                         {user.credits_unlimited
-                                            ? "No daily credit limit applies to this account."
-                                            : "Credits available for your next build."}
+                                            ? "No credit limit applies to this account."
+                                            : "One credit covers one build. Follow-up answers within a build are free."}
                                     </p>
                                     {!user.credits_unlimited && (
-                                        <div className="mt-4 text-sm text-muted-foreground">
-                                            {user.tokens_reset_at ? (
-                                                <CreditReset
-                                                    key={user.tokens_reset_at}
-                                                    resetAt={user.tokens_reset_at}
-                                                    onReset={refreshCredits}
-                                                />
-                                            ) : (
-                                                "Your next build starts a 24-hour window"
-                                            )}
-                                        </div>
+                                        <p className="mt-4 text-sm text-muted-foreground">
+                                            Resets {formatReset(user.tokens_reset_at)}
+                                        </p>
                                     )}
-                                    <UsageAllowance allowance={user.cost_allowance} />
                                 </section>
                                 <section aria-labelledby="signin-title">
                                     <h2 id="signin-title">Sign-in methods</h2>
@@ -162,4 +149,16 @@ export default function ProfilePage() {
             </div>
         </>
     );
+}
+
+/** Credits reset on the first of the month, UTC. */
+function formatReset(resetAt?: string | null) {
+    const next = new Date(resetAt ?? "");
+    return Number.isNaN(next.getTime())
+        ? "on the 1st, UTC"
+        : `${next.toLocaleDateString(undefined, {
+              day: "numeric",
+              month: "long",
+              timeZone: "UTC",
+          })}, UTC`;
 }
