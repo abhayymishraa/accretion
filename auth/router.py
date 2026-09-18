@@ -31,6 +31,8 @@ from datetime import datetime, timezone
 
 from plans import month_window
 
+from disposable_email_domains import blocklist
+
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
@@ -45,6 +47,14 @@ async def register_user(
             503, "Email verification is not configured yet. Please try again later."
         )
     email = str(user.email).lower()
+    # Throwaway addresses pass verification, so the blocklist is the only thing
+    # standing between a scripted signup and a free monthly credit grant. Parent
+    # domains are checked too: mailinator and friends hand out every subdomain.
+    labels = email.rsplit("@", 1)[-1].split(".")
+    if any(".".join(labels[i:]) in blocklist for i in range(len(labels) - 1)):
+        raise HTTPException(
+            422, "Disposable email addresses are not accepted. Use a permanent address."
+        )
     existing = await db.scalar(select(User).where(func.lower(User.email) == email))
     if existing:
         raise HTTPException(

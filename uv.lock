@@ -60,6 +60,7 @@ dependencies = [
     { name = "anyio" },
     { name = "authlib" },
     { name = "boto3" },
+    { name = "disposable-email-domains" },
     { name = "e2b" },
     { name = "fastapi" },
     { name = "google-cloud-storage" },
@@ -88,6 +89,7 @@ requires-dist = [
     { name = "anyio", specifier = ">=4.11,<5" },
     { name = "authlib", specifier = ">=1.6,<2" },
     { name = "boto3", specifier = ">=1.40,<2" },
+    { name = "disposable-email-domains", specifier = ">=0.0.262" },
     { name = "e2b", specifier = "==2.49.1" },
     { name = "fastapi", specifier = ">=0.119.0" },
     { name = "google-cloud-storage", specifier = ">=3.4,<4" },
@@ -382,6 +384,15 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/0a/6e/1c8331ddf91ca4730ab3086a0f1be19c65510a33b5a441cb334e7a2d2560/cryptography-46.0.3-cp38-abi3-win32.whl", hash = "sha256:6276eb85ef938dc035d59b87c8a7dc559a232f954962520137529d77b18ff1df", size = 3036695, upload-time = "2025-10-15T23:18:08.672Z" },
     { url = "https://files.pythonhosted.org/packages/90/45/b0d691df20633eff80955a0fc7695ff9051ffce8b69741444bd9ed7bd0db/cryptography-46.0.3-cp38-abi3-win_amd64.whl", hash = "sha256:416260257577718c05135c55958b674000baef9a1c7d9e8f306ec60d71db850f", size = 3501720, upload-time = "2025-10-15T23:18:10.632Z" },
     { url = "https://files.pythonhosted.org/packages/e8/cb/2da4cc83f5edb9c3257d09e1e7ab7b23f049c7962cae8d842bbef0a9cec9/cryptography-46.0.3-cp38-abi3-win_arm64.whl", hash = "sha256:d89c3468de4cdc4f08a57e214384d0471911a3830fcdaf7a8cc587e42a866372", size = 2918740, upload-time = "2025-10-15T23:18:12.277Z" },
+]
+
+[[package]]
+name = "disposable-email-domains"
+version = "0.0.262"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/dc/14/e324f5a9d33f8c1b1fe65949b5437fcaab000f397f6041b2612252d102f8/disposable_email_domains-0.0.262.tar.gz", hash = "sha256:846a01eb92a6bd7564b3b913bf2e2a77ae8ebeea3116abc90a731cc53334afb3", size = 108310, upload-time = "2026-09-17T13:01:38.833Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a7/e8/c0d72ae2adad65d656b790a01cc438cc234293964ee0ee69a32c1e6da4f2/disposable_email_domains-0.0.262-py3-none-any.whl", hash = "sha256:91a9ec5ecb21ce43512b95db619e8b2889eeef1b2716b1113811c5c0de16dc95", size = 55600, upload-time = "2026-09-17T13:01:37.512Z" },
 ]
 
 [[package]]
