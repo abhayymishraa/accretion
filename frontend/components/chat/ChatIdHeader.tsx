@@ -1,3 +1,4 @@
+import { AccountSummary } from "@/components/layout/AccountSummary";
 import { Brand } from "@/components/layout/Brand";
 import { ThemeToggle } from "@/components/layout/ThemeProvider";
 import { ProjectsList } from "@/components/projects/ProjectsList";
@@ -30,16 +31,7 @@ export function ChatIdHeader({
                 <Brand />
             </div>
             <div className="ember-row flex items-center gap-3.5">
-                <div className="ember-account flex items-center gap-3 text-[12px] text-muted-foreground min-w-0 [&>span:first-child]:max-w-55 [&>span:first-child]:overflow-hidden [&>span:first-child]:text-ellipsis [&>span:first-child]:whitespace-nowrap max-[1101px]:[&>span:first-child]:hidden max-md:hidden">
-                    {userData && (
-                        <>
-                            <span>{userData.email}</span>
-                            <span className="ember-balance text-foreground bg-secondary py-1.5 px-2.5 rounded-[6px] whitespace-nowrap">
-                                {userData.tokens_remaining} credits
-                            </span>
-                        </>
-                    )}
-                </div>
+                <AccountSummary userData={userData} />
                 <Link
                     href="/profile"
                     className={buttonVariants({ variant: "icon" })}
