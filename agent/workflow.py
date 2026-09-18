@@ -93,7 +93,7 @@ async def select_workflow(live, model=None):
         'continuation': live.workflow.get('context'),
         'recent_context': evidence, 'saved_revision_id': revision}, ensure_ascii=False))]
     estimate, _ = estimate_input_tokens(model, messages, json.dumps(schema))
-    budget = int(os.getenv('RUN_MAX_TOKENS', '200000'))
+    budget = int(os.getenv('RUN_MAX_TOKENS', '1000000'))
     if live.metrics.get('total_tokens', 0) + live.metrics.get('reserved_tokens', 0) + estimate + 2048 >= budget:
         raise RunLimitError('Token budget reached before request routing')
     response = await invoke_with_usage(model.bind_tools([schema], tool_choice='select_workflow',
