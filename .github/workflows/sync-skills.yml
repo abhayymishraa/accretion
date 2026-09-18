@@ -1,0 +1,58 @@
+# Refresh the vendored skills in agent/skills/ from their upstream repositories.
+# Sources are read from the provenance files, so adding a skill means adding an
+# entry there, not editing this workflow.
+#
+# Opens a pull request; it never pushes to main. Skill files are instructions
+# injected straight into the agent's context, so an upstream change gets read
+# by a person before it reaches production.
+name: Sync bundled skills
+
+on:
+  schedule:
+    - cron: "0 6 * * 1" # Mondays, 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: sync-skills
+  cancel-in-progress: true
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Re-vendor skills from upstream
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python scripts/sync_skills.py | tee /tmp/sync-report.txt
+
+      # Imports agent/skills.py for real, so the check exercises the production path.
+      - name: Verify every skill still loads and hashes match
+        run: |
+          pip install --quiet langchain-core pydantic
+          python -c "
+          from agent.skills import RuntimeSkills, SKILL_DIRECTORIES
+          loaded = RuntimeSkills().entries
+          missing = sorted(set(SKILL_DIRECTORIES) - set(loaded))
+          assert not missing, f'skills failed to load after sync: {missing}'
+          print(f'{len(loaded)} skills load and verify')
+          "
+
+      - uses: peter-evans/create-pull-request@v7
+        with:
+          branch: sync/bundled-skills
+          title: "chore(skills): sync bundled skills from upstream"
+          commit-message: "chore(skills): sync bundled skills from upstream"
+          body-path: /tmp/sync-report.txt
+          delete-branch: true
+          add-paths: |
+            agent/skills/**
