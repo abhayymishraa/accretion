@@ -29,6 +29,8 @@ from .dependencies import get_current_user
 from .verification import email_configured, send_verification, consume_token
 from datetime import datetime, timezone
 
+from plans import month_window
+
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
@@ -137,8 +139,8 @@ async def get_me(
         response.tokens_reset_at is None
         or response.tokens_reset_at <= datetime.now(timezone.utc)
     ):
-        response.tokens_remaining = 2
-        response.tokens_reset_at = None
+        response.tokens_remaining = current_user.credits_limit
+        response.tokens_reset_at = month_window(datetime.now(timezone.utc))[1]
     response.providers = list(
         await db.scalars(
             select(AuthIdentity.provider).where(AuthIdentity.user_id == current_user.id)

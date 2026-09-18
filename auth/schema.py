@@ -2,6 +2,8 @@ from pydantic import BaseModel, EmailStr, Field, ConfigDict
 from datetime import datetime
 from typing import Optional
 
+from plans import DEFAULT_PLAN, plan_credits
+
 
 class UserRegister(BaseModel):
     name: str = Field(min_length=1, max_length=100)
@@ -46,7 +48,8 @@ class UserResponse(BaseModel):
     providers: list[str] = Field(default_factory=list)
     created_at: datetime
     last_query_at: Optional[datetime] = None
-    tokens_remaining: int = 2
+    tokens_remaining: int = plan_credits(DEFAULT_PLAN)
+    credits_limit: int = plan_credits(DEFAULT_PLAN)
     credits_unlimited: bool = False
     tokens_reset_at: Optional[datetime] = None
     cost_allowance: Optional[CostAllowance] = None
