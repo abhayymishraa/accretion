@@ -22,7 +22,7 @@ from .tools import ROOT, FileWriteError, WorkspaceTools
 from .preview import control_preview, PreviewError
 from .persistence import archive_slots, ensure_revision, latest_revision, revision_bytes, sandbox_archive, save_revision
 from .storage import StorageError
-from .events import redact, run_events
+from .events import MAX_RUN_EVENTS, redact, run_events
 from .context import ContextError, ProjectContext
 from .sandbox_runtime import SandboxRuntimes
 from .diagnostics import sandbox_diagnostics
@@ -244,7 +244,7 @@ class Service:
         )
 
     async def emit(self, live, kind, **payload):
-        if len(live.events) >= 200:
+        if len(live.events) >= MAX_RUN_EVENTS:
             raise RunLimitError('Activity budget reached')
         event = self.event(live, kind, **payload)
         async with AsyncSessionLocal.begin() as db:
@@ -294,7 +294,7 @@ class Service:
     async def save_files(self, live):
         if not live.sandbox:
             return
-        if len(live.events) >= 200:
+        if len(live.events) >= MAX_RUN_EVENTS:
             raise RunLimitError('Activity budget reached before checkpoint')
         current = await latest_revision(live.chat_id)
         async with archive_slots:
