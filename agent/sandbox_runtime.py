@@ -6,7 +6,6 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 import logging
 import os
-import time
 import uuid
 
 from e2b import (AsyncSandbox, AuthenticationException, InvalidArgumentException,
@@ -29,7 +28,6 @@ API_TIMEOUT = 10
 class SandboxRuntimes:
     def __init__(self):
         self.handles = {}
-        self.last_used = {}
 
     async def get(self, chat_id):
         async with AsyncSessionLocal() as db:
@@ -52,7 +50,6 @@ class SandboxRuntimes:
 
     def forget_handle(self, chat_id):
         self.handles.pop(chat_id, None)
-        self.last_used.pop(chat_id, None)
 
     async def remove(self, row, *, rejected=False):
         # Only callers with confirmed absence/termination remove runtime ownership.
@@ -239,11 +236,10 @@ class SandboxRuntimes:
                     continue
                 if row.state == 'paused':
                     continue
+                # Reconcile every cycle: the provider pauses on its own timeout, and
+                # only this settles that spend and frees the live slot.
                 state = await self.state(row)
-                if state != 'running':
-                    continue
-                elapsed = time.monotonic() - self.last_used.get(row.chat_id, 0)
-                if shutdown or elapsed >= int(os.getenv('PREVIEW_IDLE_SECONDS', '300')):
+                if shutdown and state == 'running':
                     await self.pause(row)
             except Exception as exc:
                 logger.warning('Sandbox reconciliation deferred chat_id=%s error_type=%s', row.chat_id, type(exc).__name__)
