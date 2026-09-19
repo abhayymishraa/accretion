@@ -60,7 +60,6 @@ class Service:
         self.active: dict[str, LiveRun] = {}
         self.runtimes = SandboxRuntimes()
         self.sandboxes = self.runtimes.handles
-        self.sandbox_last_used = self.runtimes.last_used
         self.subscribers: dict[str, set[asyncio.Queue]] = {}
         self.admission = asyncio.Lock()
         self.stopping = False
@@ -345,8 +344,6 @@ class Service:
             await self.retire_sandbox(chat_id)
             raise
         finally:
-            if chat_id in self.sandboxes:
-                self.sandbox_last_used[chat_id] = time.monotonic()
             self.opening.discard(chat_id)
 
     async def finish(self, live, status, reason, result=None):
@@ -497,8 +494,6 @@ class Service:
                     await self.retire_sandbox(live.chat_id)
                 logger.error('Could not persist terminal state run_id=%s', live.id)
                 self.publish(live.chat_id, {'e': 'resync'})
-            if live.chat_id in self.sandboxes:
-                self.sandbox_last_used[live.chat_id] = time.monotonic()
             self.active.pop(live.id, None)
             spend_scope.reset(scope_token)
 
