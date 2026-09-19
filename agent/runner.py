@@ -228,7 +228,10 @@ async def run_editor(sandbox, prompt, emit, checkpoint, metrics, model=None, mem
                 'used': metrics.get('total_tokens', 0), 'reserved': metrics.get('reserved_tokens', 0),
                 'estimated_input': estimated_input, 'output_reserve': 1024, 'estimator': estimator}
             raise RunLimitError('Token budget reached')
-        response = await invoke_with_usage(bound, messages, max_tokens=output_limit,
+        # max_completion_tokens, not max_tokens: on the Responses API the latter is
+        # dropped without error and the request keeps the model's own ceiling, so
+        # the limit computed above never reached the provider.
+        response = await invoke_with_usage(bound, messages, max_completion_tokens=output_limit,
                                            prompt_cache_key=cache_key)
         messages = without_preview_images(messages)
         record_usage(metrics, response, phase='editor', estimated_input=estimated_input)
