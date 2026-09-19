@@ -21,7 +21,8 @@ from .sandbox_budget import reserve_runtime, confirm_runtime, settle_runtime
 from .budget import BudgetLimitError
 
 logger = logging.getLogger('webbuilder.runs')
-RUNTIME_TIMEOUT = 1200
+# Bounds one running stretch, not the project's life: the provider parks it at timeout.
+RUNTIME_TIMEOUT = 1800
 API_TIMEOUT = 10
 
 
