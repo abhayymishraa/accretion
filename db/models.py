@@ -206,6 +206,21 @@ class RunEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
+class TranscriptEntry(Base):
+    """One model-visible message, append-only, shared by every run in a chat.
+
+    Runs used to rebuild their message array from a summary blob, which made the
+    prompt prefix different on every request and cost us the provider's cache.
+    Keeping one transcript per chat makes that prefix stable and gives compaction
+    a single history to work on instead of two half-histories.
+    """
+    __tablename__ = 'transcript_entries'
+    chat_id: Mapped[str] = mapped_column(ForeignKey('chats.id', ondelete='CASCADE'), primary_key=True)
+    sequence: Mapped[int] = mapped_column(Integer, primary_key=True)
+    payload: Mapped[dict] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
 class ProjectRevision(Base):
     __tablename__ = 'project_revisions'
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
