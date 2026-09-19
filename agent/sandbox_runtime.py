@@ -166,7 +166,7 @@ class SandboxRuntimes:
         try:
             async with asyncio.timeout(40):
                 handle = await AsyncSandbox.create(template=template, timeout=RUNTIME_TIMEOUT,
-                    lifecycle={'on_timeout': 'pause', 'auto_resume': False},
+                    lifecycle={'on_timeout': 'pause', 'auto_resume': True},
                     metadata={'webbuilder_operation': row.operation_id}, request_timeout=30)
         except (AuthenticationException, InvalidArgumentException, NotFoundException,
                 RateLimitException, ServiceBusyException):
