@@ -23,6 +23,9 @@ from .commands import CommandStateError
 
 logger = logging.getLogger('webbuilder.runs')
 
+# OpenHands stops on the fourth consecutive failure of the same action.
+ERROR_STREAK = 3
+
 
 class RunLimitError(Exception):
     pass
@@ -124,8 +127,11 @@ async def run_editor(sandbox, prompt, emit, checkpoint, metrics, model=None, mem
     if memory is not None:
         history_tool = memory.tool()
         tools[history_tool.name] = history_tool
-    max_turns = int(os.getenv('RUN_MAX_TURNS', '16'))
-    max_calls = int(os.getenv('RUN_MAX_TOOL_CALLS', '32'))
+    # Runaway backstops, not work limits. OpenHands allows 500 iterations and
+    # relies on stuck detection plus a cost ceiling to stop a run; a turn count
+    # low enough to interrupt healthy work is the wrong instrument.
+    max_turns = int(os.getenv('RUN_MAX_TURNS', '500'))
+    max_calls = int(os.getenv('RUN_MAX_TOOL_CALLS', '1000'))
     token_budget = int(os.getenv('RUN_MAX_TOKENS', '1000000'))
     window_limit, ceiling = context_limit(), hard_limit()
     retry_above = 0
@@ -180,6 +186,7 @@ async def run_editor(sandbox, prompt, emit, checkpoint, metrics, model=None, mem
             logger.exception('Could not persist the transcript chat_id=%s', chat_id)
     cache_key = prompt_cache_key(messages[0].content, formatted_tools, getattr(memory, 'chat_id', ''))
     repeated = Counter()
+    failures = Counter()
     repairs = metrics.get('repairs', 0)
     summary = None
     for turn in range(metrics.get('turns', 0), max_turns):
@@ -296,6 +303,15 @@ async def run_editor(sandbox, prompt, emit, checkpoint, metrics, model=None, mem
             if fatal_error is not None:
                 # Never checkpoint or edit while a command/upload may still mutate files.
                 raise fatal_error
+            # OpenHands' action-error streak: the same tool failing over and over,
+            # with different arguments each time, is a loop the repetition counter
+            # above cannot see. Any success clears it, so only a trailing run counts.
+            if result.get('ok'):
+                failures.clear()
+            else:
+                failures[call['name']] += 1
+                if failures[call['name']] > ERROR_STREAK:
+                    raise RunLimitError(f'Stopped after repeated {call["name"]} failures without progress')
             content = serialized
             if image is not None:
                 content = [{'type': 'text', 'text': serialized}, image]
