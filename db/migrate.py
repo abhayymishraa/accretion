@@ -62,6 +62,12 @@ async def migrate():
                 WHERE r.log_sha256 IS NULL
                 ON CONFLICT (run_id, sequence) DO NOTHING
             '''))
+            # The derived per-chat summary is replaced by the chat transcript, which
+            # keeps those messages verbatim. Everything here was derived from messages
+            # that still exist, so dropping it discards a cache, not a source. The
+            # foreign key pointed at messages rather than the reverse, so nothing
+            # cascades out of this.
+            await connection.execute(text('DROP TABLE IF EXISTS project_memory'))
         print("WebBuilder initial schema is ready")
     finally:
         await engine.dispose()

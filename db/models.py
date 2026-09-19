@@ -237,16 +237,6 @@ class StorageDeletion(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
-class ProjectMemory(Base):
-    """Derived context only; original messages remain the source of truth."""
-    __tablename__ = 'project_memory'
-    chat_id: Mapped[str] = mapped_column(ForeignKey('chats.id', ondelete='CASCADE'), primary_key=True)
-    version: Mapped[int] = mapped_column(Integer, default=1)
-    covered_message_id: Mapped[str] = mapped_column(ForeignKey('messages.id', ondelete='CASCADE'))
-    revision_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
-    summary: Mapped[dict] = mapped_column(JSON)
-
-
 class SandboxRuntime(Base):
     """One owned runtime, retained after project deletion until provider cleanup succeeds."""
     __tablename__ = 'sandbox_runtimes'
