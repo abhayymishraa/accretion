@@ -31,8 +31,6 @@ async def reserve_runtime(chat_id, timeout, previous=None, info=None):
         raise ValueError('E2B cost resource ceiling is invalid')
     rate = sandbox_rate(cpu, memory)
     if info:
-        if info.lifecycle and info.lifecycle.get('auto_resume'):
-            raise BudgetLimitError('Automatic preview resume bypasses the usage allowance. Reopen after cleanup.')
         actual = sandbox_rate(info.cpu_count, info.memory_mb)
         if actual > rate:
             raise BudgetLimitError('This preview exceeds the configured compute allowance. Contact support.')
