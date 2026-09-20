@@ -206,6 +206,21 @@ class RunEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
+class TranscriptEntry(Base):
+    """One model-visible message, append-only, shared by every run in a chat.
+
+    Runs used to rebuild their message array from a summary blob, which made the
+    prompt prefix different on every request and cost us the provider's cache.
+    Keeping one transcript per chat makes that prefix stable and gives compaction
+    a single history to work on instead of two half-histories.
+    """
+    __tablename__ = 'transcript_entries'
+    chat_id: Mapped[str] = mapped_column(ForeignKey('chats.id', ondelete='CASCADE'), primary_key=True)
+    sequence: Mapped[int] = mapped_column(Integer, primary_key=True)
+    payload: Mapped[dict] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
 class ProjectRevision(Base):
     __tablename__ = 'project_revisions'
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
@@ -235,16 +250,6 @@ class StorageDeletion(Base):
     __tablename__ = 'storage_deletions'
     object_key: Mapped[str] = mapped_column(String(512), primary_key=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
-
-
-class ProjectMemory(Base):
-    """Derived context only; original messages remain the source of truth."""
-    __tablename__ = 'project_memory'
-    chat_id: Mapped[str] = mapped_column(ForeignKey('chats.id', ondelete='CASCADE'), primary_key=True)
-    version: Mapped[int] = mapped_column(Integer, default=1)
-    covered_message_id: Mapped[str] = mapped_column(ForeignKey('messages.id', ondelete='CASCADE'))
-    revision_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
-    summary: Mapped[dict] = mapped_column(JSON)
 
 
 class SandboxRuntime(Base):

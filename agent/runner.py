@@ -1,5 +1,6 @@
 """One editing conversation with shared budgets and host-controlled verification."""
 import json
+import logging
 import os
 import time
 from collections import Counter
@@ -10,12 +11,20 @@ from langchain_core.tools import tool
 from typing import Literal
 from .prompts import SYSTEM_PROMPT
 from .tools import FileWriteError, WorkspaceTools, list_files
+from .compaction import backoff_growth, compact, context_limit, hard_limit
+from .transcript import append as append_transcript, load as load_transcript, replace as replace_transcript
 from .context import CONTEXT_RULES, choose_files
 from .skills import RuntimeSkills
 from .public_tools import encode_public, public_tool_details, preflight_failure
 from .usage import invoke_with_usage, prompt_cache_key, record_usage
 from .browser import check_browser, ensure_preview_current
 from .commands import CommandStateError
+
+
+logger = logging.getLogger('webbuilder.runs')
+
+# OpenHands stops on the fourth consecutive failure of the same action.
+ERROR_STREAK = 3
 
 
 class RunLimitError(Exception):
@@ -118,11 +127,16 @@ async def run_editor(sandbox, prompt, emit, checkpoint, metrics, model=None, mem
     if memory is not None:
         history_tool = memory.tool()
         tools[history_tool.name] = history_tool
-    max_turns = int(os.getenv('RUN_MAX_TURNS', '16'))
-    max_calls = int(os.getenv('RUN_MAX_TOOL_CALLS', '32'))
+    # Runaway backstops, not work limits. OpenHands allows 500 iterations and
+    # relies on stuck detection plus a cost ceiling to stop a run; a turn count
+    # low enough to interrupt healthy work is the wrong instrument.
+    max_turns = int(os.getenv('RUN_MAX_TURNS', '500'))
+    max_calls = int(os.getenv('RUN_MAX_TOOL_CALLS', '1000'))
     token_budget = int(os.getenv('RUN_MAX_TOKENS', '1000000'))
+    window_limit, ceiling = context_limit(), hard_limit()
+    retry_above = 0
     max_repairs = 2
-    context = await memory.build(prompt, model, metrics, token_budget) if memory is not None else {}
+    context = await memory.build(prompt, metrics) if memory is not None else {}
     paths = await list_files(sandbox)
     initial = {}
     for path in choose_files(paths, prompt, context):
@@ -136,23 +150,76 @@ async def run_editor(sandbox, prompt, emit, checkpoint, metrics, model=None, mem
     formatted_tools = [convert_to_openai_tool(t) for t in tools.values()]
     bound = model.bind_tools(formatted_tools, parallel_tool_calls=False)
     tool_schema = json.dumps(formatted_tools, ensure_ascii=False)
+    chat_id = getattr(memory, 'chat_id', None)
+    prior = await load_transcript(chat_id) if chat_id else []
+    if prior:
+        # Earlier turns are real messages now, so the blob must not repeat them.
+        context = {key: value for key, value in context.items()
+                   if key not in ('recent_messages', 'initial_request')}
+    # Stable content first, everything request-scoped last: the prefix a request
+    # shares with the previous one is what the provider serves from cache.
     messages = [SystemMessage(content=SYSTEM_PROMPT + '\n' + CONTEXT_RULES + skill_prompt +
         '\nInitial files may be excerpts. Read complete files before replacing them.'),
+        *prior,
         HumanMessage(content=json.dumps({'project_context': context, 'request': prompt,
                                         'request_context': request_context,
                                         'files': initial, 'paths': paths}, ensure_ascii=False))]
+    stored = len(prior)
+
+    async def remember():
+        """Persist whatever the run has added since the last call.
+
+        Screenshots are dropped first: they are already excluded from later
+        requests, and storing base64 frames per turn would dwarf the transcript.
+
+        Never fatal. This runs at turn boundaries and immediately before a
+        successful return, so a failed write must not discard work the sandbox
+        has already checkpointed. The transcript is a cache of the conversation,
+        and losing it costs the next request its history, not this one its result.
+        """
+        nonlocal stored
+        if not chat_id:
+            return
+        try:
+            stored = await append_transcript(chat_id, without_preview_images(messages)[1:], stored)
+        except Exception:
+            logger.exception('Could not persist the transcript chat_id=%s', chat_id)
     cache_key = prompt_cache_key(messages[0].content, formatted_tools, getattr(memory, 'chat_id', ''))
     repeated = Counter()
+    failures = Counter()
     repairs = metrics.get('repairs', 0)
+    summary = None
     for turn in range(metrics.get('turns', 0), max_turns):
         metrics['turns'] = turn + 1
         if repairs:
             await emit('stage', message='Repairing verification errors')
         await checkpoint()
-        # Bound growing conversation inputs as well as measured provider usage.
-        if sum(len(str(m.content)) for m in without_preview_images(messages)) > 180_000:
-            raise RunLimitError('Context budget reached; request a smaller change')
         estimated_input, estimator = estimate_input_tokens(model, messages, tool_schema)
+        # Bound the conversation against the model's window, not a byte count. One
+        # batched pass at this single threshold; pruning every turn would never
+        # hold a prefix-cache hit.
+        if estimated_input > window_limit and estimated_input >= retry_above:
+            await emit('stage', message='Reclaiming conversation context')
+            uncompacted = messages
+            messages, report = await compact(
+                model, messages, lambda batch: estimate_input_tokens(model, batch, tool_schema)[0],
+                window_limit, skills=skills, previous=summary, metrics=metrics)
+            summary = report.get('summary') or summary
+            metrics['compaction'] = report
+            if chat_id and messages is not uncompacted:
+                # Compaction is the one non-append-only edit, so the stored
+                # transcript is rewritten rather than extended. Keyed on the list
+                # actually changing: the lossy projection rewrites tool results in
+                # place, leaving the step list empty and nothing summarized.
+                stored = await replace_transcript(chat_id, without_preview_images(messages)[1:])
+            estimated_input, estimator = estimate_input_tokens(model, messages, tool_schema)
+            # Do not pay for the same failing pass every turn; wait for the view to
+            # grow before trying again, and drop the hold once one succeeds.
+            retry_above = estimated_input + backoff_growth() if estimated_input > window_limit else 0
+        if estimated_input > ceiling:
+            metrics['token_budget'] = {'stage': 'context_window', 'limit': ceiling,
+                'trigger': window_limit, 'estimated_input': estimated_input, 'estimator': estimator}
+            raise RunLimitError('Context budget reached; request a smaller change')
         # Keep room for a useful response without always demanding the full 8k output ceiling.
         output_limit = min(8192, token_budget - metrics.get('total_tokens', 0) -
                            metrics.get('reserved_tokens', 0) - estimated_input - 1)
@@ -161,7 +228,10 @@ async def run_editor(sandbox, prompt, emit, checkpoint, metrics, model=None, mem
                 'used': metrics.get('total_tokens', 0), 'reserved': metrics.get('reserved_tokens', 0),
                 'estimated_input': estimated_input, 'output_reserve': 1024, 'estimator': estimator}
             raise RunLimitError('Token budget reached')
-        response = await invoke_with_usage(bound, messages, max_tokens=output_limit,
+        # max_completion_tokens, not max_tokens: on the Responses API the latter is
+        # dropped without error and the request keeps the model's own ceiling, so
+        # the limit computed above never reached the provider.
+        response = await invoke_with_usage(bound, messages, max_completion_tokens=output_limit,
                                            prompt_cache_key=cache_key)
         messages = without_preview_images(messages)
         record_usage(metrics, response, phase='editor', estimated_input=estimated_input)
@@ -186,6 +256,7 @@ async def run_editor(sandbox, prompt, emit, checkpoint, metrics, model=None, mem
             await emit('verification', ok=checks['ok'], message='Build and selected desktop/mobile acceptance checks passed' if checks['ok'] else 'Verification failed', checks=checks)
             await checkpoint()
             if checks['ok']:
+                await remember()
                 return {'summary': response.text()[:1500] or 'Application updated.',
                         'url': 'https://' + sandbox.get_host(5173)}
             if repairs >= max_repairs:
@@ -235,6 +306,15 @@ async def run_editor(sandbox, prompt, emit, checkpoint, metrics, model=None, mem
             if fatal_error is not None:
                 # Never checkpoint or edit while a command/upload may still mutate files.
                 raise fatal_error
+            # OpenHands' action-error streak: the same tool failing over and over,
+            # with different arguments each time, is a loop the repetition counter
+            # above cannot see. Any success clears it, so only a trailing run counts.
+            if result.get('ok'):
+                failures.clear()
+            else:
+                failures[call['name']] += 1
+                if failures[call['name']] > ERROR_STREAK:
+                    raise RunLimitError(f'Stopped after repeated {call["name"]} failures without progress')
             content = serialized
             if image is not None:
                 content = [{'type': 'text', 'text': serialized}, image]
@@ -242,6 +322,8 @@ async def run_editor(sandbox, prompt, emit, checkpoint, metrics, model=None, mem
             messages.append(ToolMessage(content=content, tool_call_id=call_id, status='success' if result.get('ok') else 'error'))
             if call['name'] == 'request_decision' and result.get('ok'):
                 await checkpoint()
+                await remember()
                 return {'decision': result['decision']}
         await checkpoint(workspace.revision != before_revision)
+        await remember()
     raise RunLimitError('Model-turn budget reached')

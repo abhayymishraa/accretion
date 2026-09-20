@@ -12,6 +12,19 @@ from db.models import Run, RunEvent
 from .persistence import put_object, read_object
 from .storage import StorageError
 
+# Bounds the events held in memory and written per run. Sized against
+# RUN_MAX_TURNS: a turn emits roughly three events, so a cap below the turn
+# budget would end healthy runs before the turn budget ever applied.
+MAX_RUN_EVENTS = 2000
+# The archive ceiling and the event cap are one pair, kept together so raising
+# one cannot silently break the other. An archive over this is never stored, and
+# maintenance prunes run_events only after a verified archive, so exceeding it
+# leaves those rows in the database permanently.
+ARCHIVE_MAX_BYTES = 4 * 1024 * 1024
+# One page of events for streaming and list responses, which is a display
+# bound rather than a completeness one.
+EVENT_PAGE = 201
+
 
 def redact(value, *, max_length=4000):
     if isinstance(value, dict):
@@ -30,9 +43,9 @@ def redact(value, *, max_length=4000):
     return value if max_length is None else value[:max_length]
 
 
-async def run_events(db, run_id, after_sequence=0):
+async def run_events(db, run_id, after_sequence=0, limit=EVENT_PAGE):
     rows = (await db.scalars(select(RunEvent).where(RunEvent.run_id == run_id,
-        RunEvent.sequence > after_sequence).order_by(RunEvent.sequence).limit(201))).all()
+        RunEvent.sequence > after_sequence).order_by(RunEvent.sequence).limit(limit))).all()
     return [{**row.payload, 'sequence': row.sequence} for row in rows]
 
 
@@ -41,7 +54,9 @@ async def archive_run(run_id):
         run = await db.get(Run, run_id)
         if not run or run.status in ('running', 'awaiting_input') or run.log_sha256:
             return
-        events = await run_events(db, run_id)
+        # The archive must cover the whole run: paging here would store a prefix
+        # and then let maintenance prune the rows the prefix left out.
+        events = await run_events(db, run_id, limit=MAX_RUN_EVENTS + 1)
     if not events:
         return
     lines = []
@@ -57,8 +72,8 @@ async def archive_run(run_id):
             encoded = json.dumps(entry, ensure_ascii=False, separators=(',', ':')).encode()
         lines.append(encoded + b'\n')
     body = b''.join(lines)
-    if len(body) > 1024 * 1024:
-        raise StorageError('Run diagnostic archive exceeds 1 MiB')
+    if len(body) > ARCHIVE_MAX_BYTES:
+        raise StorageError('Run diagnostic archive exceeds its ceiling')
     archive = gzip.compress(body, mtime=0)
     key = f'logs/{run_id}.jsonl.gz'
     await put_object(key, archive, 'application/gzip', chat_id=run.chat_id)
