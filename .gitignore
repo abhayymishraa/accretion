@@ -21,3 +21,4 @@ deploy/deployment.env
 .codex
 .github/hooks/
 AGENT_HANDOFF_SAFE.md
+claude-seo/
