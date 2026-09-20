@@ -8,6 +8,33 @@
 - Preserve runtime validation, build checks, preview checks, and deployment health checks.
 - Run lint, typecheck, build, or manual browser checks only with explicit user approval. Never claim unrun checks passed.
 
+## Sandbox runtimes
+
+`agent/sandbox_runtime.py` owns E2B sandboxes; `agent/service.py` drives it.
+
+- `lifecycle` is create-time and immutable. `AsyncSandbox.create` accepts it, `connect` does not, and no setter exists. A change to it reaches new sandboxes only.
+- E2B defaults `on_timeout` to `kill`. A sandbox created without `lifecycle` is destroyed at timeout, not parked.
+- Pausing belongs to the provider, through `on_timeout: 'pause'`. Do not reintroduce an idle reaper. Paused sandboxes are unbilled and do not count toward the concurrency limit.
+- `SandboxRuntimes.state()` is not a getter. It drops rows whose sandbox is gone, syncs the row to the provider, and settles spend once a sandbox has paused. `maintain()` must call it on every pass, unconditionally. Put it behind a short-circuit and it stops running, leaving rows stuck at `running`.
+- `reserved()` counts every row whose state is not `paused`. A stale `running` row holds capacity forever, and `require_sandbox_capacity` then refuses previews with a 429.
+- `auto_resume` wakes a sandbox from preview traffic without passing `reserve_runtime`. That resume is unmetered; treat billing as an open item (edit this when billing covers this edge case).
+
+## Context compaction
+
+`agent/compaction.py` trims context, `agent/transcript.py` stores it, `agent/runner.py` calls both.
+
+- Always on. There is no enable flag. `MODEL_CONTEXT_WINDOW` and `COMPACTION_RESERVE_TOKENS` size it, they do not switch it off.
+- The transcript is append-only per chat, not per run. A chat is one conversation; a later request reads what earlier ones did.
+- Never separate a tool call from its result. Every `AIMessage.tool_calls` entry must keep its matching `ToolMessage.tool_call_id`. An orphan is a provider 400, so each cut path rechecks the pairing.
+- Summarize with `model.model_copy(...)`, never `bind()` or a call kwarg: both put `reasoning: null` on the wire. `model_copy` also leaves the caller's model untouched, so a failed summary cannot misconfigure the live loop.
+- Constants trace to named upstream harnesses and carry that attribution in comments. Change a value and change its comment with it.
+
+## Changing runtime code
+
+- Verify the path that runs, not the path you edited. A reused sandbox goes through `connect`, not `create`. Maintenance runs through `maintain`, not through import. A successful import proves neither.
+- Before deleting a call, list everything it did. `state()` reads as a status check and also reconciles rows and settles spend.
+- Edit Python with exact string replacement, not regex. Removing a statement that is the sole body of an `if` leaves an orphaned block and an `IndentationError`.
+
 ## Frontend architecture
 
 - Read `frontend/AGENTS.md` before changing frontend code. It defines the feature folders, request boundaries, naming, formatting, and enforced file limits.
@@ -48,7 +75,7 @@ Selection prose lives in `RuntimeSkills.prompt()`. Follows Codex and OpenCode. K
 - Keep: minimal set + state order, announce which skills and why, no reference-chasing, no carry across turns.
 - Descriptions are author text from SKILL.md frontmatter, capped 1024 chars, no newlines. Untrusted text in a trusted position. Review description diffs harder than body diffs.
 
-`MAX_SKILL_BYTES` caps one file. No per-run cap: in-run compaction is the intended limit and is not built yet.
+`MAX_SKILL_BYTES` caps one file. There is no per-run cap: `agent/compaction.py` is the limit, and it reclaims skill bodies by clearing `skills.loaded` so the model can read one again if it still needs it.
 
 ### Updating
 
