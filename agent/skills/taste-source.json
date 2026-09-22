@@ -1,6 +1,6 @@
 {
   "repository": "Leonxlnx/taste-skill",
-  "commit": "ccbc15639c97057cbfcf32ecebc38ef716e4bb37",
+  "commit": "5217fb45be2c0b302f29c9cd31cbd3237501c684",
   "files": {
     "brandkit/SKILL.md": "b0c4837e1bd140ca816ae54948754ddd2ac1e2a4d3619363777a80caf00b2ede",
     "brutalist-skill/SKILL.md": "fffbaac8597f07679e9d87145533567658aedba3b5eca6f16a7075a333048caa",
@@ -15,8 +15,7 @@
     "stitch-skill/DESIGN.md": "0ab6740c4ebb1966dbceddb823a66d4bf027e960efbd73faca56cbf8370ae2ad",
     "stitch-skill/SKILL.md": "46bdb08fee2dded38b6ba0a051230a502d6ac6e4044afd47592cb40c256028b5",
     "taste-skill-v1/SKILL.md": "033d45af1ed23832730642f95f40ab49db7fb5222848489a6c5656144bfc6dae",
-    "taste-skill/SKILL.md": "aa194351b246b8b4799099d4ed7b033d29eab6e6e3d58d8d2172978be7b3ec89",
-    "TASTE-LICENSE": "4575a543ab88dad12ccea7d97e563d0bce5b448b06072e65d3264497dad326df"
+    "taste-skill/SKILL.md": "aa194351b246b8b4799099d4ed7b033d29eab6e6e3d58d8d2172978be7b3ec89"
   },
   "upstream_git_blobs": {
     "brandkit/SKILL.md": "d76399f666af97ac8c142928e02602d9732e78aa",
@@ -32,8 +31,7 @@
     "stitch-skill/DESIGN.md": "ef78a972599e7b1791580a5bcd6cf0242abac65b",
     "stitch-skill/SKILL.md": "19d958cdb5f83d14e4021fac942c1bcf8395c042",
     "taste-skill-v1/SKILL.md": "4054982cd292c7fe6d01170c2372e986a427d776",
-    "taste-skill/SKILL.md": "b72132fcd466da605623ffe96e370b3991fc5285",
-    "TASTE-LICENSE": "48a2f6640b81ff8eca9ce7f6a96337692713ef5b"
+    "taste-skill/SKILL.md": "b72132fcd466da605623ffe96e370b3991fc5285"
   },
   "upstream_prefix": "skills/"
 }
