@@ -50,7 +50,7 @@ export function ProjectDeleteDialog({
                     <Dialog.Description className="mt-3 text-sm leading-relaxed text-muted-foreground">
                         <span className="wrap-anywhere font-medium text-foreground">{title}</span>{" "}
                         and its chat, saved files, and run history will be permanently removed. Its
-                        preview will be stopped. This cannot be undone in WebBuilder.
+                        preview will be stopped. This cannot be undone in Accretion.
                     </Dialog.Description>
                     {error && (
                         <p role="alert" className="mt-4 text-sm text-destructive">

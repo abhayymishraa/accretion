@@ -101,7 +101,7 @@ export function ToolResult({
     return (
         <>
             {result.files.length > 0 && (
-                <div className="transcript-context border-l-2 border-l-primary pl-2.5 mt-1 mx-0 mb-2 [&_ul]:list-none [&_ul]:mt-[7px] [&_ul]:mx-0 [&_ul]:mb-0 [&_ul]:p-0 [&_li]:flex [&_li]:items-baseline [&_li]:gap-[7px] [&_li]:[font:11px/1.8_ui-monospace,_monospace] [&_li]:text-secondary-foreground [&_li_svg]:shrink-0 [&_li_svg]:w-3 [&_li_span]:wrap-anywhere">
+                <div className="transcript-context border-l-2 border-l-accent-foreground/45 pl-2.5 mt-1 mx-0 mb-2 [&_ul]:list-none [&_ul]:mt-[7px] [&_ul]:mx-0 [&_ul]:mb-0 [&_ul]:p-0 [&_li]:flex [&_li]:items-baseline [&_li]:gap-[7px] [&_li]:[font:11px/1.8_ui-monospace,_monospace] [&_li]:text-muted-foreground [&_li_svg]:shrink-0 [&_li_svg]:w-3 [&_li_span]:wrap-anywhere">
                     <span className="transcript-caption font-mono text-[11px] text-muted-foreground">
                         {result.targetFiles
                             ? "Target files"
@@ -120,7 +120,7 @@ export function ToolResult({
                 </div>
             )}
             {result.references.length > 0 && (
-                <div className="transcript-context border-l-2 border-l-primary pl-2.5 mt-1 mx-0 mb-2 [&_ul]:list-none [&_ul]:mt-[7px] [&_ul]:mx-0 [&_ul]:mb-0 [&_ul]:p-0 [&_li]:flex [&_li]:items-baseline [&_li]:gap-[7px] [&_li]:[font:11px/1.8_ui-monospace,_monospace] [&_li]:text-secondary-foreground [&_li_svg]:shrink-0 [&_li_svg]:w-3 [&_li_span]:wrap-anywhere">
+                <div className="transcript-context border-l-2 border-l-accent-foreground/45 pl-2.5 mt-1 mx-0 mb-2 [&_ul]:list-none [&_ul]:mt-[7px] [&_ul]:mx-0 [&_ul]:mb-0 [&_ul]:p-0 [&_li]:flex [&_li]:items-baseline [&_li]:gap-[7px] [&_li]:[font:11px/1.8_ui-monospace,_monospace] [&_li]:text-muted-foreground [&_li_svg]:shrink-0 [&_li_svg]:w-3 [&_li_span]:wrap-anywhere">
                     <span className="transcript-caption font-mono text-[11px] text-muted-foreground">
                         Matched conversation messages
                     </span>

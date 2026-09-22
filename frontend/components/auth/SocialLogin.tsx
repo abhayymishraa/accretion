@@ -6,7 +6,8 @@ import { Button } from "@/components/ui/button";
 
 import { API_BASE_URL } from "@/config/env";
 import type { AuthOptions } from "@/types/auth.type";
-import { SiGithub, SiGoogle } from "react-icons/si";
+import { FcGoogle } from "react-icons/fc";
+import { SiGithub } from "react-icons/si";
 
 export function SocialLogin({
     onOptions,
@@ -35,10 +36,14 @@ export function SocialLogin({
                             );
                         }}
                     >
+                        {/* Google's mark is four-colour by brand, so it comes from the
+                            Flat Color set rather than the monochrome one. GitHub's is
+                            monochrome by brand — #181717 is its actual colour, not the
+                            inherited text colour it was picking up before. */}
                         {provider === "google" ? (
-                            <SiGoogle aria-hidden="true" />
+                            <FcGoogle size={17} aria-hidden="true" />
                         ) : (
-                            <SiGithub aria-hidden="true" />
+                            <SiGithub size={16} color="#181717" aria-hidden="true" />
                         )}
                         {provider === "google" ? "Google" : "GitHub"}
                     </Button>

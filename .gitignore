@@ -22,3 +22,5 @@ deploy/deployment.env
 .github/hooks/
 AGENT_HANDOFF_SAFE.md
 claude-seo/
+.claude
+docs

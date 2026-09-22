@@ -206,7 +206,7 @@ export function ProjectCollection({
                     {visible.map((project) => (
                         <article
                             key={project.id}
-                            className={`flex min-w-0 flex-col ${compact ? "rounded-xl border border-border bg-card" : "h-full"}`}
+                            className={`${styles.cardEnter} flex min-w-0 flex-col ${compact ? "rounded-xl border border-border bg-card" : "h-full"}`}
                         >
                             <div
                                 className={`relative isolate flex min-w-0 flex-1 ${compact ? "" : styles.card}`}
@@ -214,7 +214,7 @@ export function ProjectCollection({
                                 {!compact && (
                                     <div
                                         aria-hidden="true"
-                                        className="pointer-events-none absolute inset-0 -z-10 -translate-x-0.5 translate-y-1.5 rounded-[24px] border border-foreground/25 bg-secondary"
+                                        className="pointer-events-none absolute inset-0 -z-10 -translate-x-0.5 translate-y-1.5 rounded-[24px] border border-foreground/25 bg-surface-2"
                                     />
                                 )}
                                 <Link

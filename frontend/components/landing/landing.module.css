@@ -1,0 +1,457 @@
+@layer components {
+    /* Curves live on :root in globals.css — --ease-out and --ease-drawer. The
+       built-in CSS easings are too weak to read as intentional. */
+    .page {
+        background: var(--background);
+        color: var(--foreground);
+    }
+
+    /* ---------- hero ---------- */
+    .hero {
+        position: relative;
+        isolation: isolate;
+        overflow: clip;
+    }
+
+    .heroPhoto {
+        position: absolute;
+        inset: 0;
+        z-index: -2;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        object-position: 50% 52%;
+    }
+
+    /* Image-relative only. The previous build faded the base into the page
+       background, which bloomed into a bright haze on light mode; the picture
+       now ends on a clean edge instead. */
+    .heroScrim {
+        position: absolute;
+        inset: 0;
+        z-index: -1;
+        pointer-events: none;
+        background: linear-gradient(
+            to bottom,
+            rgb(10 30 50 / 0.55) 0%,
+            rgb(10 30 50 / 0.56) 42%,
+            rgb(10 30 50 / 0.42) 68%,
+            rgb(10 30 50 / 0.24) 100%
+        );
+    }
+
+    .island {
+        border: 1px solid rgb(255 255 255 / 0.4);
+        background: rgb(255 255 255 / 0.16);
+        backdrop-filter: blur(20px) saturate(160%);
+        box-shadow:
+            inset 0 1px 0 rgb(255 255 255 / 0.5),
+            0 18px 50px -24px rgb(10 30 50 / 0.5);
+    }
+
+    @media (prefers-reduced-transparency: reduce) {
+        .island {
+            background: rgb(10 30 50 / 0.92);
+            backdrop-filter: none;
+        }
+    }
+
+    /* ---------- section rules ----------
+       Drawn rather than simply present, matching the blueprint frame's
+       draughting motif. A pseudo-element carries it because a border cannot
+       be scaled. */
+    .ruleTop {
+        position: relative;
+    }
+    .ruleTop::before {
+        content: "";
+        position: absolute;
+        inset-inline: 0;
+        top: 0;
+        height: 1px;
+        background: var(--border);
+        transform-origin: left;
+    }
+
+    @media (prefers-reduced-motion: no-preference) {
+        @supports (animation-timeline: view()) {
+            .ruleTop::before {
+                animation: lp-rule linear both;
+                animation-timeline: view();
+                animation-range: entry 5% entry 45%;
+            }
+        }
+        @keyframes lp-rule {
+            from {
+                transform: scaleX(0);
+            }
+            to {
+                transform: scaleX(1);
+            }
+        }
+    }
+
+    /* ---------- footer ---------- */
+    .footerArt {
+        position: absolute;
+        inset: 0;
+        z-index: -2;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        object-position: 50% 62%;
+    }
+
+    .footerVeil {
+        position: absolute;
+        inset: 0;
+        z-index: -1;
+        pointer-events: none;
+        background: linear-gradient(
+            to bottom,
+            var(--surface-1) 0%,
+            color-mix(in oklab, var(--surface-1) 88%, transparent) 26%,
+            color-mix(in oklab, var(--surface-1) 30%, transparent) 52%,
+            transparent 78%
+        );
+    }
+
+    /* Oversized ghosted wordmark sitting behind the illustration horizon. */
+    .ghostMark {
+        position: absolute;
+        left: 50%;
+        top: 42%;
+        translate: -50% -50%;
+        z-index: -1;
+        pointer-events: none;
+        font-size: clamp(90px, 17vw, 240px);
+        font-weight: 600;
+        letter-spacing: -0.04em;
+        line-height: 1;
+        color: color-mix(in oklab, var(--foreground) 7%, transparent);
+        white-space: nowrap;
+    }
+
+    /* ---------- motion ----------
+       Stagger stays in the 30-80ms band; longer delays read as sluggish.
+       Entry uses ease-out so movement starts immediately. */
+    @media (prefers-reduced-motion: no-preference) {
+        @keyframes lp-rise {
+            from {
+                opacity: 0;
+                transform: translateY(14px);
+            }
+        }
+
+        /* Scroll-scrubbed entrance. animation-delay does nothing on a view
+           timeline, so the stagger lives in per-item animation-range offsets.
+           Without view() support this falls back to the document timeline and
+           plays once on load, which is visible rather than hidden. */
+        .reveal {
+            animation: lp-rise 620ms var(--ease-out) both;
+        }
+        @supports (animation-timeline: view()) {
+            .reveal {
+                animation-timeline: view();
+                animation-range-start: entry calc(10% + var(--i, 0) * 5%);
+                animation-range-end: entry calc(70% + var(--i, 0) * 5%);
+            }
+        }
+
+        /* Type rising from behind a mask, one line at a time. The clip ends
+           past every edge so the headline's 30px text-shadow is not shaved
+           off, and bottom lands at -20% so italic descenders clear it. */
+        /* Keyboard parity. Pointer users get hover colour, an arrow nudge and a
+           press scale; the focus ring snapped. Scoped to .page so chat and
+           auth focus behaviour is untouched. */
+        .page :is(a, button, summary):focus-visible {
+            transition: outline-offset 150ms var(--ease-out);
+        }
+
+        /* Same 70ms step as heroRise. Two scales on one sequence meant --i
+           carried a different meaning per class and the lede overtook the
+           headline; 70ms also sits inside the 30-80ms band, 90ms did not. */
+        .lineRise {
+            animation: lp-line 900ms var(--ease-drawer) both;
+            animation-delay: calc(var(--i, 0) * 70ms);
+        }
+        @keyframes lp-line {
+            from {
+                clip-path: inset(-40% -10% 110% -10%);
+                transform: translateY(0.4em);
+            }
+            to {
+                clip-path: inset(-40% -10% -20% -10%);
+                transform: translateY(0);
+            }
+        }
+
+        /* The plate already drifts on Y via lp-drift. A translateY entry on its
+           figure stacks with that drift and both land early, so this entry
+           moves on scale instead and leaves Y to the parallax. */
+        .revealPlate {
+            animation: lp-plate 620ms var(--ease-out) both;
+        }
+        @supports (animation-timeline: view()) {
+            .revealPlate {
+                animation-timeline: view();
+                animation-range-start: entry calc(10% + var(--i, 0) * 5%);
+                animation-range-end: entry calc(70% + var(--i, 0) * 5%);
+            }
+        }
+        @keyframes lp-plate {
+            from {
+                opacity: 0;
+                scale: 0.985;
+            }
+        }
+
+        .heroRise {
+            animation: lp-hero 820ms var(--ease-drawer) both;
+            animation-delay: calc(var(--i, 0) * 70ms);
+        }
+        @keyframes lp-hero {
+            from {
+                opacity: 0;
+                transform: translateY(18px);
+                filter: blur(5px);
+            }
+        }
+
+        /* Marketing tier: a 1600ms settle is deliberate, not sluggish. The
+           image already object-fit: covers, so scaling it reflows nothing. */
+        .heroPhoto {
+            animation: lp-settle 1600ms var(--ease-drawer) both;
+        }
+        @keyframes lp-settle {
+            from {
+                transform: scale(1.06);
+            }
+        }
+
+        /* Decorative layers drift against the scroll for depth. linear is
+           deliberate: an eased curve on scroll-scrubbed motion reads as lag. */
+        @supports (animation-timeline: view()) {
+            .plateArt,
+            .ghostMark {
+                animation: lp-drift linear both;
+                animation-timeline: view();
+                animation-range: cover;
+            }
+            .ghostMark {
+                animation-name: lp-drift-centred;
+            }
+        }
+        @keyframes lp-drift {
+            from {
+                translate: 0 -4%;
+            }
+            to {
+                translate: 0 4%;
+            }
+        }
+        /* ghostMark is centred with translate: -50% -50%, so its drift has to
+           carry the horizontal component or it slides off-centre. */
+        @keyframes lp-drift-centred {
+            from {
+                translate: -50% calc(-50% - 4%);
+            }
+            to {
+                translate: -50% calc(-50% + 4%);
+            }
+        }
+
+        /* The plate motif is about draughting, so the frame draws itself.
+           linear because it is scroll-scrubbed: an eased curve would speed up
+           and slow down against the reader's own scrolling. The crosshairs
+           start at 45%, where the rules finish, so the ticks land on lines that
+           are already there. scale 0.6, never 0 — nothing appears from nothing. */
+        @supports (animation-timeline: view()) {
+            .blueprint {
+                animation: lp-draw linear both;
+                animation-timeline: view();
+                animation-range-start: entry 5%;
+                animation-range-end: entry 55%;
+            }
+            .cross {
+                animation: lp-tick 320ms var(--ease-out) both;
+                animation-timeline: view();
+                animation-range-start: entry 45%;
+                animation-range-end: entry 75%;
+            }
+        }
+        @keyframes lp-draw {
+            from {
+                clip-path: inset(0 0 100% 0);
+            }
+            to {
+                clip-path: inset(0 0 0 0);
+            }
+        }
+        @keyframes lp-tick {
+            from {
+                opacity: 0;
+                scale: 0.6;
+            }
+            to {
+                opacity: 1;
+                scale: 1;
+            }
+        }
+    }
+
+    /* Reduced motion keeps the fade, drops the movement. */
+    @media (prefers-reduced-motion: reduce) {
+        /* A hero photograph that fades in from nothing is worse than one that
+           is simply there, so this opts out rather than inheriting lp-fade. */
+        .heroPhoto {
+            animation: none;
+        }
+        .reveal,
+        .revealPlate,
+        .lineRise,
+        .heroRise {
+            animation: lp-fade 200ms ease both;
+        }
+        @keyframes lp-fade {
+            from {
+                opacity: 0;
+            }
+        }
+    }
+
+    /* ---------- specimen plate ----------
+       Blueprint rules + corner crosshairs frame the artwork, so the section
+       reads as a plate in a technical manual rather than a stock photo. */
+    .blueprint {
+        position: absolute;
+        inset: 0;
+        z-index: 0;
+        pointer-events: none;
+        background-image:
+            linear-gradient(var(--hairline), var(--hairline)),
+            linear-gradient(var(--hairline), var(--hairline)),
+            linear-gradient(var(--hairline), var(--hairline)),
+            linear-gradient(var(--hairline), var(--hairline));
+        background-size:
+            1px 100%,
+            1px 100%,
+            100% 1px,
+            100% 1px;
+        background-position:
+            15% 0,
+            85% 0,
+            0 0,
+            0 100%;
+        background-repeat: no-repeat;
+    }
+
+    @media (width < 768px) {
+        .blueprint {
+            background-position:
+                7% 0,
+                93% 0,
+                0 0,
+                0 100%;
+        }
+    }
+
+    .cross {
+        position: absolute;
+        width: 11px;
+        height: 11px;
+        translate: -50% -50%;
+    }
+    .cross::before,
+    .cross::after {
+        content: "";
+        position: absolute;
+        background: color-mix(in oklab, var(--foreground) 34%, transparent);
+    }
+    .cross::before {
+        left: 50%;
+        top: 0;
+        width: 1px;
+        height: 100%;
+        translate: -50% 0;
+    }
+    .cross::after {
+        top: 50%;
+        left: 0;
+        height: 1px;
+        width: 100%;
+        translate: 0 -50%;
+    }
+
+    /* The plate is a 4-colour dithered PNG on transparency. multiply keeps its
+       paper tone identical to the page instead of stacking a second white. */
+    .plateArt {
+        width: 100%;
+        height: auto;
+        mix-blend-mode: multiply;
+    }
+
+    /* ---------- stamps ----------
+       The notch mask eats any border or box-shadow with it, so elevation lives
+       on the wrapper as a drop-shadow that follows the perforated silhouette. */
+    .stampWrap {
+        filter: drop-shadow(0 12px 26px rgb(10 30 50 / 0.12));
+    }
+
+    .stamp {
+        --perf: 15px;
+        --notch: 4.6px;
+        background: oklch(0.985 0.0055 95);
+        mask:
+            radial-gradient(circle var(--notch) at 50% 0, #0000 97%, #000) 0 0 / var(--perf) 100%
+                repeat-x,
+            radial-gradient(circle var(--notch) at 50% 100%, #0000 97%, #000) 0 100% / var(--perf)
+                100% repeat-x,
+            radial-gradient(circle var(--notch) at 0 50%, #0000 97%, #000) 0 0 / 100% var(--perf)
+                repeat-y,
+            radial-gradient(circle var(--notch) at 100% 50%, #0000 97%, #000) 100% 0 / 100%
+                var(--perf) repeat-y;
+        mask-composite: intersect;
+        -webkit-mask-composite: source-in;
+    }
+
+    .stampArt {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    }
+
+    /* ---------- glass controls ----------
+       Inside .island the parent already frosts the backdrop, so the nav pill
+       takes fill and highlight only: a nested backdrop-filter double-blurs and
+       costs a second GPU pass for no visual gain. Standalone buttons over the
+       photograph add .glassBlur themselves. */
+    /* Tinted dark, not white. A white wash over bright sky left the white label
+       at 3.0:1; the blur, the bright rim and the inner highlight are what read
+       as glass, so darkening the fill keeps the material and passes AA. */
+    .glassFill {
+        border: 1px solid rgb(255 255 255 / 0.45);
+        background: rgb(10 30 50 / 0.34);
+        box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.34);
+    }
+
+    /* A real pane loses its specular when pushed. Sub-perceptual on its own;
+       it is the scale gaining a material to act on. */
+    .glassFill:active {
+        box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.15);
+    }
+
+    .glassBlur {
+        backdrop-filter: blur(18px) saturate(160%);
+    }
+
+    /* Transparency off means the label has to sit on a solid surface instead. */
+    @media (prefers-reduced-transparency: reduce) {
+        .glassBlur {
+            backdrop-filter: none;
+        }
+        .glassFill {
+            background: rgb(10 30 50 / 0.88);
+        }
+    }
+}

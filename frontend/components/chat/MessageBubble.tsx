@@ -16,7 +16,7 @@ function MessageContent({ content }: { content: string }) {
     // Parse complete fences before paragraphs so blank lines inside code survive.
     const parts = content.split(/(```[^\n]*\n[\s\S]*?```)/g);
     return (
-        <div className="transcript-answer text-[14px] leading-[1.7] wrap-anywhere whitespace-pre-wrap mt-3 [&_p]:mt-0 [&_p]:mx-0 [&_p]:mb-3 max-[481px]:text-[13px]">
+        <div className="transcript-answer mt-3 text-[14.5px] leading-[1.75] wrap-anywhere whitespace-pre-wrap text-pretty [&_p]:m-0 [&_p+p]:mt-3.5 max-[481px]:text-[14px]">
             {parts.map((part, i) => {
                 const fence = part.match(/^```([^\n]*)\n([\s\S]*?)```$/);
                 if (fence)
@@ -47,9 +47,9 @@ export function MessageBubble({
     const [copyStatus, setCopyStatus] = useState("");
     if (message.role === "user")
         return (
-            <div className="ember-message-user flex justify-end pl-8 [&>div]:border [&>div]:border-border [&>div]:rounded-[14px_14px_4px_14px] [&>div]:bg-secondary [&>div]:text-foreground [&>div]:max-w-full [&>div]:py-[13px] [&>div]:px-4 [&>div]:wrap-anywhere [&>div]:whitespace-pre-wrap">
-                <div>
-                    <p className="transcript-userText text-[14px] leading-[1.7] wrap-anywhere whitespace-pre-wrap max-[481px]:text-[13px]">
+            <div className="ember-message-user flex justify-end pl-10">
+                <div className="max-w-full rounded-[16px_16px_6px_16px] bg-surface-2 px-4 py-3 wrap-anywhere whitespace-pre-wrap">
+                    <p className="transcript-userText text-[14.5px] leading-[1.7] wrap-anywhere whitespace-pre-wrap max-[481px]:text-[14px]">
                         {message.content}
                     </p>
                 </div>
@@ -60,11 +60,11 @@ export function MessageBubble({
     );
     return (
         <article
-            className="ember-message-assistant text-[14px] text-foreground min-w-0 wrap-anywhere transcript-message min-w-0 w-full [&_summary:focus-visible]:outline-2 [&_summary:focus-visible]:outline-solid [&_summary:focus-visible]:outline-primary [&_summary:focus-visible]:outline-offset-0.5"
-            aria-label="WebBuilder response"
+            className="ember-message-assistant transcript-message w-full min-w-0 text-[14.5px] text-foreground wrap-anywhere"
+            aria-label="Accretion response"
         >
-            <span className="ember-message-label block text-accent-foreground text-[11px] font-medium mb-2.5">
-                WebBuilder
+            <span className="ember-message-label mb-2.5 block text-[11px] font-semibold tracking-[0.02em] text-accent-foreground">
+                accretion
             </span>
             {hasRun && <RunActivity message={message} connected={connected} />}
             {message.workflow &&
@@ -80,7 +80,7 @@ export function MessageBubble({
                 <>
                     <MessageContent content={message.content} />
                     {message.run_status !== "running" && (
-                        <div className="transcript-responseActions flex items-center gap-1">
+                        <div className="transcript-responseActions mt-1 flex items-center gap-1">
                             <Button
                                 type="button"
                                 variant="utility"

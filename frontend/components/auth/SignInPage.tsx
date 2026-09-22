@@ -1,11 +1,14 @@
 "use client";
 
-import { AuthFrame } from "@/components/auth/AuthFrame";
+import { AUTH_SWITCH_LINK, AuthFrame } from "@/components/auth/AuthFrame";
+import { ErrorBox } from "@/components/ui/ErrorBox";
 import { SocialLogin } from "@/components/auth/SocialLogin";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Loader2 } from "lucide-react";
 import Link from "next/link";
+
+import { useEffect, useState } from "react";
 
 import { useSignIn } from "@/hooks/auth/useSignIn";
 
@@ -20,15 +23,24 @@ export default function SignInPage() {
         checkingSession,
         handleSubmit,
     } = useSignIn();
+
+    // A loading line that paints for 80ms and vanishes is worse than no
+    // loading line at all. Short session checks never render one.
+    const [showChecking, setShowChecking] = useState(false);
+    useEffect(() => {
+        if (!checkingSession) return;
+        const id = setTimeout(() => setShowChecking(true), 300);
+        return () => clearTimeout(id);
+    }, [checkingSession]);
+
     if (checkingSession) {
         return (
-            <main className="ember-auth-page" aria-busy="true">
-                <p
-                    className="ember-helper text-[12px] leading-[1.6] text-muted-foreground p-6"
-                    role="status"
-                >
-                    Checking your session…
-                </p>
+            <main className="grid min-h-[100dvh] place-items-center px-6" aria-busy="true">
+                {showChecking ? (
+                    <p className="text-[13px] text-muted-foreground" role="status">
+                        Checking your session…
+                    </p>
+                ) : null}
             </main>
         );
     }
@@ -38,7 +50,7 @@ export default function SignInPage() {
             <SocialLogin />
             <form
                 onSubmit={handleSubmit}
-                className="ember-form flex flex-col gap-[21px] mt-7.5 [&_.ember-helper]:-mt-3"
+                className="mt-7 flex flex-col gap-5 [&_.ember-helper]:-mt-2"
                 aria-busy={isLoading}
             >
                 <label className="flex flex-col gap-[9px] text-[13px]" htmlFor="email">
@@ -72,32 +84,31 @@ export default function SignInPage() {
                     id="password-hint"
                     className="ember-helper text-[12px] leading-[1.6] text-muted-foreground"
                 >
-                    Use the password for your WebBuilder account.
+                    Use the password for your Accretion account.
                 </p>
-                {error && (
-                    <p
-                        className="ember-error text-destructive border border-destructive bg-card py-3 px-[15px] rounded-[8px] text-[13px] leading-[1.5]"
-                        role="alert"
+                <ErrorBox message={error} />
+                <Button type="submit" disabled={isLoading} variant="default" className="relative">
+                    <span
+                        className={`transition-opacity duration-[120ms] ${isLoading ? "opacity-0" : "opacity-100"}`}
                     >
-                        {error}
-                    </p>
-                )}
-                <Button type="submit" disabled={isLoading} variant="default">
-                    {isLoading ? (
-                        <>
-                            <Loader2 size={16} className="animate-spin" />
-                            Signing in…
-                        </>
-                    ) : (
-                        "Sign in"
-                    )}
+                        Sign in
+                    </span>
+                    {/* Stacked, not swapped. aria-busy on the form already
+                        announces the state, so this layer is decorative. */}
+                    <span
+                        aria-hidden="true"
+                        className={`absolute inset-0 flex items-center justify-center gap-2 transition-opacity duration-[120ms] ${isLoading ? "opacity-100" : "opacity-0"}`}
+                    >
+                        <Loader2 size={16} className="animate-spin" />
+                        Signing in…
+                    </span>
                 </Button>
             </form>
-            <p className="ember-auth-switch text-[13px]! text-center mt-[25px]! [&_a]:text-accent-foreground [&_a]:underline [&_a]:underline-offset-[3px]">
+            <p className={AUTH_SWITCH_LINK}>
                 <Link href="/verify-email">Verify your email</Link>
             </p>
-            <p className="ember-auth-switch text-[13px]! text-center mt-[25px]! [&_a]:text-accent-foreground [&_a]:underline [&_a]:underline-offset-[3px]">
-                New to WebBuilder? <Link href="/signup">Create a workspace</Link>
+            <p className={AUTH_SWITCH_LINK}>
+                New to Accretion? <Link href="/signup">Create a workspace</Link>
             </p>
         </AuthFrame>
     );

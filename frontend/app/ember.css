@@ -1,4 +1,30 @@
 @layer components {
+    /* Ambient wash behind the start page. Tokens only, so it follows the theme. */
+    .ember-stage::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        z-index: -1;
+        pointer-events: none;
+        background:
+            radial-gradient(
+                ellipse at -8% 83%,
+                color-mix(in oklab, var(--primary) 16%, transparent),
+                transparent 38%
+            ),
+            radial-gradient(
+                ellipse at 108% 79%,
+                color-mix(in oklab, var(--ring) 12%, transparent),
+                transparent 36%
+            ),
+            radial-gradient(
+                ellipse at 50% -35%,
+                color-mix(in oklab, var(--primary) 7%, transparent),
+                transparent 55%
+            );
+    }
+
+    /* Auth-page artwork. Shares the workspace palette; no standalone colours. */
     .ember-art {
         aspect-ratio: 0.9;
         width: 100%;
@@ -9,13 +35,20 @@
         flex-direction: column;
         justify-content: space-between;
         padding: 32px;
-        border: 1px solid #46362f;
+        border: 1px solid var(--border);
         border-radius: 14px;
-        color: #fff;
+        color: var(--foreground);
         background:
-            radial-gradient(ellipse at 8% 110%, #ff7145 0%, #fc3b00aa 27%, transparent 70%), #000;
+            radial-gradient(
+                ellipse at 8% 110%,
+                color-mix(in oklab, var(--primary) 70%, transparent) 0%,
+                color-mix(in oklab, var(--primary) 28%, transparent) 27%,
+                transparent 70%
+            ),
+            var(--surface-1);
     }
 }
+
 @media (prefers-reduced-motion: reduce) {
     *,
     *::before,

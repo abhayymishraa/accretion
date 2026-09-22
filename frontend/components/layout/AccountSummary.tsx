@@ -8,7 +8,7 @@ export function AccountSummary({ userData }: { userData: UserData | null }) {
                 <>
                     <span>{userData.email}</span>
                     <span
-                        className="ember-balance text-foreground bg-secondary py-1.5 px-2.5 rounded-[6px] whitespace-nowrap"
+                        className="ember-balance whitespace-nowrap rounded-[6px] bg-surface-2 px-2 py-1 font-mono tabular-nums text-foreground"
                         title="Credits left this month"
                     >
                         {userData.credits_unlimited

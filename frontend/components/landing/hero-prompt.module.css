@@ -1,6 +1,0 @@
-@layer components {
-    .composer:focus-within .shine {
-        opacity: 0.8;
-        animation-play-state: running;
-    }
-}

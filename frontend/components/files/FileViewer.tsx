@@ -31,7 +31,7 @@ export function FileViewer({ files, projectId, revisionId }: FileViewerProps) {
     if (files.length === 0) {
         return (
             <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
-                <FileCode className="w-12 h-12 mb-4" />
+                <FileCode className="mb-4 size-9 opacity-50" />
                 <p className="text-sm">No files available yet</p>
                 <p className="text-xs mt-1">Files will appear once your app is built</p>
             </div>
@@ -41,14 +41,14 @@ export function FileViewer({ files, projectId, revisionId }: FileViewerProps) {
     return (
         <div className="h-full flex">
             {/* File Tree Sidebar */}
-            <div className="ember-file-tree w-47.5 min-w-30 max-w-[38%] shrink-0 max-md:w-[135px] border-r border-border overflow-y-auto bg-muted">
-                <div className="sticky top-0 bg-card backdrop-blur-sm border-b border-border p-3 z-10">
+            <div className="ember-file-tree w-47.5 min-w-30 max-w-[38%] shrink-0 max-md:w-[135px] border-r border-border overflow-y-auto bg-surface-1">
+                <div className="sticky top-0 z-10 border-b border-border bg-surface-1 p-3">
                     <div className="flex items-center justify-between mb-2">
                         <h3 className="text-foreground font-semibold text-sm">Files</h3>
                         <button
                             onClick={handleDownloadAll}
                             disabled={isDownloading}
-                            className="flex items-center gap-1 px-2 py-1 text-xs bg-accent hover:bg-accent text-accent-foreground rounded transition-colors disabled:opacity-50"
+                            className="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-[6px] bg-accent px-2 text-[11.5px] text-accent-foreground [transition:opacity_130ms_ease] disabled:opacity-50 pointer-fine:hover:opacity-85"
                             title="Download all files as ZIP"
                         >
                             {isDownloading ? (
@@ -87,7 +87,7 @@ export function FileViewer({ files, projectId, revisionId }: FileViewerProps) {
                 {selectedFile ? (
                     <>
                         {/* Editor Header */}
-                        <div className="ember-file-header min-w-0 flex-wrap gap-2 flex items-center justify-between px-4 py-2 bg-muted border-b border-border">
+                        <div className="ember-file-header flex min-w-0 flex-wrap items-center justify-between gap-2 border-b border-border bg-surface-1 px-3 py-2">
                             <div className="flex items-center gap-2">
                                 <FileIcon filename={selectedFile} />
                                 <span className="ember-file-path min-w-0 wrap-anywhere text-[11px] text-foreground font-mono">
@@ -96,7 +96,7 @@ export function FileViewer({ files, projectId, revisionId }: FileViewerProps) {
                             </div>
                             <button
                                 onClick={handleDownloadFile}
-                                className="flex items-center gap-2 px-3 py-1 text-xs bg-secondary hover:bg-accent text-secondary-foreground hover:text-foreground rounded transition-colors"
+                                className="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-[6px] bg-surface-2 px-2.5 text-[11.5px] text-muted-foreground [transition:background-color_130ms_ease,color_130ms_ease] pointer-fine:hover:bg-accent pointer-fine:hover:text-accent-foreground"
                             >
                                 <Download className="w-3 h-3" />
                                 Download
@@ -106,7 +106,7 @@ export function FileViewer({ files, projectId, revisionId }: FileViewerProps) {
                         {/* Monaco Editor */}
                         <div className="flex-1 relative">
                             {isLoadingFile ? (
-                                <div className="absolute inset-0 flex items-center justify-center bg-card">
+                                <div className="absolute inset-0 flex items-center justify-center bg-surface-1">
                                     <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
                                 </div>
                             ) : binary ? (

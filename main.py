@@ -45,7 +45,7 @@ async def lifespan(app):
         await engine.dispose()
 
 
-app = FastAPI(title="WebBuilder", lifespan=lifespan)
+app = FastAPI(title="Accretion", lifespan=lifespan)
 app.middleware('http')(request_timing)
 
 origins = [

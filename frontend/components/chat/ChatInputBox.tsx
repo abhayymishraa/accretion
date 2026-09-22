@@ -4,7 +4,6 @@ import { MAX_PROJECT_DRAFT_LENGTH } from "@/lib/projects/draft";
 import { starterBriefs } from "@/lib/projects/starterBriefs";
 import { ArrowRight, ArrowUp, Loader2, Plus } from "lucide-react";
 import { useRef, useState } from "react";
-import styles from "./ember-start.module.css";
 
 interface ChatInputBoxProps {
     input: string;
@@ -30,7 +29,7 @@ export function ChatInputBox({
         <form
             onSubmit={onSubmit}
             aria-busy={isLoading}
-            className={`${styles.composer} relative rounded-2xl border border-border bg-card p-3 text-left focus-within:border-input sm:p-4`}
+            className="relative animate-in rounded-[16px] border border-border bg-surface-2 p-3 text-left fade-in slide-in-from-bottom-3 duration-500 ease-out [transition:border-color_180ms_ease] focus-within:border-input motion-reduce:animate-none sm:p-4 [box-shadow:0_24px_70px_-26px_#00000080]"
         >
             <label htmlFor="project-brief" className="sr-only">
                 Describe your app idea
@@ -40,7 +39,7 @@ export function ChatInputBox({
                 id="project-brief"
                 aria-describedby="project-brief-note"
                 className="h-12 border-0 bg-transparent px-2 text-base shadow-none focus-visible:ring-0 sm:text-lg"
-                placeholder="Hey WebBuilder, let’s make…"
+                placeholder="Hey Accretion, let’s make…"
                 value={input}
                 onChange={(event) => onInputChange(event.target.value)}
                 disabled={controlsDisabled}
@@ -79,7 +78,7 @@ export function ChatInputBox({
                 </Button>
             </div>
             <div id="project-brief-examples" hidden={!showExamples}>
-                <div className="mt-3 grid gap-1 border-t border-border pt-3 sm:grid-cols-3">
+                <div className="mt-3 grid gap-1 border-t border-hairline pt-3 sm:grid-cols-3">
                     {starterBriefs.map((starter) => (
                         <Button
                             key={starter.id}

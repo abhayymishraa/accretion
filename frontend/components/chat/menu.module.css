@@ -1,0 +1,30 @@
+/* Popover motion for the composer and run menus. Transitions, not keyframes:
+   a keyframe restarts from zero when a menu is toggled quickly, so spamming the
+   trigger made it stutter. visibility rides along with allow-discrete so a
+   closed menu leaves the tab order once it has finished leaving the screen.
+   Exit is faster than entry — the user's action eases, the dismissal snaps. */
+.menu {
+    opacity: 0;
+    scale: 0.97;
+    visibility: hidden;
+    transition:
+        opacity 120ms var(--ease-out),
+        scale 120ms var(--ease-out),
+        visibility 120ms allow-discrete;
+}
+
+.menu[data-state="open"] {
+    opacity: 1;
+    scale: 1;
+    visibility: visible;
+    transition-duration: 150ms;
+}
+
+/* Gentler, not zero: the menu still appears and disappears, just without the
+   scale reading as movement. */
+@media (prefers-reduced-motion: reduce) {
+    .menu {
+        scale: 1;
+        transition-duration: 0s;
+    }
+}

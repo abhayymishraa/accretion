@@ -2,7 +2,14 @@
 
 import { clearSession } from "@/lib/auth/session";
 
-import { MAX_PROJECT_DRAFT_LENGTH, PROJECT_DRAFT_KEY } from "@/lib/projects/draft";
+import {
+    LEGACY_PROJECT_DRAFT_KEY,
+    LEGACY_STARTER_KEY,
+    MAX_PROJECT_DRAFT_LENGTH,
+    PROJECT_DRAFT_KEY,
+    STARTER_KEY,
+} from "@/lib/projects/draft";
+import { migrateKey } from "@/lib/storage/migrateKey";
 import { starterBriefs } from "@/lib/projects/starterBriefs";
 import { authService } from "@/services/service.auth";
 import { projectService } from "@/services/service.projects";
@@ -27,16 +34,18 @@ export function useNewProject() {
             try {
                 initialDraft.current = "";
                 const explicitStarter = new URLSearchParams(window.location.search).get("starter");
+                migrateKey(sessionStorage, PROJECT_DRAFT_KEY, LEGACY_PROJECT_DRAFT_KEY);
+                migrateKey(sessionStorage, STARTER_KEY, LEGACY_STARTER_KEY);
                 const draft = sessionStorage.getItem(PROJECT_DRAFT_KEY);
-                const requested = explicitStarter || sessionStorage.getItem("webbuilder-starter");
+                const requested = explicitStarter || sessionStorage.getItem(STARTER_KEY);
                 const starter = starterBriefs.find((item) => item.id === requested);
                 if (draft?.trim() && !(explicitStarter && starter)) {
                     initialDraft.current = draft.slice(0, MAX_PROJECT_DRAFT_LENGTH);
                 } else if (starter) {
                     initialDraft.current = starter.prompt;
                     sessionStorage.removeItem(PROJECT_DRAFT_KEY);
-                    if (token) sessionStorage.removeItem("webbuilder-starter");
-                    else sessionStorage.setItem("webbuilder-starter", starter.id);
+                    if (token) sessionStorage.removeItem(STARTER_KEY);
+                    else sessionStorage.setItem(STARTER_KEY, starter.id);
                 }
             } catch {
                 /* A starter is optional when session storage is unavailable. */

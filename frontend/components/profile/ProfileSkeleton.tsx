@@ -13,7 +13,7 @@ export function ProfileSkeleton() {
                             <Skeleton className="mt-3 h-4 w-60 max-w-full" />
                             <Skeleton className="mt-7 h-11 w-32 rounded-none" />
                         </div>
-                        <div className="hidden flex-col justify-between border-l border-border bg-secondary p-6 sm:flex">
+                        <div className="hidden flex-col justify-between border-l border-border bg-surface-2 p-6 sm:flex">
                             <Skeleton className="h-3 w-28" />
                             <Skeleton className="h-20 w-full rounded-none" />
                         </div>

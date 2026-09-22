@@ -123,3 +123,23 @@
         }
     }
 }
+
+/* Filtered cards arrive rather than appear. Transitions, not keyframes: a
+   keyframe restarts from zero on every re-render and stutters while someone
+   types. scale(0.97), never 0 — nothing appears from nothing.
+   Entry only: React unmounts a filtered-out card immediately, so an exit would
+   need retained nodes or the View Transitions API. Not worth it for a filter. */
+@media (prefers-reduced-motion: no-preference) {
+    .cardEnter {
+        opacity: 1;
+        transform: scale(1);
+        transition:
+            opacity 200ms var(--ease-out),
+            transform 200ms var(--ease-out);
+
+        @starting-style {
+            opacity: 0;
+            transform: scale(0.97);
+        }
+    }
+}

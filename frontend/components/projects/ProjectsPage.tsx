@@ -43,7 +43,9 @@ export default function ProjectsPage() {
                         </Link>
                     </div>
                     {hasSession ? (
-                        <ProjectCollection />
+                        <div data-loaded-in="">
+                            <ProjectCollection />
+                        </div>
                     ) : (
                         <>
                             <div

@@ -2,7 +2,8 @@
 
 import { Button } from "@/components/ui/button";
 
-import { AuthFrame } from "@/components/auth/AuthFrame";
+import { AUTH_SWITCH_LINK, AuthFrame } from "@/components/auth/AuthFrame";
+import { ErrorBox } from "@/components/ui/ErrorBox";
 import { Input } from "@/components/ui/input";
 import Link from "next/link";
 
@@ -55,15 +56,10 @@ export default function VerifyEmailPage() {
                     {message}
                 </p>
             )}
-            {error && (
-                <p
-                    role="alert"
-                    className="ember-error text-destructive border border-destructive bg-card py-3 px-[15px] rounded-[8px] text-[13px] leading-[1.5] mt-4"
-                >
-                    {error}
-                </p>
-            )}
-            <p className="ember-auth-switch text-[13px]! text-center mt-[25px]! [&_a]:text-accent-foreground [&_a]:underline [&_a]:underline-offset-[3px]">
+            <div className="mt-4">
+                <ErrorBox message={error} />
+            </div>
+            <p className={AUTH_SWITCH_LINK}>
                 <Link href="/signin">Back to sign in</Link>
             </p>
         </AuthFrame>

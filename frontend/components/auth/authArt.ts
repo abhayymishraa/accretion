@@ -1,0 +1,8 @@
+// Generated from public/brand/meadow.lqip.txt. Inlined rather than read with
+// fs: AuthFrame is pulled into a client tree by SignInPage, so it cannot touch
+// the filesystem at module scope.
+export const AUTH_ART = {
+    src: "/brand/meadow-source.png",
+    pos: "58% 56%",
+    blur: "data:image/jpeg;base64,/9j/2wBDABQODxIPDRQSEBIXFRQYHjIhHhwcHj0sLiQySUBMS0dARkVQWnNiUFVtVkVGZIhlbXd7gYKBTmCNl4x9lnN+gXz/2wBDARUXFx4aHjshITt8U0ZTfHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHz/wAARCAAOABgDASIAAhEBAxEB/8QAGAAAAgMAAAAAAAAAAAAAAAAAAAUCBAb/xAAgEAABBAEEAwAAAAAAAAAAAAABAAIDEQQSEyExFEGR/8QAFgEBAQEAAAAAAAAAAAAAAAAAAgED/8QAHBEAAwABBQAAAAAAAAAAAAAAAAECAwQTFDFB/9oADAMBAAIRAxEAPwBpMY5ANtw7UfFB7IWeZnFxHCvMzS6mEH6itTUdmF4pbSQznmhx8fTYNdoS2aVlkaL49oQ5V+F2kf/Z",
+} as const;

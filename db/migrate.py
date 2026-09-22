@@ -1,4 +1,4 @@
-"""Create the initial WebBuilder schema without deleting existing tables or data."""
+"""Create the initial Accretion schema without deleting existing tables or data."""
 
 import asyncio
 
@@ -68,7 +68,7 @@ async def migrate():
             # foreign key pointed at messages rather than the reverse, so nothing
             # cascades out of this.
             await connection.execute(text('DROP TABLE IF EXISTS project_memory'))
-        print("WebBuilder initial schema is ready")
+        print("Accretion initial schema is ready")
     finally:
         await engine.dispose()
 
