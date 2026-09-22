@@ -7,8 +7,10 @@
 @theme inline {
     --color-background: var(--background);
     --color-foreground: var(--foreground);
-    --font-sans: "Helvetica Neue", Helvetica, Arial, sans-serif;
-    --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+    --font-sans: var(--font-sans);
+    --font-brand: var(--font-brand);
+    --font-mono: var(--font-mono);
+    --font-serif: var(--font-serif);
     --color-sidebar-ring: var(--sidebar-ring);
     --color-sidebar-border: var(--sidebar-border);
     --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -26,6 +28,7 @@
     --color-input: var(--input);
     --color-border: var(--border);
     --color-destructive: var(--destructive);
+    --color-destructive-foreground: var(--destructive-foreground);
     --color-accent-foreground: var(--accent-foreground);
     --color-accent: var(--accent);
     --color-muted-foreground: var(--muted-foreground);
@@ -38,66 +41,176 @@
     --color-popover: var(--popover);
     --color-card-foreground: var(--card-foreground);
     --color-card: var(--card);
+    /* Depth ladder for the workspace: page, panel, raised block, sunken well. */
+    --color-surface-1: var(--surface-1);
+    --color-surface-2: var(--surface-2);
+    --color-surface-3: var(--surface-3);
+    --color-hairline: var(--hairline);
     --radius-sm: calc(var(--radius) - 4px);
     --radius-md: calc(var(--radius) - 2px);
     --radius-lg: var(--radius);
     --radius-xl: calc(var(--radius) + 4px);
+    --shadow-2xs: var(--shadow-2xs);
+    --shadow-xs: var(--shadow-xs);
+    --shadow-sm: var(--shadow-sm);
+    --shadow: var(--shadow);
+    --shadow-md: var(--shadow-md);
+    --shadow-lg: var(--shadow-lg);
+    --shadow-xl: var(--shadow-xl);
+    --shadow-2xl: var(--shadow-2xl);
+    --tracking-normal: var(--tracking-normal);
 }
 
+/* tweakcn "twitter" theme. Dark is the product default, so it owns :root. */
 :root {
     color-scheme: dark;
-    --radius: 0.875rem;
-    --background: #000000;
-    --foreground: #ffffff;
-    --card: #14100e;
-    --card-foreground: #ffffff;
-    --popover: #14100e;
-    --popover-foreground: #ffffff;
-    --primary: #ff6129;
-    --primary-foreground: #000000;
-    --secondary: #241b17;
-    --secondary-foreground: #dccac1;
-    --muted: #18120f;
-    --muted-foreground: #bda89d;
-    --accent: #36190e;
-    --accent-foreground: #ff7145;
-    --destructive: #ff9087;
-    --border: #46362f;
-    --input: #866556;
-    --ring: #ff7145;
-    --sidebar: #0c0907;
-    --sidebar-foreground: #dccac1;
-    --sidebar-primary: var(--primary);
-    --sidebar-primary-foreground: var(--primary-foreground);
-    --sidebar-accent: var(--accent);
-    --sidebar-accent-foreground: var(--accent-foreground);
-    --sidebar-border: var(--border);
-    --sidebar-ring: var(--ring);
+    --radius: 1.3rem;
+    --background: oklch(0 0 0);
+    --foreground: oklch(0.9328 0.0025 228.7857);
+    --card: oklch(0.2097 0.008 274.5332);
+    --card-foreground: oklch(0.8853 0 0);
+    --popover: oklch(0 0 0);
+    --popover-foreground: oklch(0.9328 0.0025 228.7857);
+    --primary: oklch(0.6692 0.1607 245.011);
+    --primary-foreground: oklch(1 0 0);
+    --secondary: oklch(0.9622 0.0035 219.5331);
+    --secondary-foreground: oklch(0.1884 0.0128 248.5103);
+    --muted: oklch(0.209 0 0);
+    --muted-foreground: oklch(0.5637 0.0078 247.9662);
+    --accent: oklch(0.1928 0.0331 242.5459);
+    --accent-foreground: oklch(0.6692 0.1607 245.011);
+    --destructive: oklch(0.6188 0.2376 25.7658);
+    --destructive-foreground: oklch(1 0 0);
+    --border: oklch(0.2674 0.0047 248.0045);
+    --input: oklch(0.302 0.0288 244.8244);
+    --ring: oklch(0.6818 0.1584 243.354);
+    --chart-1: oklch(0.6723 0.1606 244.9955);
+    --chart-2: oklch(0.6907 0.1554 160.3454);
+    --chart-3: oklch(0.8214 0.16 82.5337);
+    --chart-4: oklch(0.7064 0.1822 151.7125);
+    --chart-5: oklch(0.5919 0.2186 10.5826);
+    --sidebar: oklch(0.2097 0.008 274.5332);
+    --sidebar-foreground: oklch(0.8853 0 0);
+    --sidebar-primary: oklch(0.6818 0.1584 243.354);
+    --sidebar-primary-foreground: oklch(1 0 0);
+    --sidebar-accent: oklch(0.1928 0.0331 242.5459);
+    --sidebar-accent-foreground: oklch(0.6692 0.1607 245.011);
+    --sidebar-border: oklch(0.3795 0.022 240.5943);
+    --sidebar-ring: oklch(0.6818 0.1584 243.354);
+    --font-sans: var(--font-open-sans), ui-sans-serif, system-ui, sans-serif;
+    --font-serif: Georgia, serif;
+    --font-mono: Menlo, ui-monospace, SFMono-Regular, monospace;
+    /* The wordmark alone; the theme's Open Sans still owns body text. */
+    --font-brand: var(--font-dm-sans), var(--font-open-sans), sans-serif;
+    --shadow-color: rgba(29, 161, 242, 0.25);
+    --shadow-opacity: 0;
+    --shadow-blur: 0px;
+    --shadow-spread: 0px;
+    --shadow-offset-x: 0px;
+    --shadow-offset-y: 2px;
+    --shadow-2xs: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0);
+    --shadow-xs: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0);
+    --shadow-sm:
+        0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0),
+        0px 1px 2px -1px hsl(202.8169 89.1213% 53.1373% / 0);
+    --shadow:
+        0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0),
+        0px 1px 2px -1px hsl(202.8169 89.1213% 53.1373% / 0);
+    --shadow-md:
+        0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0),
+        0px 2px 4px -1px hsl(202.8169 89.1213% 53.1373% / 0);
+    --shadow-lg:
+        0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0),
+        0px 4px 6px -1px hsl(202.8169 89.1213% 53.1373% / 0);
+    --shadow-xl:
+        0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0),
+        0px 8px 10px -1px hsl(202.8169 89.1213% 53.1373% / 0);
+    --shadow-2xl: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0);
+    --letter-spacing: 0em;
+    --tracking-normal: 0em;
+    --spacing: 0.25rem;
+
+    /* Surfaces the theme does not name. Sampled off --background/--card so the
+       workspace reads as one material instead of black next to slate cards. */
+    --surface-1: oklch(0.1487 0.0045 274.5332);
+    --surface-2: oklch(0.1806 0.0058 274.5332);
+    --surface-3: oklch(0.1221 0.004 274.5332);
+    --hairline: oklch(0.2674 0.0047 248.0045 / 0.7);
     --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+    /* iOS-like settling curve, for long marketing entrances rather than UI
+       chrome. Global because three features use it; when it lived inside the
+       landing module the auth module had nothing to reference and hand-typed
+       the literal instead. */
+    --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+    /* Makes `auto` animatable, which is what lets a disclosure transition its
+       height. Inert everywhere nothing transitions a keyword size. */
+    interpolate-size: allow-keywords;
 }
 
-:root[data-theme="light"] {
+/* [data-palette="light"] opts one subtree into this palette, for surfaces
+   that are light-only regardless of the chosen theme. */
+:root[data-theme="light"],
+[data-palette="light"] {
     color-scheme: light;
-    --background: #ffffff;
-    --foreground: #000000;
-    --card: #ffffff;
-    --card-foreground: #000000;
-    --popover: #ffffff;
-    --popover-foreground: #000000;
-    --primary: #ff6129;
-    --primary-foreground: #000000;
-    --secondary: #f8f1ec;
-    --secondary-foreground: #4f362a;
-    --muted: #fcf5f1;
-    --muted-foreground: #725548;
-    --accent: #ffe0d1;
-    --accent-foreground: #b33005;
-    --destructive: #b42318;
-    --border: #ddc3b6;
-    --input: #a87660;
-    --ring: #b33005;
-    --sidebar: #fcf5f1;
-    --sidebar-foreground: #4f362a;
+    --background: oklch(1 0 0);
+    --foreground: oklch(0.1884 0.0128 248.5103);
+    --card: oklch(0.9784 0.0011 197.1387);
+    --card-foreground: oklch(0.1884 0.0128 248.5103);
+    --popover: oklch(1 0 0);
+    --popover-foreground: oklch(0.1884 0.0128 248.5103);
+    --primary: oklch(0.6723 0.1606 244.9955);
+    --primary-foreground: oklch(1 0 0);
+    --secondary: oklch(0.1884 0.0128 248.5103);
+    --secondary-foreground: oklch(1 0 0);
+    --muted: oklch(0.9222 0.0013 286.3737);
+    --muted-foreground: oklch(0.4557 0.0119 248.5103);
+    --accent: oklch(0.9392 0.0166 250.8453);
+    --accent-foreground: oklch(0.6723 0.1606 244.9955);
+    --destructive: oklch(0.6188 0.2376 25.7658);
+    --destructive-foreground: oklch(1 0 0);
+    --border: oklch(0.9317 0.0118 231.6594);
+    --input: oklch(0.9809 0.0025 228.7836);
+    --ring: oklch(0.6818 0.1584 243.354);
+    --sidebar: oklch(0.9784 0.0011 197.1387);
+    --sidebar-foreground: oklch(0.1884 0.0128 248.5103);
+    --sidebar-primary: oklch(0.6723 0.1606 244.9955);
+    --sidebar-primary-foreground: oklch(1 0 0);
+    --sidebar-accent: oklch(0.9392 0.0166 250.8453);
+    --sidebar-accent-foreground: oklch(0.6723 0.1606 244.9955);
+    --sidebar-border: oklch(0.9271 0.0101 238.5177);
+    --sidebar-ring: oklch(0.6818 0.1584 243.354);
+    --shadow-color: rgba(29, 161, 242, 0.15);
+    --shadow-opacity: 0;
+    --shadow-blur: 0px;
+    --shadow-spread: 0px;
+    --shadow-offset-x: 0px;
+    --shadow-offset-y: 2px;
+    --shadow-2xs: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0);
+    --shadow-xs: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0);
+    --shadow-sm:
+        0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0),
+        0px 1px 2px -1px hsl(202.8169 89.1213% 53.1373% / 0);
+    --shadow:
+        0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0),
+        0px 1px 2px -1px hsl(202.8169 89.1213% 53.1373% / 0);
+    --shadow-md:
+        0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0),
+        0px 2px 4px -1px hsl(202.8169 89.1213% 53.1373% / 0);
+    --shadow-lg:
+        0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0),
+        0px 4px 6px -1px hsl(202.8169 89.1213% 53.1373% / 0);
+    --shadow-xl:
+        0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0),
+        0px 8px 10px -1px hsl(202.8169 89.1213% 53.1373% / 0);
+    --shadow-2xl: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0);
+    --letter-spacing: 0em;
+    --tracking-normal: 0em;
+    --spacing: 0.25rem;
+
+    --surface-1: oklch(1 0 0);
+    --surface-2: oklch(0.9784 0.0011 197.1387);
+    --surface-3: oklch(0.9878 0.0008 197.1387);
+    --hairline: oklch(0.9317 0.0118 231.6594 / 0.9);
 }
 
 @layer base {
@@ -108,9 +221,11 @@
     body {
         @apply bg-background text-foreground;
         min-height: 100%;
+        font-family: var(--font-sans);
     }
     body {
         margin: 0;
+        letter-spacing: var(--tracking-normal);
     }
     button,
     input,
@@ -124,10 +239,87 @@
     }
     :where(a, button, input, textarea, select, summary):focus-visible {
         outline: 2px solid var(--ring);
-        outline-offset: 4px;
+        outline-offset: 3px;
+        border-radius: 4px;
+    }
+    /* Data and identifiers line up only with fixed-width digits. */
+    :where(code, kbd, samp, pre, time, [data-numeric]) {
+        font-variant-numeric: tabular-nums;
     }
     ::selection {
-        background: var(--primary);
-        color: #000;
+        background: color-mix(in oklab, var(--primary) 35%, transparent);
+        color: var(--foreground);
+    }
+}
+
+/* Disclosure height, opted into per component with data-faq. Deliberately not
+   applied to bare <details>: the chat workspace uses them for tool output, which
+   a reader expands dozens of times a session and must stay instant. */
+@media (prefers-reduced-motion: no-preference) {
+    details[data-faq]::details-content {
+        block-size: 0;
+        overflow: clip;
+        transition:
+            block-size 260ms var(--ease-out),
+            content-visibility 260ms allow-discrete;
+    }
+    details[data-faq][open]::details-content {
+        block-size: auto;
+    }
+
+    /* The glyph moves with the panel, on the same 260ms, or the icon snaps
+       while the panel glides. scale is the standalone property, not transform:
+       the open state's rotate-45 writes transform, so these compose instead of
+       overwriting each other. 140ms is press tempo, not panel tempo. */
+    details[data-faq] summary > span {
+        transition:
+            transform 260ms var(--ease-out),
+            scale 140ms var(--ease-out);
+    }
+    details[data-faq] summary:active > span {
+        scale: 0.9;
+    }
+}
+
+/* Two patterns that three features need identically: an error box that can
+   leave as well as arrive, and content fading in over the skeleton it
+   replaces. Keyed off data attributes rather than duplicated per CSS module —
+   same approach as details[data-faq] above, and it couples no feature to
+   another. display stays outside the motion query so reduced-motion readers
+   never get a rendered empty box. */
+[data-error-box] {
+    display: none;
+}
+[data-error-box="shown"] {
+    display: block;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    [data-error-box] {
+        opacity: 0;
+        transform: translateY(-6px);
+        transition:
+            opacity 140ms var(--ease-out),
+            transform 140ms var(--ease-out),
+            display 140ms allow-discrete;
+    }
+    [data-error-box="shown"] {
+        opacity: 1;
+        transform: translateY(0);
+        transition-duration: 180ms;
+
+        @starting-style {
+            opacity: 0;
+            transform: translateY(-6px);
+        }
+    }
+
+    [data-loaded-in] {
+        animation: content-in 180ms var(--ease-out) both;
+    }
+    @keyframes content-in {
+        from {
+            opacity: 0;
+        }
     }
 }
