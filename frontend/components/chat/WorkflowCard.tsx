@@ -57,7 +57,7 @@ function WorkflowDecisionCard({ message, onChanged, canRespond }: WorkflowCardPr
 
     return (
         <section
-            className="my-3 min-w-0 animate-in overflow-hidden rounded-xl border border-border bg-card fade-in slide-in-from-bottom-1 duration-200 ease-out motion-reduce:slide-in-from-bottom-0"
+            className="my-3 min-w-0 animate-in overflow-hidden rounded-[10px] border border-border bg-surface-2 fade-in slide-in-from-bottom-1 duration-200 ease-out motion-reduce:slide-in-from-bottom-0"
             aria-labelledby={headingId}
             aria-busy={busy}
         >
@@ -74,7 +74,7 @@ function WorkflowDecisionCard({ message, onChanged, canRespond }: WorkflowCardPr
                 </h3>
                 {question && proposal.question && (
                     <details className="text-xs text-muted-foreground">
-                        <summary className="cursor-pointer rounded-sm py-1 focus-visible:outline-2 focus-visible:outline-ring">
+                        <summary className="cursor-pointer rounded-[4px] py-1 focus-visible:outline-2 focus-visible:outline-ring">
                             Why this question?
                         </summary>
                         <p className="mt-1 leading-relaxed wrap-anywhere whitespace-pre-wrap">
@@ -84,7 +84,7 @@ function WorkflowDecisionCard({ message, onChanged, canRespond }: WorkflowCardPr
                 )}
             </div>
             {proposal.steps.length > 0 && (
-                <ol className="divide-y divide-border border-t border-border">
+                <ol className="divide-y divide-hairline border-t border-hairline">
                     {proposal.steps.map((step, index) => (
                         <li
                             className="flex min-h-12 items-start gap-3 px-4 py-2.5 text-sm"
@@ -102,7 +102,7 @@ function WorkflowDecisionCard({ message, onChanged, canRespond }: WorkflowCardPr
                 <div
                     role="group"
                     aria-label="Suggested answers"
-                    className="divide-y divide-border border-t border-border"
+                    className="divide-y divide-hairline border-t border-hairline"
                 >
                     {options.map((option, index) => (
                         <Button
@@ -125,7 +125,7 @@ function WorkflowDecisionCard({ message, onChanged, canRespond }: WorkflowCardPr
                 </div>
             )}
             {waiting && (
-                <div className="border-t border-border p-4">
+                <div className="border-t border-hairline p-4">
                     {plan && !revising ? (
                         <div className="space-y-3">
                             <p className="text-xs leading-relaxed text-muted-foreground">

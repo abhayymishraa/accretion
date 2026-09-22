@@ -5,15 +5,19 @@
 
 export function CodeListing({ value, language = "output" }: { value: string; language?: string }) {
     return (
-        <div className="transcript-code min-w-0 max-w-full border border-border rounded-[4px] my-2 mx-0 bg-background whitespace-normal [&_pre]:overflow-auto [&_pre]:max-h-70 [&_pre]:m-0 [&_pre]:py-2 [&_pre]:px-0 [&_pre]:[font:11px/1.75_ui-monospace,_monospace] [&_pre]:whitespace-pre [&_pre:focus-visible]:outline-2 [&_pre:focus-visible]:outline-solid [&_pre:focus-visible]:outline-primary [&_pre:focus-visible]:outline-offset-0.5">
-            <div className="transcript-codeHeader font-mono text-[11px] text-muted-foreground py-[7px] px-2.5 border-b border-b-border">
+        <div className="transcript-code my-2.5 min-w-0 max-w-full overflow-hidden rounded-[8px] border border-hairline bg-surface-3 whitespace-normal">
+            <div className="transcript-codeHeader border-b border-hairline px-3 py-[7px] font-mono text-[10.5px] tracking-[0.04em] text-muted-foreground">
                 {language}
             </div>
-            <pre tabIndex={0} aria-label={`${language} listing`}>
+            <pre
+                tabIndex={0}
+                aria-label={`${language} listing`}
+                className="m-0 max-h-72 overflow-auto py-2 font-mono text-[11.5px] leading-[1.75] whitespace-pre focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-ring focus-visible:-outline-offset-2"
+            >
                 <code>
                     {value.split("\n").map((line, index) => (
                         <span
-                            className="transcript-codeLine flex min-w-max [&>span:last-child]:pr-3 [&[data-diff=add]]:bg-[#319d4920] [&[data-diff=remove]]:bg-[#dc504320]"
+                            className="transcript-codeLine flex min-w-max [&>span:last-child]:pr-3 [&[data-diff=add]]:bg-emerald-500/12 [&[data-diff=remove]]:bg-red-500/12"
                             data-diff={
                                 language === "diff"
                                     ? line.startsWith("+")
@@ -27,7 +31,7 @@ export function CodeListing({ value, language = "output" }: { value: string; lan
                         >
                             <span
                                 aria-hidden="true"
-                                className="transcript-lineNumber w-9.5 pr-2.5 shrink-0 text-right text-muted-foreground select-none opacity-65"
+                                className="transcript-lineNumber w-10 shrink-0 pr-3 text-right tabular-nums text-muted-foreground opacity-60 select-none"
                             >
                                 {index + 1}
                             </span>

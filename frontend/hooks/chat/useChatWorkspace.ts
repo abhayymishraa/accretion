@@ -6,7 +6,7 @@ import { usePreviewLifecycle } from "@/hooks/preview/usePreviewLifecycle";
 import type { UserData } from "@/types/auth.type";
 import type { Message } from "@/types/chat.type";
 import { useRouter } from "next/navigation";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { useProjectFiles } from "@/hooks/files/useProjectFiles";
 import { useChatHistory } from "./useChatHistory";
@@ -46,9 +46,18 @@ export function useChatWorkspace(chatId: string) {
     });
 
     const followLatest = useRef(true);
-    const messagesEndRef = useRef<HTMLDivElement>(null);
     const conversationRef = useRef<HTMLDivElement>(null);
+    const trackRef = useRef<HTMLDivElement>(null);
     const prependPosition = useRef<{ height: number; top: number } | null>(null);
+    // Our own scrollTop writes also fire onScroll; without this they read as user intent.
+    const programmatic = useRef(false);
+
+    const pinToBottom = useCallback(() => {
+        const element = conversationRef.current;
+        if (!element) return;
+        programmatic.current = true;
+        element.scrollTop = element.scrollHeight;
+    }, []);
 
     // The session client and socket own authentication; this is display data only.
     useEffect(() => {
@@ -87,10 +96,23 @@ export function useChatWorkspace(chatId: string) {
                 element.scrollTop = position.top + element.scrollHeight - position.height;
                 prependPosition.current = null;
             }
+            programmatic.current = true;
         } else if (followLatest.current) {
-            messagesEndRef.current?.scrollIntoView({ behavior: "auto" });
+            pinToBottom();
         }
-    }, [messages, mobilePane, history.loadingOlder]);
+    }, [messages, mobilePane, history.loadingOlder, pinToBottom]);
+
+    // Streamed text grows and run traces collapse long after the render commits;
+    // the transcript stays pinned only if we follow those later size changes too.
+    useEffect(() => {
+        const track = trackRef.current;
+        if (!track) return;
+        const observer = new ResizeObserver(() => {
+            if (followLatest.current && !prependPosition.current) pinToBottom();
+        });
+        observer.observe(track);
+        return () => observer.disconnect();
+    }, [pinToBottom]);
 
     function loadOlder() {
         const element = conversationRef.current;
@@ -101,6 +123,10 @@ export function useChatWorkspace(chatId: string) {
     }
 
     function handleConversationScroll(event: React.UIEvent<HTMLDivElement>) {
+        if (programmatic.current) {
+            programmatic.current = false;
+            return;
+        }
         const element = event.currentTarget;
         followLatest.current =
             element.scrollHeight - element.scrollTop - element.clientHeight < 100;
@@ -179,7 +205,7 @@ export function useChatWorkspace(chatId: string) {
         workspaceVisible,
         preview,
         handleConversationScroll,
-        messagesEndRef,
+        trackRef,
         conversationRef,
         containerRef,
         handleSendMessage,

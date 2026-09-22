@@ -3,13 +3,19 @@
 // Interaction patterns adapted from Beautiful UI, MIT © 2026 Shane Levine.
 // See ../ember/BEAUTIFUL-UI-LICENSE. All progress comes from recorded run events.
 import { useEffect, useState } from "react";
-import styles from "./transcript.module.css";
 
 export function PixelLoader() {
     return (
-        <span className={styles.pixels + " transcript-pixels"} aria-hidden="true">
+        <span
+            className="transcript-pixels grid size-3 shrink-0 grid-cols-3 gap-px"
+            aria-hidden="true"
+        >
             {Array.from({ length: 9 }, (_, i) => (
-                <i key={i} style={{ animationDelay: `${i * 90}ms` }} />
+                <i
+                    key={i}
+                    className="bg-primary opacity-25 motion-safe:animate-pulse motion-reduce:opacity-70"
+                    style={{ animationDelay: `${i * 90}ms`, animationDuration: "1.4s" }}
+                />
             ))}
         </span>
     );
@@ -43,7 +49,7 @@ export function Elapsed({
         finish === null ? NaN : Math.max(0, Math.floor((finish - Date.parse(start)) / 1000));
     if (!Number.isFinite(seconds)) return null;
     return (
-        <span className="transcript-duration font-mono text-[11px] text-muted-foreground shrink-0 tabular-nums">
+        <span className="transcript-duration shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground">
             {Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, "0")}
         </span>
     );

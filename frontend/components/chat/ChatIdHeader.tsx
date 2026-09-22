@@ -4,7 +4,7 @@ import { ThemeToggle } from "@/components/layout/ThemeProvider";
 import { ProjectsList } from "@/components/projects/ProjectsList";
 import { Button, buttonVariants } from "@/components/ui/button";
 import type { UserData } from "@/types/auth.type";
-import { ChevronLeft, Eye, EyeOff, Plus, UserRound } from "lucide-react";
+import { ChevronLeft, PanelRight, Plus, UserRound } from "lucide-react";
 import Link from "next/link";
 
 interface ChatIdHeaderProps {
@@ -23,35 +23,35 @@ export function ChatIdHeader({
     onBack,
 }: ChatIdHeaderProps) {
     return (
-        <header className="ember-workspace-header h-19 py-4 px-7 flex items-center justify-between gap-5 border-b border-b-border bg-background max-[1101px]:px-5 max-md:h-17.5 max-md:py-3.5 max-md:px-4 max-md:gap-2 max-md:[&>.ember-row]:gap-[5px] max-md:[&_.ember-button]:p-2.5 max-md:[&_.ember-button]:text-[12px] max-md:[&_.ember-brand]:text-[18px] max-md:[&_.ember-brand]:gap-[7px] max-md:[&_.ember-brand>svg]:w-5 max-md:[&_.ember-row]:gap-2 max-[381px]:gap-2 max-[381px]:px-3">
-            <div className="ember-row flex items-center gap-3.5">
+        <header className="ember-workspace-header flex h-14 shrink-0 items-center justify-between gap-4 border-b border-b-border bg-background px-4 [&_.ember-brand]:gap-2 [&_.ember-brand]:text-[17px] [&_.ember-brand]:tracking-[-0.03em] [&_.ember-brand>svg]:w-[22px] max-md:px-3 max-[381px]:gap-2">
+            <div className="ember-row flex min-w-0 items-center gap-2">
                 <Button variant="icon" onClick={onBack} aria-label="Back to projects">
-                    <ChevronLeft size={21} />
+                    <ChevronLeft size={18} />
                 </Button>
                 <Brand />
             </div>
-            <div className="ember-row flex items-center gap-3.5">
+            <div className="ember-row flex items-center gap-1">
                 <AccountSummary userData={userData} />
+                <ProjectsList />
                 <Link
                     href="/profile"
                     className={buttonVariants({ variant: "icon" })}
                     aria-label="Your profile"
                 >
-                    <UserRound size={18} />
+                    <UserRound size={17} />
                 </Link>
                 <ThemeToggle />
-                <ProjectsList />
                 <Button
                     variant="icon"
                     className="ember-preview-toggle max-md:hidden"
                     onClick={onTogglePreview}
-                    aria-label={showPreview ? "Hide preview" : "Show preview"}
+                    aria-label={showPreview ? "Hide workspace panel" : "Show workspace panel"}
                     aria-pressed={showPreview}
                 >
-                    {showPreview ? <Eye size={18} /> : <EyeOff size={18} />}
+                    <PanelRight size={17} />
                 </Button>
-                <Button variant="default" onClick={onNewChat}>
-                    <Plus size={16} />
+                <Button variant="default" className="ml-2" onClick={onNewChat}>
+                    <Plus size={15} />
                     <span className="ember-builder-new-label max-md:hidden">New project</span>
                     <span className="sr-only md:hidden">New project</span>
                 </Button>

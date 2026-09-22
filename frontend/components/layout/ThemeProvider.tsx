@@ -2,17 +2,25 @@
 
 import { Button } from "@/components/ui/button";
 
+import { migrateKey } from "@/lib/storage/migrateKey";
 import { Moon, Sun } from "lucide-react";
 import { createContext, useContext, useEffect, useSyncExternalStore } from "react";
 
 const ThemeContext = createContext({ light: false, toggle: () => {} });
-const themeKey = "webbuilder-theme";
-const themeChanged = "webbuilder-theme-changed";
+const themeKey = "accretion-theme";
+const themeChanged = "accretion-theme-changed";
+const legacyThemeKey = "webbuilder-theme";
+let migrated = false;
 let fallbackLight: boolean | null = null;
 
 function getTheme() {
     if (fallbackLight !== null) return fallbackLight;
     try {
+        // Runs once per tab; carries a pre-rename preference onto the new key.
+        if (!migrated) {
+            migrated = true;
+            migrateKey(localStorage, themeKey, legacyThemeKey);
+        }
         return localStorage.getItem(themeKey) === "light";
     } catch {
         return false;

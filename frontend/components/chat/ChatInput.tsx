@@ -50,24 +50,23 @@ export function ChatInput({
         disabled: !canCompose,
     });
     const mirror =
-        "col-start-1 row-start-1 text-[14px] leading-[1.6] max-md:text-[16px] wrap-anywhere";
+        "col-start-1 row-start-1 text-[14.5px] leading-[1.65] max-md:text-[16px] wrap-anywhere";
 
     return (
-        <div className="ember-chat-input border-t border-border bg-card px-[15px] py-3">
+        <div className="ember-chat-input border-t border-border bg-surface-1 px-6 py-4 max-md:px-4 max-md:py-3">
             <form
-                className="ember-composer relative rounded-[12px] border border-border bg-secondary/55 px-3 pt-3 pb-2 transition-colors duration-150 ease-out focus-within:border-ring/55"
+                className="ember-composer relative mx-auto w-full max-w-[46rem] rounded-[14px] border border-border bg-surface-2 px-3 pt-3 pb-2 [transition:border-color_150ms_ease] focus-within:border-input"
                 onSubmit={onSubmit}
             >
-                {menu.open ? (
-                    <ComposerMenu
-                        id={MENU_ID}
-                        kind={menu.kind ?? "files"}
-                        choices={menu.choices}
-                        activeIndex={menu.activeIndex}
-                        onHover={menu.setActiveIndex}
-                        onPick={menu.accept}
-                    />
-                ) : null}
+                <ComposerMenu
+                    open={menu.open}
+                    id={MENU_ID}
+                    kind={menu.kind ?? "files"}
+                    choices={menu.choices}
+                    activeIndex={menu.activeIndex}
+                    onHover={menu.setActiveIndex}
+                    onPick={menu.accept}
+                />
 
                 <label htmlFor="chat-prompt" className="sr-only">
                     Describe a change to your app
@@ -148,19 +147,19 @@ export function ChatInput({
 
                     <fieldset
                         disabled={isBuilding || awaitingInput}
-                        className="relative flex rounded-[8px] bg-background/45 p-[3px] disabled:opacity-40"
+                        className="relative flex rounded-[8px] bg-surface-3 p-[3px] disabled:opacity-40"
                     >
                         <legend className="sr-only">Request mode</legend>
                         <span
                             aria-hidden="true"
-                            className="absolute top-[3px] bottom-[3px] w-[calc(50%-3px)] rounded-[6px] bg-secondary [box-shadow:0_1px_2px_#0006] transition-transform duration-200 ease-[var(--ease-out)] motion-reduce:transition-none"
+                            className="absolute top-[3px] bottom-[3px] w-[calc(50%-3px)] rounded-[6px] bg-surface-1 ring-1 ring-hairline transition-transform duration-200 ease-[var(--ease-out)] motion-reduce:transition-none"
                             style={{ transform: `translateX(${mode === "auto" ? "0%" : "100%"})` }}
                         />
                         {modes.map((item) => (
                             <label
                                 key={item.value}
                                 title={item.hint}
-                                className={`relative z-10 flex h-[26px] min-w-[60px] cursor-pointer items-center justify-center rounded-[6px] px-2.5 text-[12.5px] transition-colors duration-150 ease-out has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-ring has-[:focus-visible]:outline-offset-1 ${
+                                className={`relative z-10 flex h-[25px] min-w-[58px] cursor-pointer items-center justify-center rounded-[6px] px-2.5 text-[12.5px] transition-colors duration-150 ease-out has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-ring has-[:focus-visible]:outline-offset-1 ${
                                     mode === item.value
                                         ? "text-foreground"
                                         : "text-muted-foreground pointer-fine:hover:text-foreground"
@@ -188,7 +187,7 @@ export function ChatInput({
                             <Button
                                 type="button"
                                 variant="utility"
-                                className="h-9 min-h-9 gap-1.5 border border-border bg-card px-3 text-[13px] text-foreground"
+                                className="gap-1.5 border border-border bg-surface-1 px-3 text-[12.5px] text-foreground"
                                 onClick={onCancel}
                                 disabled={!canCancel}
                                 aria-label="Stop the current run"
@@ -200,7 +199,7 @@ export function ChatInput({
                             <Button
                                 type="submit"
                                 variant="send"
-                                className="disabled:bg-secondary disabled:text-muted-foreground/60"
+                                className="rounded-full disabled:bg-surface-3 disabled:text-muted-foreground/50"
                                 disabled={!canCompose || !input.trim()}
                                 aria-label="Send message"
                             >
@@ -225,15 +224,15 @@ function ConnectionPill({
     awaiting: boolean;
 }) {
     const [label, dot, tone] = !connected
-        ? ["Offline", "bg-destructive", "border-destructive/35 text-destructive"]
+        ? ["Offline", "bg-destructive", "border-destructive/40 text-destructive"]
         : building
-          ? ["Working", "bg-primary", "border-border text-foreground"]
+          ? ["Working", "bg-primary", "border-hairline text-foreground"]
           : awaiting
-            ? ["Your turn", "bg-primary", "border-border text-foreground"]
+            ? ["Your turn", "bg-primary", "border-hairline text-foreground"]
             : ["Live", "bg-muted-foreground/50", "border-transparent text-muted-foreground"];
     return (
         <span
-            className={`ember-connection inline-flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-[11.5px] ${tone}`}
+            className={`ember-connection inline-flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-[11px] ${tone}`}
             role="status"
         >
             <span

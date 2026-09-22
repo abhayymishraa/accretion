@@ -1,8 +1,9 @@
 import type { MenuChoice, MenuKind } from "@/hooks/chat/useComposerMenu";
-import styles from "./transcript.module.css";
+import styles from "@/components/chat/menu.module.css";
 
 interface ComposerMenuProps {
     id: string;
+    open: boolean;
     kind: MenuKind;
     choices: MenuChoice[];
     activeIndex: number;
@@ -12,6 +13,7 @@ interface ComposerMenuProps {
 
 export function ComposerMenu({
     id,
+    open,
     kind,
     choices,
     activeIndex,
@@ -20,7 +22,10 @@ export function ComposerMenu({
 }: ComposerMenuProps) {
     return (
         <div
-            className={`${styles.composerMenu} absolute bottom-[calc(100%+8px)] left-0 z-30 w-full max-w-md overflow-hidden rounded-[10px] border border-border bg-popover p-1 [box-shadow:0_16px_40px_-12px_#000c,0_0_0_1px_#0004]`}
+            data-state={open ? "open" : "closed"}
+            aria-hidden={!open}
+            inert={!open}
+            className={`${styles.menu} absolute bottom-[calc(100%+8px)] left-0 z-30 w-full max-w-md origin-bottom-left overflow-hidden rounded-[10px] border border-border bg-surface-2 p-1 [box-shadow:0_16px_40px_-12px_#000000cc]`}
         >
             <ul id={id} role="listbox" aria-label={kind === "files" ? "Project files" : "Commands"}>
                 {choices.map((choice, index) => (
@@ -35,7 +40,7 @@ export function ComposerMenu({
                             onMouseDown={(event) => event.preventDefault()}
                             onMouseMove={() => onHover(index)}
                             onClick={() => onPick(choice)}
-                            className="flex w-full items-baseline gap-2 rounded-[7px] px-2.5 py-1.5 text-left aria-selected:bg-secondary"
+                            className="flex w-full items-baseline gap-2 rounded-[7px] px-2.5 py-1.5 text-left aria-selected:bg-surface-1"
                         >
                             <span className="shrink-0 text-[13px] text-foreground">
                                 {choice.label}

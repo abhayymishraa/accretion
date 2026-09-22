@@ -84,14 +84,14 @@ export function PreviewPanel({
 
     return (
         <section
-            className="ember-preview min-w-0 min-h-0 flex flex-col bg-muted [&[data-viewport=tablet]_iframe]:max-w-192 [&[data-viewport=mobile]_iframe]:max-w-[375px]"
+            className="ember-preview min-w-0 min-h-0 flex flex-col bg-surface-1 [&[data-viewport=tablet]_iframe]:max-w-192 [&[data-viewport=mobile]_iframe]:max-w-[375px]"
             aria-label="App workspace"
             data-viewport={viewport}
             style={{ width: `${previewWidth}%` }}
         >
-            <div className="ember-preview-toolbar min-h-12 border-b border-b-border flex items-center justify-between gap-2 py-[5px] px-3 bg-card [&>.ember-row]:gap-[3px] max-md:p-1.5 max-md:[&_.ember-icon]:w-7 max-md:[&_.ember-tab]:p-2 flex-wrap [&_.ember-row]:min-w-0">
+            <div className="ember-preview-toolbar flex h-11 shrink-0 flex-wrap items-center justify-between gap-2 border-b border-b-border bg-background px-2 max-md:px-1.5 [&_.ember-row]:min-w-0">
                 <div
-                    className="ember-row flex items-center gap-3.5"
+                    className="ember-row flex items-center gap-0.5"
                     role="group"
                     aria-label="Preview views"
                 >
@@ -112,7 +112,7 @@ export function PreviewPanel({
                         Files{files.length ? ` (${files.length})` : ""}
                     </Button>
                 </div>
-                <div className="ember-row flex items-center gap-3.5">
+                <div className="ember-row flex items-center gap-0.5">
                     {activeTab === "preview" && (
                         <>
                             <Button
@@ -164,7 +164,7 @@ export function PreviewPanel({
             </div>
             {visible && (activeTab === "preview" || retainPreview) && (
                 <div
-                    className="ember-preview-stage flex-1 min-h-0 overflow-auto flex justify-center p-5 [&_iframe]:h-full [&_iframe]:w-full [&_iframe]:min-h-70 [&_iframe]:border [&_iframe]:border-border [&_iframe]:rounded-[8px] [&_iframe]:bg-white [&>.ember-empty]:w-full [&>.ember-empty]:border-solid [&>.ember-empty]:justify-center max-md:p-2.5"
+                    className="ember-preview-stage flex min-h-0 flex-1 justify-center overflow-auto p-4 [&_iframe]:h-full [&_iframe]:w-full [&_iframe]:min-h-70 [&_iframe]:rounded-[10px] [&_iframe]:border [&_iframe]:border-border [&_iframe]:bg-white [&>.ember-empty]:w-full [&>.ember-empty]:justify-center max-md:p-2"
                     style={activeTab === "files" ? { display: "none" } : undefined}
                 >
                     {appUrl && phase === "active" && !building ? (
@@ -175,8 +175,8 @@ export function PreviewPanel({
                             sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-modals"
                         />
                     ) : (
-                        <div className="ember-empty py-17.5 px-[25px] flex flex-col items-center text-center gap-4 border border-dashed border-border rounded-[14px] text-muted-foreground [&_h2]:text-[22px] [&_h2]:text-foreground [&_p]:text-[14px] [&_p]:max-w-92.5">
-                            <Eye size={34} />
+                        <div className="ember-empty flex flex-col items-center gap-3 rounded-[14px] border border-dashed border-border px-6 py-16 text-center text-muted-foreground [&_h2]:text-[19px] [&_h2]:font-medium [&_h2]:tracking-[-0.01em] [&_h2]:text-foreground [&_p]:max-w-[42ch] [&_p]:text-[13.5px] [&_p]:leading-relaxed">
+                            <Eye size={26} className="text-muted-foreground/60" />
                             <h2>{emptyTitle}</h2>
                             <p role={preparing || building ? "status" : undefined}>
                                 {emptyDescription}
@@ -201,7 +201,7 @@ export function PreviewPanel({
                     />
                 </div>
             )}
-            <div className="ember-preview-caption border-t border-t-border text-[10px] leading-[1.5] text-muted-foreground py-2 px-3.5">
+            <div className="ember-preview-caption shrink-0 border-t border-t-border px-3.5 py-2 text-[10.5px] leading-[1.5] text-muted-foreground">
                 {activeTab === "preview"
                     ? "Live app preview · Source available in Files"
                     : "Saved source and assets · App databases need their own backups"}

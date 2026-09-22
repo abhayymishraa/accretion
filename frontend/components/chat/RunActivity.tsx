@@ -5,7 +5,6 @@
 import type { Message } from "@/types/chat.type";
 import { CheckIcon, ChevronRightIcon, ClockIcon, Cross2Icon } from "@radix-ui/react-icons";
 import { useEffect, useMemo, useRef, useState } from "react";
-import styles from "./transcript.module.css";
 
 import { Elapsed, PixelLoader } from "./RunStatus";
 import { RelativeTime, RunMenu } from "./RunMenu";
@@ -17,7 +16,6 @@ import { touchedFiles } from "@/lib/tool-presentation";
 import { Button } from "@/components/ui/button";
 export function RunActivity({ message, connected }: { message: Message; connected: boolean }) {
     const completionIcon = useRef<SVGSVGElement>(null);
-    const [pointerReveal, setPointerReveal] = useState(false);
     const [expanded, setExpanded] = useState(false);
     const details = useRunDetails(message, expanded);
     const previousRun = useRef({ id: message.id, status: message.run_status });
@@ -88,15 +86,16 @@ export function RunActivity({ message, connected }: { message: Message; connecte
     } else if (failed) {
         label = "Run needs attention";
     }
+    const hasTrace = message.details_pending || steps.length > 0 || calls.length > 0;
     return (
         <div
-            className="transcript-run min-w-0 mt-2 [&[data-failed=true]_.transcript-status]:text-destructive"
+            className="transcript-run min-w-0 overflow-hidden rounded-[10px] border border-border bg-surface-2 data-[failed=true]:border-destructive/40 [&[data-failed=true]_.transcript-status]:text-destructive"
             data-failed={Boolean(failed)}
         >
-            <div className="transcript-runHeader flex items-baseline justify-between gap-3 pt-1 px-0 pb-2.5 max-[481px]:gap-2">
+            <div className="transcript-runHeader flex items-center gap-3 px-3 py-2.5 max-[481px]:gap-2">
                 <span
                     role="status"
-                    className="transcript-status flex items-center gap-[9px] text-[13px] leading-[1.5] text-foreground wrap-anywhere [&>svg]:shrink-0"
+                    className="transcript-status flex min-w-0 flex-1 items-center gap-2.5 text-[13px] leading-snug text-foreground wrap-anywhere [&>svg]:shrink-0"
                 >
                     {running && connected ? (
                         <PixelLoader />
@@ -110,13 +109,13 @@ export function RunActivity({ message, connected }: { message: Message; connecte
                     ) : (
                         <CheckIcon
                             ref={completionIcon}
-                            className="origin-center [transform-box:fill-box]"
+                            className="origin-center text-accent-foreground [transform-box:fill-box]"
                             aria-hidden="true"
                         />
                     )}
                     {label}
                 </span>
-                <span className="flex shrink-0 items-center gap-2.5">
+                <span className="flex shrink-0 items-center gap-2">
                     <Elapsed
                         start={message.created_at}
                         end={message.finished_at}
@@ -126,28 +125,21 @@ export function RunActivity({ message, connected }: { message: Message; connecte
                     <RunMenu runId={message.id.replace(/^run:/, "")} transcript={transcript} />
                 </span>
             </div>
-            {(message.details_pending || steps.length > 0 || calls.length > 0) && (
+            {hasTrace && (
                 <details
                     onToggle={(event) => setExpanded(event.currentTarget.open)}
-                    data-pointer-reveal={pointerReveal}
-                    className={`${styles.buildTrace} transcript-trace [&>summary]:list-none [&>summary]:flex [&>summary]:items-center [&>summary]:gap-2 [&>summary]:cursor-pointer [&>summary]:min-h-11 [&>summary]:text-[12px] [&>summary::-webkit-details-marker]:hidden [&[open]>summary>.transcript-chevron]:rotate-90 [&>summary]:text-muted-foreground`}
+                    className="transcript-trace border-t border-hairline [&>summary::-webkit-details-marker]:hidden [&>summary]:flex [&>summary]:min-h-10 [&>summary]:list-none [&>summary]:cursor-pointer [&>summary]:items-center [&>summary]:gap-2 [&>summary]:px-3 [&>summary]:text-[12px] [&>summary]:text-muted-foreground [&[open]>summary>.transcript-chevron]:rotate-90 pointer-fine:[&>summary:hover]:text-foreground"
                 >
-                    <summary
-                        onClick={(event) => setPointerReveal(event.detail > 0)}
-                        onKeyDown={() => setPointerReveal(false)}
-                    >
+                    <summary>
                         <ChevronRightIcon
-                            className="transcript-chevron w-[13px] shrink-0 [transition:transform_.18s_ease-out] motion-reduce:[transition:none]"
+                            className="transcript-chevron w-[13px] shrink-0 [transition:transform_.18s_var(--ease-out)] motion-reduce:[transition:none]"
                             aria-hidden="true"
                         />
-                        Build steps{" "}
-                        <span className="transcript-caption font-mono text-[11px] text-muted-foreground">
-                            {timeline.length || ""}
-                        </span>
+                        {timeline.length ? `${timeline.length} actions taken` : "Build steps"}
                     </summary>
-                    <div className={styles.buildDetails}>
+                    <div className="animate-in fade-in duration-150 ease-out motion-reduce:animate-none">
                         {approach && (
-                            <div className="pb-2 pl-[7px] text-[12px] text-muted-foreground">
+                            <div className="px-3 pb-2 text-[12px] text-muted-foreground">
                                 <p className="m-0 pb-1 wrap-anywhere">{approach.summary}</p>
                                 {approach.steps.map((step, index) => (
                                     <p className="m-0 flex gap-3 py-1 wrap-anywhere" key={index}>
@@ -159,16 +151,26 @@ export function RunActivity({ message, connected }: { message: Message; connecte
                                 ))}
                             </div>
                         )}
-                        {details.loading && <p role="status">Loading build steps…</p>}
+                        {details.loading && (
+                            <p
+                                className="px-3 pb-2 text-[12px] text-muted-foreground"
+                                role="status"
+                            >
+                                Loading build steps…
+                            </p>
+                        )}
                         {details.error && (
-                            <p role="alert">
-                                {details.error}{" "}
+                            <p
+                                className="flex flex-wrap items-center gap-2 px-3 pb-2 text-[12px] text-destructive"
+                                role="alert"
+                            >
+                                {details.error}
                                 <Button variant="utility" onClick={details.retry}>
                                     Retry
                                 </Button>
                             </p>
                         )}
-                        <div className="grid gap-1 pt-0 pr-0 pb-2 pl-[7px]">
+                        <div className="grid gap-0.5 px-2 pb-2">
                             {timeline.map((entry) =>
                                 entry.kind === "group" ? (
                                     <ToolGroup
@@ -185,7 +187,7 @@ export function RunActivity({ message, connected }: { message: Message; connecte
                                     <div
                                         key={entry.item.id}
                                         data-failed={entry.item.ok === false}
-                                        className="flex min-h-9 min-w-0 items-center gap-2 px-1 text-[12.5px] text-muted-foreground data-[failed=true]:text-destructive"
+                                        className="flex min-h-8 min-w-0 items-center gap-2 px-1.5 text-[12.5px] text-muted-foreground data-[failed=true]:text-destructive"
                                     >
                                         <span
                                             aria-hidden="true"

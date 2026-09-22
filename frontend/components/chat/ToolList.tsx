@@ -16,7 +16,6 @@ import {
 } from "@radix-ui/react-icons";
 import { memo, useId, useState } from "react";
 import { createPortal } from "react-dom";
-import styles from "./transcript.module.css";
 
 import { PixelLoader } from "./RunStatus";
 import { ToolResult } from "./ToolResult";
@@ -28,6 +27,10 @@ const icons: Record<string, typeof CubeIcon> = {
     run_command: CodeIcon,
     read_skill: MagnifyingGlassIcon,
 };
+
+const row =
+    "[&>summary::-webkit-details-marker]:hidden [&>summary]:flex [&>summary]:min-h-8 [&>summary]:list-none [&>summary]:cursor-pointer [&>summary]:items-center [&>summary]:gap-2 [&>summary]:rounded-[6px] [&>summary]:px-1.5 [&>summary]:text-[12.5px] [&[open]>summary>.transcript-chevron]:rotate-90 pointer-fine:[&>summary:hover]:bg-surface-1";
+
 export const ToolRow = memo(function ToolRow({ tool }: { tool: ToolCall }) {
     const result = presentTool(tool);
     // Errors open by default. A user's explicit expand/collapse choice takes precedence.
@@ -39,10 +42,7 @@ export const ToolRow = memo(function ToolRow({ tool }: { tool: ToolCall }) {
     const mono = Boolean(result.command || result.files[0]);
     return (
         <details
-            className={
-                styles.tool +
-                " transcript-tool min-w-0 [&>summary]:list-none [&>summary]:flex [&>summary]:min-h-9 [&>summary]:cursor-pointer [&>summary]:items-center [&>summary]:gap-2 [&>summary]:rounded-md [&>summary]:px-1 [&>summary]:text-[12.5px] [&>summary::-webkit-details-marker]:hidden [&[open]>summary>.transcript-chevron]:rotate-90 [&>summary:hover]:bg-secondary [&[data-state=error]>summary]:text-destructive [&[data-state=error]_.transcript-toolSummary]:text-destructive"
-            }
+            className={`transcript-tool min-w-0 ${row} [&[data-state=error]>summary]:text-destructive [&[data-state=error]_.transcript-toolSummary]:text-destructive`}
             data-state={tool.status}
             open={expanded}
             onToggle={(event) => {
@@ -50,7 +50,7 @@ export const ToolRow = memo(function ToolRow({ tool }: { tool: ToolCall }) {
             }}
         >
             <summary>
-                <span className="group/glyph relative flex size-4 shrink-0 items-center justify-center text-muted-foreground">
+                <span className="relative flex size-4 shrink-0 items-center justify-center text-muted-foreground">
                     {tool.status === "running" ? (
                         <PixelLoader />
                     ) : tool.status === "error" ? (
@@ -62,23 +62,25 @@ export const ToolRow = memo(function ToolRow({ tool }: { tool: ToolCall }) {
                     )}
                 </span>
                 <span
-                    className={`${styles.toolName} transcript-toolName shrink-0 font-medium text-foreground`}
+                    className={`transcript-toolName shrink-0 font-medium text-foreground ${
+                        tool.status === "running" ? "motion-safe:animate-pulse" : ""
+                    }`}
                 >
                     {result.title}
                 </span>
                 <span
-                    className={`transcript-toolSummary mr-auto min-w-0 truncate rounded-md bg-secondary px-1.5 py-0.5 text-[11.5px] text-muted-foreground ${mono ? "font-mono" : ""}`}
+                    className={`transcript-toolSummary mr-auto min-w-0 truncate rounded-[5px] bg-surface-3 px-1.5 py-0.5 text-[11.5px] text-muted-foreground ${mono ? "font-mono" : ""}`}
                     title={chip}
                 >
                     {chip}
                 </span>
                 {result.fileCount > 1 && (
-                    <span className="shrink-0 font-mono text-[11px] text-muted-foreground tabular-nums">
+                    <span className="shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground">
                         +{result.fileCount - 1}
                     </span>
                 )}
                 {typeof tool.duration_ms === "number" && (
-                    <span className="shrink-0 font-mono text-[11px] text-muted-foreground tabular-nums">
+                    <span className="shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground">
                         {(tool.duration_ms / 1000).toFixed(1)}s
                     </span>
                 )}
@@ -97,8 +99,8 @@ export const ToolRow = memo(function ToolRow({ tool }: { tool: ToolCall }) {
                 </span>
             </summary>
             {expanded && (
-                <div className="transcript-result min-w-0 px-1 pt-0.5 pb-2">
-                    <div className="border-l border-border pl-3">
+                <div className="transcript-result min-w-0 px-1.5 pt-0.5 pb-2">
+                    <div className="border-l border-hairline pl-3">
                         <ToolResult tool={tool} result={result} />
                     </div>
                 </div>
@@ -111,13 +113,13 @@ export const ToolRow = memo(function ToolRow({ tool }: { tool: ToolCall }) {
 export function ToolGroup({ name, calls }: { name: string; calls: ToolCall[] }) {
     const Glyph = icons[name] || CubeIcon;
     return (
-        <details className="min-w-0 [&>summary]:flex [&>summary]:min-h-9 [&>summary]:cursor-pointer [&>summary]:items-center [&>summary]:gap-2 [&>summary]:rounded-md [&>summary]:px-1 [&>summary]:text-[12.5px] [&>summary]:list-none [&>summary::-webkit-details-marker]:hidden [&[open]>summary>.transcript-chevron]:rotate-90 [&>summary:hover]:bg-secondary">
+        <details className={`min-w-0 ${row}`}>
             <summary>
                 <span className="flex size-4 shrink-0 items-center justify-center text-muted-foreground">
                     <Glyph aria-hidden="true" />
                 </span>
                 <span className="shrink-0 font-medium text-foreground">{toolLabel(name)}</span>
-                <span className="mr-auto rounded-md bg-secondary px-1.5 py-0.5 font-mono text-[11.5px] text-muted-foreground tabular-nums">
+                <span className="mr-auto rounded-[5px] bg-surface-3 px-1.5 py-0.5 font-mono text-[11.5px] tabular-nums text-muted-foreground">
                     {calls.length} calls
                 </span>
                 <ChevronRightIcon
@@ -125,7 +127,7 @@ export function ToolGroup({ name, calls }: { name: string; calls: ToolCall[] }) 
                     aria-hidden="true"
                 />
             </summary>
-            <div className="ml-2 grid gap-1 border-l border-border pl-3">
+            <div className="ml-2 grid gap-0.5 border-l border-hairline pl-3">
                 {calls.map((tool, index) => (
                     <ToolRow key={tool.id || index} tool={tool} />
                 ))}
@@ -158,7 +160,7 @@ export function FileChips({ files }: { files: TouchedFile[] }) {
     const close = (file: TouchedFile) => () =>
         setAnchor((current) => (current?.file.path === file.path ? null : current));
     return (
-        <div className="mt-2.5 flex max-w-full flex-wrap gap-1.5 border-t border-border pt-2.5">
+        <div className="flex max-w-full flex-wrap gap-1.5 border-t border-hairline px-3 py-2.5">
             {files.map((file) => (
                 <button
                     type="button"
@@ -168,7 +170,7 @@ export function FileChips({ files }: { files: TouchedFile[] }) {
                     onMouseLeave={close(file)}
                     onFocus={openAt(file)}
                     onBlur={close(file)}
-                    className="inline-flex h-7 max-w-full cursor-pointer items-center gap-2 rounded-md bg-card px-2 font-mono text-[11.5px] text-foreground focus-visible:outline-2 focus-visible:outline-ring pointer-fine:hover:bg-secondary"
+                    className="inline-flex h-7 max-w-full cursor-pointer items-center gap-2 rounded-[6px] bg-surface-3 px-2 font-mono text-[11.5px] text-foreground [transition:background-color_130ms_ease] focus-visible:outline-2 focus-visible:outline-ring pointer-fine:hover:bg-surface-1"
                 >
                     <span className="min-w-0 truncate">{file.path}</span>
                     <span
@@ -183,10 +185,10 @@ export function FileChips({ files }: { files: TouchedFile[] }) {
                     <div
                         id={previewId}
                         role="tooltip"
-                        className="fixed z-50 w-72 animate-in overflow-hidden rounded-lg border border-border bg-card zoom-in-95 fade-in duration-150 ease-out motion-reduce:animate-none"
+                        className="fixed z-50 w-72 animate-in overflow-hidden rounded-[10px] border border-border bg-surface-2 fade-in zoom-in-95 duration-150 ease-out motion-reduce:animate-none"
                         style={{ left: anchor.x, top: anchor.top, bottom: anchor.bottom }}
                     >
-                        <div className="flex items-center justify-between border-b border-border px-2.5 py-1.5 font-mono text-[11px] text-muted-foreground">
+                        <div className="flex items-center justify-between border-b border-hairline px-2.5 py-1.5 font-mono text-[11px] text-muted-foreground">
                             <span className="min-w-0 truncate">{anchor.file.path}</span>
                             <span className="shrink-0 tabular-nums">
                                 {((anchor.file.durationMs ?? 0) / 1000).toFixed(1)}s

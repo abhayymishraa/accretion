@@ -1,7 +1,6 @@
 "use client";
 
 import { ChatInputBox } from "@/components/chat/ChatInputBox";
-import styles from "@/components/chat/ember-start.module.css";
 import { Brand } from "@/components/layout/Brand";
 import { ChatNavbar } from "@/components/layout/ChatNavbar";
 import { WorkspaceSidebar } from "@/components/layout/WorkspaceSidebar";
@@ -36,7 +35,7 @@ export default function ChatPage() {
                     className="relative min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain bg-background"
                 >
                     <section
-                        className={`${styles.stage} relative isolate flex min-h-full flex-col items-center px-5 pb-6 pt-[clamp(24px,5dvh,64px)] text-center sm:px-10`}
+                        className="ember-stage relative isolate flex min-h-full flex-col items-center px-5 pt-[clamp(24px,5dvh,64px)] pb-6 text-center sm:px-10"
                         aria-labelledby="start-heading"
                     >
                         <div className="relative mx-auto flex w-full max-w-5xl flex-1 flex-col items-center">
@@ -52,7 +51,7 @@ export default function ChatPage() {
                                 <p className="mt-5 max-w-sm text-base leading-relaxed text-muted-foreground sm:max-w-none">
                                     A conversation. A little direction. Something that’s yours.
                                 </p>
-                                <div className="mt-7 inline-flex items-center gap-4 rounded-2xl border border-border/60 bg-secondary/60 p-1.5 pl-5">
+                                <div className="mt-7 inline-flex items-center gap-4 rounded-[16px] border border-border bg-surface-2 p-1.5 pl-5">
                                     <span className="text-left text-xs leading-snug text-muted-foreground">
                                         From a thought
                                         <br />
@@ -63,7 +62,7 @@ export default function ChatPage() {
                                         onClick={() =>
                                             document.getElementById("project-brief")?.focus()
                                         }
-                                        className="min-h-11 rounded-xl px-5"
+                                        className="rounded-[11px] px-5"
                                     >
                                         Try an idea <ArrowRight size={15} aria-hidden="true" />
                                     </Button>
@@ -71,7 +70,7 @@ export default function ChatPage() {
                             </header>
                             <div className="relative mt-[clamp(40px,calc(20dvh_-_48px),152px)] w-full max-w-2xl">
                                 <div
-                                    className={`${styles.workspaceOutline} pointer-events-none absolute -inset-x-4 top-6 h-56 rounded-t-xl border border-border/50 lg:-inset-x-20`}
+                                    className="pointer-events-none absolute -inset-x-4 top-6 h-56 rounded-t-xl border border-border/50 [mask-image:linear-gradient(#0008,transparent_92%)] lg:-inset-x-20"
                                     aria-hidden="true"
                                 >
                                     <div className="flex h-8 items-center gap-1.5 border-b border-border/50 px-4">
@@ -90,7 +89,7 @@ export default function ChatPage() {
                                 />
                                 {error && (
                                     <p
-                                        className="relative mt-4 rounded-lg border border-destructive bg-card px-4 py-3 text-left text-sm leading-relaxed text-destructive"
+                                        className="relative mt-4 rounded-[10px] border border-destructive/40 bg-destructive/10 px-4 py-3 text-left text-sm leading-relaxed text-destructive"
                                         role="alert"
                                     >
                                         {error}

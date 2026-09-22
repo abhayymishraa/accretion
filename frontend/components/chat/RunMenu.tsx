@@ -1,5 +1,6 @@
 "use client";
 
+import styles from "@/components/chat/menu.module.css";
 import { Button } from "@/components/ui/button";
 import { DotsHorizontalIcon } from "@radix-ui/react-icons";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
@@ -79,29 +80,32 @@ export function RunMenu({ runId, transcript }: { runId: string; transcript: stri
             >
                 <DotsHorizontalIcon aria-hidden="true" />
             </Button>
-            {open && (
-                <div
-                    role="menu"
-                    className="absolute top-full right-0 z-50 mt-1 w-48 animate-in overflow-hidden rounded-lg border border-border bg-card fade-in zoom-in-95 duration-150 ease-out motion-reduce:animate-none"
+            {/* Stays mounted so it can leave as well as arrive. origin-top-right
+                added: it was scaling from centre, not from its trigger. */}
+            <div
+                role="menu"
+                data-state={open ? "open" : "closed"}
+                aria-hidden={!open}
+                inert={!open}
+                className={`${styles.menu} absolute top-full right-0 z-50 mt-1 w-48 origin-top-right overflow-hidden rounded-[10px] border border-border bg-surface-2`}
+            >
+                <button
+                    role="menuitem"
+                    type="button"
+                    onClick={() => void copy(runId, "Run id copied")}
+                    className="flex min-h-9 w-full cursor-pointer items-center px-3 text-left text-[12.5px] text-foreground pointer-fine:hover:bg-surface-1"
                 >
-                    <button
-                        role="menuitem"
-                        type="button"
-                        onClick={() => void copy(runId, "Run id copied")}
-                        className="flex min-h-9 w-full cursor-pointer items-center px-3 text-left text-[12.5px] text-foreground pointer-fine:hover:bg-secondary"
-                    >
-                        Copy run id
-                    </button>
-                    <button
-                        role="menuitem"
-                        type="button"
-                        onClick={() => void copy(transcript, "Build steps copied")}
-                        className="flex min-h-9 w-full cursor-pointer items-center px-3 text-left text-[12.5px] text-foreground pointer-fine:hover:bg-secondary"
-                    >
-                        Copy build steps
-                    </button>
-                </div>
-            )}
+                    Copy run id
+                </button>
+                <button
+                    role="menuitem"
+                    type="button"
+                    onClick={() => void copy(transcript, "Build steps copied")}
+                    className="flex min-h-9 w-full cursor-pointer items-center px-3 text-left text-[12.5px] text-foreground pointer-fine:hover:bg-surface-1"
+                >
+                    Copy build steps
+                </button>
+            </div>
         </div>
     );
 }
