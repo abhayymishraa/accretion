@@ -11,13 +11,11 @@ from logging.config import fileConfig
 from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
-# Imported for the side effect of registering tables. Every module holding ORM
-# models must appear here, or autogenerate will propose dropping its tables.
 import agent.budget.models
 import agent.context.models
-import agent.storage.models  # noqa: F401
-import auth.models  # noqa: F401
-import db.models  # noqa: F401
+import agent.storage.models
+import auth.models
+import db.models
 from alembic import context
 from db.base import Base, database_url
 
@@ -26,6 +24,9 @@ config.set_main_option("sqlalchemy.url", database_url.render_as_string(hide_pass
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
+
+# Importing a module registers its tables; one missing here is a table autogenerate will drop.
+MODEL_MODULES = (agent.budget.models, agent.context.models, agent.storage.models, auth.models, db.models)
 
 target_metadata = Base.metadata
 
