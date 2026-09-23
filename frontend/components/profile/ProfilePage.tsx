@@ -6,6 +6,7 @@ import { ChatNavbar } from "@/components/layout/ChatNavbar";
 import { WorkspaceSidebar } from "@/components/layout/WorkspaceSidebar";
 import { ProfileIdentityCard } from "@/components/profile/ProfileIdentityCard";
 import { ProfileSkeleton } from "@/components/profile/ProfileSkeleton";
+import { ErrorBox } from "@/components/ui/ErrorBox";
 import { Check, Mail } from "lucide-react";
 import { SiGithub, SiGoogle } from "react-icons/si";
 
@@ -30,14 +31,7 @@ export default function ProfilePage() {
                         <h1>Profile</h1>
                         <p>A little about the person behind the ideas.</p>
                     </div>
-                    {error && (
-                        <p
-                            role="alert"
-                            className="ember-error text-destructive border border-destructive bg-card py-3 px-[15px] rounded-[8px] text-[13px] leading-[1.5]"
-                        >
-                            {error}
-                        </p>
-                    )}
+                    <ErrorBox message={error} />
                     {!user ? (
                         error ? (
                             <div className="ember-profile-loading py-10">
@@ -49,7 +43,7 @@ export default function ProfilePage() {
                             <ProfileSkeleton />
                         )
                     ) : (
-                        <>
+                        <div data-loaded-in="">
                             <ProfileIdentityCard user={user} busy={busy} onSave={save} />
                             <div className="mt-9 grid gap-8 md:grid-cols-2 md:gap-12 [&_h2]:mb-1.5 [&_h2]:text-[17px] [&_h2]:font-medium [&_section>p]:text-sm [&_section>p]:leading-relaxed [&_section>p]:text-muted-foreground">
                                 <section aria-labelledby="credits-title">
@@ -143,7 +137,7 @@ export default function ProfilePage() {
                             >
                                 {message}
                             </p>
-                        </>
+                        </div>
                     )}
                 </main>
             </div>

@@ -155,11 +155,11 @@ export function ProfileIdentityCard({ user, busy, onSave }: Props) {
                     )}
                 </div>
                 <div
-                    className="hidden flex-col justify-between border-l border-border bg-secondary px-6 py-8 sm:flex"
+                    className="hidden flex-col justify-between border-l border-border bg-surface-2 px-6 py-8 sm:flex"
                     aria-hidden="true"
                 >
                     <span className="self-end text-[11px] font-medium tracking-[0.08em] text-muted-foreground">
-                        WEBBUILDER
+                        ACCRETION
                     </span>
                     <span className="text-[78px] leading-none font-semibold tracking-[-0.04em] text-accent-foreground">
                         {initials}
