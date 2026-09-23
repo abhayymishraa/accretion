@@ -16,7 +16,6 @@ dependencies = [
     "passlib>=1.7.4",
     "disposable-email-domains>=0.0.262",
     "pydantic[email]>=2.12.2",
-    "python-jose[cryptography]>=3.5.0",
     "sqlalchemy>=2.0.44",
     "uvicorn[standard]>=0.38.0",
     "authlib>=1.6,<2",
@@ -25,7 +24,83 @@ dependencies = [
     "joserfc>=1.7,<2",
     "boto3>=1.40,<2",
     "google-cloud-storage>=3.4,<4",
+    "pydantic-settings>=2.4,<3",
+    "pyjwt>=2.9,<3",
+    "alembic>=1.13,<2",
 ]
 
 [dependency-groups]
-dev = ["black>=25.9.0"]
+dev = [
+    "mypy>=1.11",
+    "ruff>=0.6,<1",
+]
+
+[tool.mypy]
+python_version = "3.12"
+# Teaches mypy that a settings class fills required fields from the environment.
+plugins = ["pydantic.mypy"]
+# `strict` minus the three flags that demand an annotation on every function.
+# This is openai-agents' configuration: it keeps every check that finds a bug
+# and drops the ones that would only demand signatures on existing code.
+strict = true
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+disallow_untyped_calls = false
+warn_unreachable = true
+ignore_missing_imports = true
+exclude = "(agent/skills/|sandbox/|claude-seo/|graphify-out/|frontend/|alembic/)"
+
+# A route's return annotation is a FastAPI response-model declaration, not a
+# Python return contract: the handler returns a dict and FastAPI validates it
+# into the model. Returning the model instead would construct it twice, which
+# the FastAPI guidance calls out as an anti-pattern. So the mismatch is correct
+# here, and only here.
+[[tool.mypy.overrides]]
+module = ["auth.router", "files.router", "health.router", "previews.router", "projects.router", "runs.router"]
+disable_error_code = ["return-value"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+# Vendored skills, the E2B guest image and generated output are not ours to style.
+extend-exclude = ["agent/skills", "sandbox", "claude-seo", "graphify-out", "frontend"]
+
+[tool.ruff.lint]
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # pyflakes
+    "I",      # import sorting
+    "B",      # bugbear
+    "C4",     # comprehensions
+    "ASYNC",  # blocking calls on an async path
+    "UP",     # pyupgrade
+    "DTZ005", # datetime.now() without a timezone
+    "RUF006", # unowned asyncio tasks
+    "RUF012", # mutable class attributes without ClassVar
+    "RUF100", # unused noqa
+    "C901",   # cyclomatic complexity
+]
+
+[tool.ruff.lint.mccabe]
+# pydantic-ai's ceiling. The exemptions below are a shrinking list, not a policy.
+max-complexity = 15
+
+[tool.ruff.lint.per-file-ignores]
+# These hold model-facing prose. Re-wrapping a line changes the text the model
+# reads, so line length is not ours to enforce here.
+"agent/run/prompts.py" = ["E501"]
+"agent/tools/skills.py" = ["E501"]
+# Tool docstrings are the descriptions the model reads when choosing a tool.
+"agent/tools/tools.py" = ["E501"]
+# Functions that already exceeded the ceiling when it was introduced. Each is a
+# state machine that predates this rule; none is exempt because it should be.
+# Removing an entry here is the goal, adding one needs a reason.
+"agent/run/runner.py" = ["C901"]            # run_editor, 37
+"agent/run/service.py" = ["C901"]           # execute 21, admit 19
+"agent/storage/maintenance.py" = ["C901"]   # maintain, 20
+"agent/tools/public_tools.py" = ["C901"]    # public_tool_details, 16
+"runs/socket.py" = ["C901"]                 # listen, 18 — moved verbatim from main.py
+
+[tool.ruff.lint.isort]
+known-first-party = ["agent", "auth", "db", "files", "health", "previews", "projects", "runs"]
