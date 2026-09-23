@@ -11,12 +11,19 @@ FROM python:3.12-slim-bookworm@sha256:782412e85d0f0984994c290652577d4018aff08145
 ENV PATH="/app/.venv/bin:$PATH" PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
 WORKDIR /app
 RUN groupadd --gid 10001 app && useradd --uid 10001 --gid app --no-create-home app \
-    && mkdir /app/projects && chown app:app /app/projects
+    && mkdir -p /app/var/projects && chown -R app:app /app/var
 COPY --from=builder /app/.venv /app/.venv
-COPY main.py request_timing.py plans.py ./
+COPY main.py request_timing.py plans.py config.py exceptions.py models.py ./
+COPY alembic.ini ./
+COPY alembic/ ./alembic/
 COPY agent/ ./agent/
 COPY auth/ ./auth/
 COPY db/ ./db/
+COPY health/ ./health/
+COPY projects/ ./projects/
+COPY runs/ ./runs/
+COPY files/ ./files/
+COPY previews/ ./previews/
 USER app
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=6s --start-period=60s --retries=3 \
