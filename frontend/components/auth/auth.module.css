@@ -1,0 +1,91 @@
+@layer components {
+    .page {
+        background: var(--background);
+        color: var(--foreground);
+    }
+
+    /* ---------- photo panel ----------
+       Kept here rather than imported from the landing module: these are two
+       features and the landing's scrim is tuned for a full-bleed hero, not a
+       half-width column. */
+    .art {
+        position: absolute;
+        inset: 0;
+        z-index: -2;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    }
+
+    /* Deeper than the landing's hero scrim: this column is narrow, so the type
+       sits over busier parts of the photograph. */
+    .scrim {
+        position: absolute;
+        inset: 0;
+        z-index: -1;
+        pointer-events: none;
+        background: linear-gradient(
+            to bottom,
+            rgb(10 30 50 / 0.58) 0%,
+            rgb(10 30 50 / 0.62) 45%,
+            rgb(10 30 50 / 0.6) 100%
+        );
+    }
+
+    /* Holds the column before the photograph decodes, so it never flashes the
+       page background through. */
+    .photoPanel {
+        background: rgb(23 46 66);
+    }
+
+    /* ---------- motion ----------
+       A sign-in page is not a landing page: people arrive here having mistyped
+       a password. The entrance is short and the fields never stagger. */
+    @media (prefers-reduced-motion: no-preference) {
+        .rise {
+            animation: auth-rise 460ms var(--ease-drawer) both;
+            animation-delay: calc(var(--i, 0) * 70ms);
+        }
+        @keyframes auth-rise {
+            from {
+                opacity: 0;
+                transform: translateY(12px);
+            }
+        }
+
+        /* Keyboard parity. The ring is outline, which the input's own
+           transition list does not cover, so tabbing between fields snapped. */
+        .page :is(a, button, input, summary):focus-visible {
+            transition: outline-offset 150ms var(--ease-out);
+        }
+
+        /* The landing hero's gesture, reused so the two surfaces read as one
+           product. Applied on signup only. */
+        .lineRise {
+            animation: auth-line 900ms var(--ease-drawer) both;
+            animation-delay: calc(var(--i, 0) * 90ms);
+        }
+        @keyframes auth-line {
+            from {
+                clip-path: inset(-40% -10% 110% -10%);
+                transform: translateY(0.4em);
+            }
+            to {
+                clip-path: inset(-40% -10% -20% -10%);
+                transform: translateY(0);
+            }
+        }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .rise,
+        .lineRise {
+            animation: auth-fade 180ms ease both;
+        }
+        @keyframes auth-fade {
+            from {
+                opacity: 0;
+            }
+        }
+    }
+}

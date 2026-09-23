@@ -1,6 +1,7 @@
 "use client";
 
-import { AuthFrame } from "@/components/auth/AuthFrame";
+import { AUTH_SWITCH_LINK, AuthFrame } from "@/components/auth/AuthFrame";
+import { ErrorBox } from "@/components/ui/ErrorBox";
 import { SocialLogin } from "@/components/auth/SocialLogin";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,7 +31,7 @@ export default function SignUpPage() {
                 <p role="status">
                     We sent a verification link to {email}. Open it within 30 minutes to continue.
                 </p>
-                <p className="ember-auth-switch text-[13px]! text-center mt-[25px]! [&_a]:text-accent-foreground [&_a]:underline [&_a]:underline-offset-[3px]">
+                <p className={AUTH_SWITCH_LINK}>
                     <Link href="/verify-email">Resend verification email</Link>
                 </p>
             </AuthFrame>
@@ -41,7 +42,7 @@ export default function SignUpPage() {
             <SocialLogin registration onOptions={setOptions} />
             <form
                 onSubmit={handleSubmit}
-                className="ember-form flex flex-col gap-[21px] mt-7.5 [&_.ember-helper]:-mt-3"
+                className="mt-7 flex flex-col gap-5 [&_.ember-helper]:-mt-2"
                 aria-busy={isLoading}
             >
                 <label className="flex flex-col gap-[9px] text-[13px]" htmlFor="name">
@@ -90,30 +91,30 @@ export default function SignUpPage() {
                 >
                     Use at least 8 characters. Verify your email to open your workspace.
                 </p>
-                {error && (
-                    <p
-                        className="ember-error text-destructive border border-destructive bg-card py-3 px-[15px] rounded-[8px] text-[13px] leading-[1.5]"
-                        role="alert"
-                    >
-                        {error}
-                    </p>
-                )}
+                <ErrorBox message={error} />
                 <Button
                     type="submit"
                     disabled={isLoading || !options?.email_verification}
                     variant="default"
+                    className="relative"
                 >
-                    {isLoading ? (
-                        <>
-                            <Loader2 size={16} className="animate-spin" />
-                            Creating account…
-                        </>
-                    ) : (
-                        "Create workspace"
-                    )}
+                    <span
+                        className={`transition-opacity duration-[120ms] ${isLoading ? "opacity-0" : "opacity-100"}`}
+                    >
+                        Create workspace
+                    </span>
+                    {/* Stacked, not swapped. aria-busy on the form already
+                        announces the state, so this layer is decorative. */}
+                    <span
+                        aria-hidden="true"
+                        className={`absolute inset-0 flex items-center justify-center gap-2 transition-opacity duration-[120ms] ${isLoading ? "opacity-100" : "opacity-0"}`}
+                    >
+                        <Loader2 size={16} className="animate-spin" />
+                        Creating account…
+                    </span>
                 </Button>
             </form>
-            <p className="ember-auth-switch text-[13px]! text-center mt-[25px]! [&_a]:text-accent-foreground [&_a]:underline [&_a]:underline-offset-[3px]">
+            <p className={AUTH_SWITCH_LINK}>
                 Already have an account? <Link href="/signin">Sign in</Link>
             </p>
         </AuthFrame>

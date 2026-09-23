@@ -1,6 +1,7 @@
 "use client";
 
-import { AuthFrame } from "@/components/auth/AuthFrame";
+import { AUTH_SWITCH_LINK, AuthFrame } from "@/components/auth/AuthFrame";
+import { ErrorBox } from "@/components/ui/ErrorBox";
 import Link from "next/link";
 
 import { useOAuthCallback } from "@/hooks/auth/useOAuthCallback";
@@ -12,18 +13,13 @@ export default function OAuthCallbackPage() {
             title="Connecting your account"
             description="We’re getting your workspace ready."
         >
+            {/* Renders nothing until there has been an error, then stays
+                mounted so the dismissal can animate out. */}
+            <ErrorBox message={error} />
             {error ? (
-                <>
-                    <p
-                        className="ember-error text-destructive border border-destructive bg-card py-3 px-[15px] rounded-[8px] text-[13px] leading-[1.5]"
-                        role="alert"
-                    >
-                        {error}
-                    </p>
-                    <p className="ember-auth-switch text-[13px]! text-center mt-[25px]! [&_a]:text-accent-foreground [&_a]:underline [&_a]:underline-offset-[3px]">
-                        <Link href="/signin">Back to sign in</Link>
-                    </p>
-                </>
+                <p className={AUTH_SWITCH_LINK}>
+                    <Link href="/signin">Back to sign in</Link>
+                </p>
             ) : (
                 <p role="status">Opening your workspace…</p>
             )}
