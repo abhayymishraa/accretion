@@ -1,4 +1,5 @@
 """Bounded public diagnostics. Prompts, source files and provider credentials stay out."""
+
 import gzip
 import hashlib
 import json
@@ -9,8 +10,9 @@ from sqlalchemy import select
 
 from db.base import AsyncSessionLocal
 from db.models import Run, RunEvent
-from .persistence import put_object, read_object
-from .storage import StorageError
+
+from .storage.persistence import put_object, read_object
+from .storage.storage import StorageError
 
 # Bounds the events held in memory and written per run. Sized against
 # RUN_MAX_TURNS: a turn emits roughly three events, so a cap below the turn
@@ -28,31 +30,44 @@ EVENT_PAGE = 201
 
 def redact(value, *, max_length=4000):
     if isinstance(value, dict):
-        return {k: redact(v, max_length=max_length) for k, v in value.items() if k.lower() not in
-                {'authorization', 'cookie', 'password', 'secret', 'api_key', 'token'}}
+        return {
+            k: redact(v, max_length=max_length)
+            for k, v in value.items()
+            if k.lower() not in {"authorization", "cookie", "password", "secret", "api_key", "token"}
+        }
     if isinstance(value, list):
         return [redact(v, max_length=max_length) for v in value[:250]]
     if not isinstance(value, str):
         return value
     for key, secret in os.environ.items():
-        if len(secret) >= 8 and any(s in key for s in ('KEY', 'SECRET', 'TOKEN', 'PASSWORD', 'DATABASE_URL')):
-            value = value.replace(secret, '[redacted]')
-    value = re.sub(r'(?i)(bearer\s+|(?:api[_-]?key|password|secret|token)\s*[=:]\s*)[^\s,;\"\']+', r'\1[redacted]', value)
-    value = re.sub(r'\b(?:sk-[\w-]{12,}|gh[pousr]_[\w]+|AIza[\w-]+)\b', '[redacted]', value)
-    value = re.sub(r'(\w+://)[^\s/@]+:[^\s/@]+@', r'\1[redacted]@', value)
+        if len(secret) >= 8 and any(s in key for s in ("KEY", "SECRET", "TOKEN", "PASSWORD", "DATABASE_URL")):
+            value = value.replace(secret, "[redacted]")
+    value = re.sub(
+        r"(?i)(bearer\s+|(?:api[_-]?key|password|secret|token)\s*[=:]\s*)[^\s,;\"\']+",
+        r"\1[redacted]",
+        value,
+    )
+    value = re.sub(r"\b(?:sk-[\w-]{12,}|gh[pousr]_[\w]+|AIza[\w-]+)\b", "[redacted]", value)
+    value = re.sub(r"(\w+://)[^\s/@]+:[^\s/@]+@", r"\1[redacted]@", value)
     return value if max_length is None else value[:max_length]
 
 
 async def run_events(db, run_id, after_sequence=0, limit=EVENT_PAGE):
-    rows = (await db.scalars(select(RunEvent).where(RunEvent.run_id == run_id,
-        RunEvent.sequence > after_sequence).order_by(RunEvent.sequence).limit(limit))).all()
-    return [{**row.payload, 'sequence': row.sequence} for row in rows]
+    rows = (
+        await db.scalars(
+            select(RunEvent)
+            .where(RunEvent.run_id == run_id, RunEvent.sequence > after_sequence)
+            .order_by(RunEvent.sequence)
+            .limit(limit)
+        )
+    ).all()
+    return [{**row.payload, "sequence": row.sequence} for row in rows]
 
 
 async def archive_run(run_id):
     async with AsyncSessionLocal() as db:
         run = await db.get(Run, run_id)
-        if not run or run.status in ('running', 'awaiting_input') or run.log_sha256:
+        if not run or run.status in ("running", "awaiting_input") or run.log_sha256:
             return
         # The archive must cover the whole run: paging here would store a prefix
         # and then let maintenance prune the rows the prefix left out.
@@ -62,26 +77,43 @@ async def archive_run(run_id):
     lines = []
     for event in events:
         entry = redact(event)
-        encoded = json.dumps(entry, ensure_ascii=False, separators=(',', ':')).encode()
+        encoded = json.dumps(entry, ensure_ascii=False, separators=(",", ":")).encode()
         if len(encoded) > 4096:
             # Retain every event's identity/order, visibly truncate oversized legacy diagnostics.
-            entry = {k: (v[:128] if isinstance(v, str) else v) for k, v in entry.items()
-                     if k in {'e', 'run_id', 'event_id', 'sequence', 'created_at', 'name', 'call_id',
-                              'status', 'ok', 'message', 'output', 'revision_id', 'duration_ms'}}
-            entry['details_truncated'] = True
-            encoded = json.dumps(entry, ensure_ascii=False, separators=(',', ':')).encode()
-        lines.append(encoded + b'\n')
-    body = b''.join(lines)
+            entry = {
+                k: (v[:128] if isinstance(v, str) else v)
+                for k, v in entry.items()
+                if k
+                in {
+                    "e",
+                    "run_id",
+                    "event_id",
+                    "sequence",
+                    "created_at",
+                    "name",
+                    "call_id",
+                    "status",
+                    "ok",
+                    "message",
+                    "output",
+                    "revision_id",
+                    "duration_ms",
+                }
+            }
+            entry["details_truncated"] = True
+            encoded = json.dumps(entry, ensure_ascii=False, separators=(",", ":")).encode()
+        lines.append(encoded + b"\n")
+    body = b"".join(lines)
     if len(body) > ARCHIVE_MAX_BYTES:
-        raise StorageError('Run diagnostic archive exceeds its ceiling')
+        raise StorageError("Run diagnostic archive exceeds its ceiling")
     archive = gzip.compress(body, mtime=0)
-    key = f'logs/{run_id}.jsonl.gz'
-    await put_object(key, archive, 'application/gzip', chat_id=run.chat_id)
+    key = f"logs/{run_id}.jsonl.gz"
+    await put_object(key, archive, "application/gzip", chat_id=run.chat_id)
     # Confirm bytes before allowing expanded DB diagnostics to be pruned later.
     stored_sha256 = hashlib.sha256(await read_object(key, len(archive))).hexdigest()
     archive_sha256 = hashlib.sha256(archive).hexdigest()
     if stored_sha256 != archive_sha256:
-        raise StorageError('Run log archive verification failed')
+        raise StorageError("Run log archive verification failed")
     async with AsyncSessionLocal.begin() as db:
         run = await db.get(Run, run_id)
         if not run:

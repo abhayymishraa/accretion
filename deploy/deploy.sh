@@ -103,7 +103,7 @@ if [[ -n "$template_ref" ]] && [[ "$template_ref" != "$previous_template_ref" ]]
 fi
 # Drain the old writer before migrating legacy event arrays into ordered rows.
 if [[ -n "$previous" ]]; then compose "$previous" stop api; fi
-docker run --rm --env-file "$root/runtime.env" "$image" python -m db.migrate
+docker run --rm --env-file "$root/runtime.env" "$image" alembic upgrade head
 compose "$release" up -d --no-deps api
 
 healthy=false

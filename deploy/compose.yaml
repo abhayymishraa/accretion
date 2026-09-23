@@ -8,7 +8,7 @@ services:
     ports:
       - "127.0.0.1:8000:8000"
     volumes:
-      - /opt/webbuilder/projects:/app/projects
+      - /opt/webbuilder/projects:/app/var/projects
       - type: bind
         source: /opt/webbuilder/secrets/gcs.json
         target: /run/secrets/gcs.json

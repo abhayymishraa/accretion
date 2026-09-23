@@ -4,7 +4,7 @@ export const runService = {
     async start(chatId: string, prompt: string, mode: "auto" | "plan" = "auto") {
         return (
             await apiClient.post<{ run_id: string; tokens_remaining: number }>(
-                `/chats/${chatId}/runs`,
+                `/projects/${chatId}/runs`,
                 { prompt, mode },
             )
         ).data;

@@ -4,7 +4,7 @@ import type { HistoryPage, RunEvent } from "@/types/chat.type";
 export const historyService = {
     async page(chatId: string, signal: AbortSignal, before?: string) {
         return (
-            await apiClient.get<HistoryPage>(`/chats/${chatId}/messages`, {
+            await apiClient.get<HistoryPage>(`/projects/${chatId}/messages`, {
                 params: { limit: 50, before },
                 signal,
             })

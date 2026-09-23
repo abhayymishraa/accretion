@@ -1,12 +1,28 @@
-.PHONY: backend frontend template-build
+.PHONY: backend frontend template-build format format-check lint typecheck check
 
 backend:
-	uv run --env-file .env python -m db.migrate
-	uv run --env-file .env python -m agent.init_storage
+	uv run --env-file .env alembic upgrade head
+	uv run --env-file .env python -m agent.storage.init_storage
 	uv run --env-file .env uvicorn main:app --reload --port 8000
 
 frontend:
 	npm --prefix frontend run dev -- --port 3000
+
+format:
+	uv run ruff format .
+	uv run ruff check . --fix
+
+format-check:
+	uv run ruff format --check .
+
+lint:
+	uv run ruff check .
+
+typecheck:
+	uv run mypy .
+
+# The gate. Mirrors the frontend's format:check + lint.
+check: format-check lint typecheck
 
 # Authenticate the E2B CLI or export E2B_API_KEY before building.
 # Use a fresh release name, e.g. webbuilder-react-design-20260917-1.

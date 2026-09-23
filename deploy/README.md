@@ -6,15 +6,16 @@ transfers the image over SSH; the VM needs no compiler, Git checkout, frontend, 
 development dependencies. Python requires its interpreter and installed libraries;
 the deployable artifact is a container, not a standalone native binary.
 
-Frontend: `https://webbuilder.abhayymishraa.us`.
-Backend: `https://webbuilder-api.abhayymishraa.us`.
+Frontend: `https://accretion.abhayymishraa.com`.
+Backend: `https://api.accretion.abhayymishraa.com`.
 
 ## One-time configuration
 
 1. On the Ubuntu VM, install Docker and Docker Compose 2.30 or newer. Allow TCP 80/443 to the VM.
 2. Save backend credentials in `/opt/webbuilder/runtime.env` with mode `600`, using
-   `runtime.env.example` as the key list. Use the intended PostgreSQL database. The deployment creates missing
-   tables through `python -m db.migrate`; it never drops existing data. Generate a strong
+   `runtime.env.example` as the key list. Use the intended PostgreSQL database. The deployment brings the schema to
+   head with `alembic upgrade head`. A database that predates Alembic is adopted rather than
+   rebuilt, so no existing data is dropped. Generate a strong
    `SECRET_KEY`; never use the application's development fallback in production.
 3. Create a DNS A record for the backend domain pointing at the VM. Caddy obtains and
    renews its certificate. Keep the API's port 8000 private.
