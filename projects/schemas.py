@@ -1,9 +1,8 @@
 """Responses for the project resource."""
 
-from datetime import datetime
 from typing import Any
 
-from models import CustomModel
+from models import CustomModel, UtcDatetime
 
 
 class ProjectSummary(CustomModel):
@@ -13,8 +12,8 @@ class ProjectSummary(CustomModel):
     user_id: int
     latest_saved_revision_id: str | None = None
     latest_verified_revision_id: str | None = None
-    created_at: datetime
-    updated_at: datetime
+    created_at: UtcDatetime
+    updated_at: UtcDatetime
 
 
 class ProjectList(CustomModel):
@@ -25,7 +24,7 @@ class ProjectRef(CustomModel):
     id: str
     title: str | None = None
     app_url: str | None = None
-    created_at: datetime
+    created_at: UtcDatetime
 
 
 class MessageItem(CustomModel):
@@ -34,7 +33,7 @@ class MessageItem(CustomModel):
     content: str | None = None
     event_type: str | None = None
     tool_calls: list[Any] | dict[str, Any] | None = None
-    created_at: datetime
+    created_at: UtcDatetime
 
 
 class MessagePage(CustomModel):

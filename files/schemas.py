@@ -1,8 +1,6 @@
 """Responses for saved project files."""
 
-from datetime import datetime
-
-from models import CustomModel
+from models import CustomModel, UtcDatetime
 
 
 class FileList(CustomModel):
@@ -15,7 +13,7 @@ class FileList(CustomModel):
 class RevisionItem(CustomModel):
     id: str
     run_id: str | None = None
-    created_at: datetime
+    created_at: UtcDatetime
     size_bytes: int | None = None
     file_count: int
 
