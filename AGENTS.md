@@ -80,3 +80,74 @@ Selection prose lives in `RuntimeSkills.prompt()`. Follows Codex and OpenCode. K
 ### Updating
 
 `scripts/sync_skills.py` re-vendors from provenance and regenerates both hash sets. `--dry-run` shows the plan. `.github/workflows/sync-skills.yml` runs it weekly and opens a PR; it never pushes to main, because skill text reaches the model directly. Licenses are skipped, they live at upstream repo root. Upstream deletions propagate.
+
+## Python structure
+
+Domain-first, one package per concern. Adapted from
+[fastapi-best-practices](https://github.com/zhanymkanov/fastapi-best-practices).
+
+- `main.py` owns the app: routing, middleware, lifespan, `/ws/{id}`. Request handling here, the work it calls in the owning package.
+- `auth/` owns authentication. `db/` owns engine (`base.py`), ORM models (`models.py`), schema creation (`migrate.py`).
+- `agent/` owns the build agent and has its own `agent/AGENTS.md`. Read it before changing that package.
+- `plans.py` and `request_timing.py` sit at the root because more than one package uses them. That is the only reason to put a module there.
+- `scripts/` is not imported by the app.
+
+Within a domain package, one module per role: `router.py`, `schema.py`, `models.py`, `service.py`, `dependencies.py`, `constants.py`, `exceptions.py`, `utils.py`. Add a role when there is something to put in it, not to complete the set. `auth/` currently has four of the eight.
+
+Where the tree and these rules disagree, the rules win and the tree moves. There was no established Python convention here to defend.
+
+Cross-domain imports name the module, never a star import:
+
+```python
+from auth import constants as auth_constants
+from agent import service as agent_service
+```
+
+New code goes in the package that already owns the concern. A new package is for a concern with no owner, not for an owner that is inconvenient.
+
+## Python coding rules
+
+Adapted from [pydantic-ai](https://github.com/pydantic/pydantic-ai)'s
+`agent_docs/index.md`, which its maintainers extracted from their own PR reviews.
+
+Style:
+
+- Scope a change to the problem it solves. For a bug fix, the narrowest change that fixes the reproduced behaviour. A hunch that siblings are affected is not evidence; reproduce it or file it.
+- Validate at one layer. Duplicate validation drifts the moment the requirement changes.
+- Extract a shared helper on the second occurrence, by refactoring the first, not by adding a parallel path.
+- Inline a single-use helper that only wraps attribute access or forwards one call. The jump costs the reader and returns nothing.
+- Scope helpers and constants to their use site. A module-level name invites reuse of something not designed for it.
+- Delete commented-out code, unused definitions, superseded implementations. Git remembers; the next reader should not have to work out which version is live.
+- Compile static regex at module level.
+
+Types:
+
+- `isinstance()` for type checks. Not `hasattr()`, `getattr()`, or `type(obj).__name__`: only `isinstance()` narrows, the others break silently on rename.
+- `Literal` for a fixed set of string values, in parameters, fields and returns.
+- Annotate to runtime reality. Drop `| None` when the value is always set; narrow a union when control flow already excludes a member.
+- Fix a type error instead of silencing it. If a suppression is unavoidable, name the error code and the reason.
+- Guard optional-dependency imports with `if TYPE_CHECKING:` and quoted hints.
+
+Errors:
+
+- `assert` for invariants that cannot fail. `RuntimeError("internal error")` disguises a programming mistake as a runtime one.
+- Catch the types you expect. Bare `except Exception` swallows what should propagate.
+- `!r` for identifiers in messages, so empty and whitespace values stay visible: `f"Tool {name!r}"`.
+- Fail fast on a conflict the caller configured explicitly. Fall back quietly only on conflicts the code inferred itself.
+- Validate inputs before expensive work: a sandbox, a model call, an upload.
+
+Naming:
+
+- Drop a prefix the context supplies: `ToolConfig.description`, not `ToolConfig.tool_description`.
+- Rename a function when its behaviour changes. A name describing the old scope is worse than none.
+- Names carry meaning: `revision_id` over `id`.
+- No type suffixes (`_dict`, `_list`, `Value`, `Type`) when the annotation says it.
+- `UPPER_CASE` for module constants, `_LEADING_UNDERSCORE` when internal.
+
+Imports and async:
+
+- Imports at the top. Inside a function only to defer an optional dependency or break a real cycle, and say which in a comment. Remove unused and duplicate imports.
+- The app is async end to end. Never call a blocking function from an `async def` path: it stalls the loop for every other request on the worker. Use the async client, or `run_in_threadpool` where none exists.
+- Preserve cancellation. When work spans an `await`, check that a cancelled or failed task cannot leave a sandbox, upload, or row half-owned.
+
+No formatter, linter, or type checker is configured. Match the file you are editing; do not introduce a tool as a side effect of an unrelated change.
