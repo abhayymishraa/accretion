@@ -2,3 +2,4 @@
 # by scripts/sync_skills.py, so they are not this project's code and should not
 # count toward its language statistics.
 agent/skills/** linguist-vendored
+graphify-out/graph.json merge=graphify
