@@ -34,6 +34,7 @@ services:
     restart: unless-stopped
     environment:
       BACKEND_DOMAIN: ${BACKEND_DOMAIN:?Set BACKEND_DOMAIN}
+      BACKEND_DOMAIN_ALT: ${BACKEND_DOMAIN_ALT:-}
     ports:
       - "80:80"
       - "443:443"

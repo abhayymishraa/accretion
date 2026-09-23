@@ -5,8 +5,11 @@ umask 077
 sha=${1:?Provide the commit SHA}
 domain=${2:?Provide the backend domain}
 template_ref=${3-}
+# Optional second hostname, served alongside the primary during a migration.
+domain_alt=${4-}
 [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || exit 2
 [[ "$domain" =~ ^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$ ]] || exit 2
+[[ -z "$domain_alt" || "$domain_alt" =~ ^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$ ]] || exit 2
 if [[ -n "$template_ref" ]] && [[ ! "$template_ref" =~ ^[a-z0-9][a-z0-9_-]*(/[a-z0-9][a-z0-9_-]*)?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; then
     echo 'Invalid E2B template reference; use template-name:<exact-build-UUID>'
     exit 2
@@ -76,7 +79,8 @@ rollback() {
 
 mkdir -p "$release"
 cp "$artifact_dir/deploy/compose.yaml" "$artifact_dir/deploy/Caddyfile" "$release/"
-printf 'BACKEND_IMAGE=%s\nBACKEND_DOMAIN=%s\n' "$image" "$domain" > "$release/deployment.env"
+printf 'BACKEND_IMAGE=%s\nBACKEND_DOMAIN=%s\nBACKEND_DOMAIN_ALT=%s\n' \
+    "$image" "$domain" "$domain_alt" > "$release/deployment.env"
 # Load the CI-built artifact. No compiler, package installation or Git checkout on this VM.
 docker load --input "$artifact_dir/backend-image.tar.gz"
 rm -f "$artifact_dir/backend-image.tar.gz"

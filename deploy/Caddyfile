@@ -1,4 +1,7 @@
-{$BACKEND_DOMAIN} {
+# Two site addresses so a domain migration overlaps instead of cutting over.
+# BACKEND_DOMAIN_ALT defaults to empty and Caddy drops it; each hostname gets
+# its own certificate, so one name failing ACME never blocks the other.
+{$BACKEND_DOMAIN} {$BACKEND_DOMAIN_ALT:} {
     encode zstd gzip
     reverse_proxy api:8000
 }
