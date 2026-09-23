@@ -25,7 +25,7 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 ## Structure and ownership
 
-Adapted from TryMatcha at `98c030584a1e1e383b58c567e7693e9982e1e04d`. See `../docs/frontend-architecture.md` for source examples and differences. These are repository rules, not runtime design skills.
+Adapted from TryMatcha at `98c030584a1e1e383b58c567e7693e9982e1e04d`. These are repository rules, not runtime design skills.
 
 - `app/` owns Next.js route adapters, metadata, layouts, and global styles. Put page implementation in its feature component; keep the route small. Preserve server components unless client behavior requires a boundary.
 - `components/<feature>/` owns rendered UI and local interaction state. Features include `auth`, `chat`, `files`, `landing`, `layout`, `profile`, and `projects`.
