@@ -21,7 +21,7 @@ export const projectService = {
      * Create or start a new chat
      */
     createChat: async (prompt: string): Promise<ChatResponse> => {
-        const response = await apiClient.post<ChatResponse>("/chat", { prompt });
+        const response = await apiClient.post<ChatResponse>("/projects", { prompt });
         return response.data;
     },
 
@@ -29,7 +29,7 @@ export const projectService = {
      * Get list of user's projects
      */
     listProjects: async (): Promise<{ projects: Project[] }> => {
-        const response = await apiClient.get<{ projects: Project[] }>("projects");
+        const response = await apiClient.get<{ projects: Project[] }>("/projects");
         return response.data;
     },
 };
