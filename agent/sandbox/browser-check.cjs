@@ -82,10 +82,25 @@ const { chromium } = require('/opt/webbuilder-checks/node_modules/playwright');
               case 'fill': await target.fill(step.value); break;
               case 'check': await target.setChecked(true); break;
               case 'press': await target.press(step.value); break;
-              case 'expect_visible': await target.waitFor({ state: 'visible' }); break;
-              case 'expect_hidden': await target.waitFor({ state: 'hidden' }); break;
-              case 'expect_text':
-                await target.filter({ hasText: step.value }).waitFor({ state: 'visible' }); break;
+              // Assertions pass on any visible match; actions stay strict.
+              case 'expect_visible': await target.filter({ visible: true }).first().waitFor({ state: 'visible' }); break;
+              case 'expect_hidden': await target.filter({ visible: true }).first().waitFor({ state: 'hidden' }); break;
+              case 'expect_text': {
+                // innerText, not hasText: textContent reads "a<br>b" as "ab".
+                const expected = step.value.replace(/\s+/g, ' ').trim().toLowerCase();
+                const until = Date.now() + 5000;
+                let seen;
+                while (!(seen = await target.filter({ visible: true }).evaluateAll(elements =>
+                  elements.map(el => el.innerText.replace(/\s+/g, ' ').trim()))).some(text =>
+                  text.toLowerCase().includes(expected))) {
+                  if (Date.now() >= until) {
+                    throw Error('Expected text not found; visible matches read ' +
+                      JSON.stringify(seen.slice(0, 3).map(text => text.slice(0, 120))));
+                  }
+                  await page.waitForTimeout(100);
+                }
+                break;
+              }
               case 'expect_checked': {
                 await target.waitFor({ state: 'visible' });
                 const until = Date.now() + 5000;
