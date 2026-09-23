@@ -52,8 +52,8 @@ backups or soft-deleted copies have already been permanently erased.
 
 ## Production
 
-- Frontend: https://webbuilder.abhayymishraa.us (Vercel)
-- Backend: https://webbuilder-api.abhayymishraa.us (Oracle)
+- Frontend: https://accretion.abhayymishraa.com (Vercel)
+- Backend: https://api.accretion.abhayymishraa.com (Oracle)
 - Database: PostgreSQL on Neon
 - Default model: `gpt-5.6-luna`, configurable with `OPENAI_MODEL`
 

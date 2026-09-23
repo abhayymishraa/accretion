@@ -52,6 +52,6 @@ Adapted from TryMatcha at `98c030584a1e1e383b58c567e7693e9982e1e04d`. See `../do
 - Prettier owns formatting: four spaces, double quotes, semicolons, trailing commas, 100-column print width, LF, and parentheses around arrow parameters.
 - Use `npm run format` to format and, with verification approval, `npm run format:check`, `npm run lint`, `npm run typecheck`, and `npm run build` to check.
 - Preserve useful rationale, third-party attribution, and behavioral guards. Prefer clear names over comments that merely repeat the code.
-- Structural refactors preserve URLs, copy, theme, interaction behavior, network frequency, and persistent storage keys. Treat functional changes as separate, explicit work.
+- Structural refactors preserve copy, theme, interaction behavior, network frequency, and persistent storage keys. API URLs are not on that list: the backend owns REST naming (see ../AGENTS.md), and when it renames a resource the services in `services/` move with it in the same change. Next.js page routes are unaffected by that rule. Treat functional changes as separate, explicit work.
 - Keep the root no-test-suite rule. Do not add test fixtures or test frameworks. Authorized browser smoke checks must not submit a generation request or touch live accounts without scope-specific permission.
 - Do not introduce Zustand, React Query, inheritance, a monorepo tool, or a new package manager just because TryMatcha uses it. The existing hooks and npm setup remain the default.
