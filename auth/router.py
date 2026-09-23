@@ -16,6 +16,7 @@ from .schemas import (
     UserLogin,
     UserRegister,
     UserResponse,
+    VerificationRequested,
 )
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -53,7 +54,7 @@ async def update_me(
 
 
 @router.post("/verification/request", status_code=202)
-async def request_verification(data: EmailRequest, request_ip: ClientIp, db: DbSession):
+async def request_verification(data: EmailRequest, request_ip: ClientIp, db: DbSession) -> VerificationRequested:
     return await service.request_verification(data=data, request_ip=request_ip, db=db)
 
 

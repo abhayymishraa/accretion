@@ -40,6 +40,7 @@ from .schemas import (
     UserLogin,
     UserRegister,
     UserResponse,
+    VerificationRequested,
 )
 from .utils import (
     create_access_token,
@@ -155,14 +156,14 @@ async def update_me(
     return await get_me(current_user, db)
 
 
-async def request_verification(data: EmailRequest, request_ip: str, db: AsyncSession) -> dict[str, str]:
+async def request_verification(data: EmailRequest, request_ip: str, db: AsyncSession) -> VerificationRequested:
     if not email_configured():
         raise VerificationNotConfigured
     user = await db.scalar(select(User).where(func.lower(User.email) == str(data.email).lower()))
     if user and not user.email_verified:
         await send_verification(db, user, request_ip)
         await db.commit()
-    return {"message": "If this account needs verification, an email is on its way. Check your inbox and spam folder."}
+    return VerificationRequested()
 
 
 async def confirm_verification(data: TokenRequest, db: AsyncSession) -> Token:
