@@ -137,6 +137,37 @@ jobs:
           sudo tee "$file" < "$tmp" > /dev/null
           rm -f "$tmp"
 
+          # env_file values are baked in when the container is created, so the
+          # running API keeps the old ones until it is recreated. Redeploying does
+          # not do it: deploy.sh short-circuits when the release is already current.
+          release=$(sudo readlink -f /opt/webbuilder/current 2>/dev/null || true)
+          if sudo test -f "$release/compose.yaml"; then
+            compose() {
+              sudo docker compose -p webbuilder --env-file "$release/deployment.env" \
+                -f "$release/compose.yaml" "$@"
+            }
+            compose up -d --no-deps --force-recreate api
+            healthy=false
+            for _ in $(seq 1 40); do
+              container=$(compose ps -q api || true)
+              if [ -n "$container" ] &&
+                 [ "$(sudo docker inspect -f '{{.State.Health.Status}}' "$container")" = healthy ]; then
+                healthy=true
+                break
+              fi
+              sleep 3
+            done
+            if [ "$healthy" != true ]; then
+              echo 'API did not become healthy; restoring the previous runtime.env.'
+              sudo cp -p "$backup" "$file"
+              compose up -d --no-deps --force-recreate api
+              exit 1
+            fi
+            echo 'API recreated and healthy.'
+          else
+            echo 'No current release; the next deploy will pick these up.'
+          fi
+
           # Report key names and whether they changed. Never print other lines.
           for k in RUN_MAX_TOKENS FREE_DAILY_COST_USD FREE_MONTHLY_COST_USD FREE_TIER_MONTHLY_BUDGET_USD MAX_CONCURRENT_RUNS MAX_LIVE_SANDBOXES FRONTEND_URL PUBLIC_API_URL ALLOWED_ORIGINS; do
             before=$(sudo grep -E "^${k}=" "$backup" | head -1 | cut -d= -f2- || true)
