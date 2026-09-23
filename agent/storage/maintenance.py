@@ -9,7 +9,7 @@ from sqlalchemy import delete, select, func, or_
 
 from db.base import AsyncSessionLocal
 from db.models import Chat, ProjectRevision, Run, RunEvent, StorageUsage, StorageDeletion
-from .events import archive_run
+from ..events import archive_run
 from .persistence import PROJECTS, archive_slots, promote, revision_bytes, wait_for_uploads
 from .storage import storage_call, StorageError
 

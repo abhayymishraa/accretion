@@ -4,8 +4,8 @@ from sqlalchemy import select, func, update
 from sqlalchemy.exc import IntegrityError
 from db.models import User, AuthIdentity, AuthToken
 from db.base import get_db
-from agent.budget import allowance
-from .schema import (
+from agent.budget.budget import allowance
+from .schemas import (
     UserLogin,
     UserResponse,
     UserRegister,

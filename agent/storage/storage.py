@@ -2,7 +2,7 @@
 import os
 import asyncio
 
-from .archive import MAX_ARCHIVE
+from ..sandbox.archive import MAX_ARCHIVE
 
 
 class StorageError(Exception):

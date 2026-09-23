@@ -7,7 +7,7 @@ from fastapi import HTTPException
 from sqlalchemy import exists, literal, select, tuple_, union_all
 
 from db.models import Message, Run
-from .workflow import public_workflow
+from ..run.workflow import public_workflow
 
 
 def cursor_value(value):

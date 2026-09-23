@@ -6,7 +6,7 @@ import hashlib
 import io
 import json
 import os
-from pathlib import Path
+from agent import PACKAGE_ROOT
 import shlex
 import uuid
 import zipfile
@@ -16,13 +16,13 @@ from sqlalchemy.dialects.postgresql import insert
 
 from db.base import AsyncSessionLocal
 from db.models import Chat, ProjectRevision, Run, RunEvent, StorageUsage
-from .archive import MAX_ARCHIVE, MAX_BYTES, MAX_FILES, content_hash, manifest, safe_path
+from ..sandbox.archive import MAX_ARCHIVE, MAX_BYTES, MAX_FILES, content_hash, manifest, safe_path
 from .storage import storage_call, StorageError
-from .tools import ROOT
+from ..tools.tools import ROOT
 
 # Bound archive memory and provider requests on the small single-worker VM.
 archive_slots = asyncio.Semaphore(2)
-PROJECTS = Path(__file__).resolve().parent.parent / 'projects'
+PROJECTS = PACKAGE_ROOT.parent / 'projects'
 _uploads = {}  # Strong references keep cancelled callers' uploads tracked until SDK completion.
 
 
@@ -153,7 +153,7 @@ async def save_revision(chat_id, run_id, archive, template, event_factory=None):
 
 
 async def sandbox_archive(sandbox, mode, data=None):
-    script = Path(__file__).with_name('archive.py').read_text()
+    script = (PACKAGE_ROOT / 'sandbox' / 'archive.py').read_text()
     target = f'/tmp/webbuilder-{uuid.uuid4()}.zip'
     try:
         if data is not None:

@@ -7,7 +7,7 @@ from sqlalchemy import func, select, tuple_
 
 from db.base import AsyncSessionLocal
 from db.models import Chat, Message, Run, User
-from .events import redact
+from ..events import redact
 
 MAX_CONTEXT_BYTES = 48_000
 RECENT_MESSAGES = 6

@@ -1,7 +1,7 @@
 """Small, versioned public projections; never publish arbitrary tool arguments/content."""
 import json
 
-from .events import redact
+from ..events import redact
 
 MAX_PUBLIC_BYTES = 1600
 SAFE_COMMANDS = {'npm run build', 'npm test', 'npm run lint', 'npm run typecheck', 'pwd', 'ls'}

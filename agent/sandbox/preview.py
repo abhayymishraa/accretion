@@ -2,7 +2,7 @@
 from pathlib import Path
 import shlex
 
-from .tools import WorkspaceTools
+from ..tools.tools import WorkspaceTools
 
 
 class PreviewError(Exception):

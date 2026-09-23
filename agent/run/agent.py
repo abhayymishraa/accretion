@@ -1,9 +1,10 @@
+"""The configured model client. Budget and usage hooks ride on its HTTP transport."""
 import os
 import httpx
 from langchain_openai import ChatOpenAI
 from dotenv import load_dotenv
-from .usage import capture_provider_usage
-from .model_budget import reserve_model_request, settle_model_response
+from ..budget.usage import capture_provider_usage
+from ..budget.model_budget import reserve_model_request, settle_model_response
 load_dotenv()
 
 api_key = os.getenv("OPENAI_API_KEY")

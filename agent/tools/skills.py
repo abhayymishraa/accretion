@@ -2,13 +2,13 @@
 import hashlib
 import json
 import logging
-from pathlib import Path
+from agent import PACKAGE_ROOT
 from typing import Annotated
 
 from langchain_core.tools import tool
 from pydantic import Field
 
-SKILL_ROOT = Path(__file__).with_name('skills')
+SKILL_ROOT = PACKAGE_ROOT / 'skills'
 SKILL_DIRECTORIES = {
     'find-skills': 'find-skills',
     'frontend-design': 'frontend-design',

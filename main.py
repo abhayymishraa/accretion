@@ -13,14 +13,14 @@ import zipfile
 from fastapi import Depends
 
 from sqlalchemy import select, text, delete, func
-from agent.service import agent_service
-from agent.budget import BudgetLimitError
-from agent.archive import safe_path
-from agent.persistence import archive_slots, ensure_revision, revision_bytes, read_object
-from agent.storage import StorageError
+from agent.run.service import agent_service
+from agent.budget.budget import BudgetLimitError
+from agent.sandbox.archive import safe_path
+from agent.storage.persistence import archive_slots, ensure_revision, revision_bytes, read_object
+from agent.storage.storage import StorageError
 from agent.events import run_events
-from agent.history import conversation_page
-from agent.maintenance import attempt_cleanup, cleanup_project_storage
+from agent.context.history import conversation_page
+from agent.storage.maintenance import attempt_cleanup, cleanup_project_storage
 from auth.router import router
 from auth.social import social_router, configure_sessions
 from db.models import User, Chat, Message, Run, ProjectRevision, StorageDeletion

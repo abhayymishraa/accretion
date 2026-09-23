@@ -16,18 +16,18 @@ from sqlalchemy import select, update, func
 from db.base import AsyncSessionLocal
 from db.models import Chat, Message, Run, RunEvent, User, SandboxRuntime
 from .runner import run_editor, RunLimitError, VerificationError, SandboxSetupError
-from .browser import check_browser
-from .commands import CommandStateError
-from .tools import ROOT, FileWriteError, WorkspaceTools
-from .preview import control_preview, PreviewError
-from .persistence import archive_slots, ensure_revision, latest_revision, revision_bytes, sandbox_archive, save_revision
-from .storage import StorageError
-from .events import MAX_RUN_EVENTS, redact, run_events
-from .context import ContextError, ProjectContext
-from .sandbox_runtime import SandboxRuntimes
+from ..sandbox.browser import check_browser
+from ..sandbox.commands import CommandStateError
+from ..tools.tools import ROOT, FileWriteError, WorkspaceTools
+from ..sandbox.preview import control_preview, PreviewError
+from ..storage.persistence import archive_slots, ensure_revision, latest_revision, revision_bytes, sandbox_archive, save_revision
+from ..storage.storage import StorageError
+from ..events import MAX_RUN_EVENTS, redact, run_events
+from ..context.context import ContextError, ProjectContext
+from ..sandbox.sandbox_runtime import SandboxRuntimes
 from .diagnostics import sandbox_diagnostics
-from .budget import BudgetLimitError, require_allowance
-from .model_budget import spend_scope
+from ..budget.budget import BudgetLimitError, require_allowance
+from ..budget.model_budget import spend_scope
 from .workflow import select_workflow, public_workflow
 from .decisions import decision_source, prepare_continuation, resolve_decision
 
@@ -124,7 +124,7 @@ class Service:
             await db.execute(update(Chat).values(app_url=None))
         # Reconcile before admission. Unknown states stay reserved; clean runtimes sleep.
         await self.runtimes.maintain(set(), shutdown=True)
-        from .maintenance import maintain_loop
+        from ..storage.maintenance import maintain_loop
         self.maintenance_task = asyncio.create_task(maintain_loop(self), name='persistence-maintenance')
 
     async def shutdown(self):

@@ -17,7 +17,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from db.base import get_db
 from db.models import AuthIdentity, User
 from .dependencies import get_current_user
-from .schema import Token, TokenRequest
+from .schemas import Token, TokenRequest
 from .utils import (
     SECRET_KEY,
     create_access_token,

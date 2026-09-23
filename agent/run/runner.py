@@ -10,15 +10,15 @@ from langchain_core.utils.function_calling import convert_to_openai_tool
 from langchain_core.tools import tool
 from typing import Literal
 from .prompts import SYSTEM_PROMPT
-from .tools import FileWriteError, WorkspaceTools, list_files
-from .compaction import backoff_growth, compact, context_limit, hard_limit
-from .transcript import append as append_transcript, load as load_transcript, replace as replace_transcript
-from .context import CONTEXT_RULES, choose_files
-from .skills import RuntimeSkills
-from .public_tools import encode_public, public_tool_details, preflight_failure
-from .usage import invoke_with_usage, prompt_cache_key, record_usage
-from .browser import check_browser, ensure_preview_current
-from .commands import CommandStateError
+from ..tools.tools import FileWriteError, WorkspaceTools, list_files
+from ..context.compaction import backoff_growth, compact, context_limit, hard_limit
+from ..context.transcript import append as append_transcript, load as load_transcript, replace as replace_transcript
+from ..context.context import CONTEXT_RULES, choose_files
+from ..tools.skills import RuntimeSkills
+from ..tools.public_tools import encode_public, public_tool_details, preflight_failure
+from ..budget.usage import invoke_with_usage, prompt_cache_key, record_usage
+from ..sandbox.browser import check_browser, ensure_preview_current
+from ..sandbox.commands import CommandStateError
 
 
 logger = logging.getLogger('webbuilder.runs')
