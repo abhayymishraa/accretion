@@ -21,34 +21,34 @@ from .schemas import (
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-@router.post("/register", response_model=RegisterResponse, status_code=status.HTTP_201_CREATED)
-async def register_user(user: UserRegister, request_ip: ClientIp, db: DbSession):
+@router.post("/register", status_code=status.HTTP_201_CREATED)
+async def register_user(user: UserRegister, request_ip: ClientIp, db: DbSession) -> RegisterResponse:
     return await service.register_user(user=user, request_ip=request_ip, db=db)
 
 
-@router.post("/login", response_model=Token)
-async def login_user(user_data: UserLogin, db: DbSession):
+@router.post("/login")
+async def login_user(user_data: UserLogin, db: DbSession) -> Token:
     """Authenticate user and return jwt"""
     return await service.login_user(user_data=user_data, db=db)
 
 
-@router.post("/refresh", response_model=Token)
-async def refresh_token(token_data: RefreshTokenRequest, db: DbSession):
+@router.post("/refresh")
+async def refresh_token(token_data: RefreshTokenRequest, db: DbSession) -> Token:
     """refresh access token using refresh token"""
     return await service.refresh_token(token_data=token_data, db=db)
 
 
-@router.get("/me", response_model=UserResponse)
-async def get_me(current_user: CurrentUser, db: DbSession):
+@router.get("/me")
+async def get_me(current_user: CurrentUser, db: DbSession) -> UserResponse:
     return await service.get_me(current_user=current_user, db=db)
 
 
-@router.patch("/me", response_model=UserResponse)
+@router.patch("/me")
 async def update_me(
     profile: ProfileUpdate,
     current_user: CurrentUser,
     db: DbSession,
-):
+) -> UserResponse:
     return await service.update_me(profile=profile, current_user=current_user, db=db)
 
 
@@ -57,6 +57,6 @@ async def request_verification(data: EmailRequest, request_ip: ClientIp, db: DbS
     return await service.request_verification(data=data, request_ip=request_ip, db=db)
 
 
-@router.post("/verification/confirm", response_model=Token)
-async def confirm_verification(data: TokenRequest, db: DbSession):
+@router.post("/verification/confirm")
+async def confirm_verification(data: TokenRequest, db: DbSession) -> Token:
     return await service.confirm_verification(data=data, db=db)
