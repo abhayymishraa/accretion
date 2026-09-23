@@ -117,8 +117,8 @@ async def send_verification(db: AsyncSession, user: User, request_ip: str) -> No
                 json={
                     "from": os.environ["RESEND_FROM"],
                     "to": [user.email],
-                    "subject": "Verify your WebBuilder email",
-                    "text": f"Verify your email to continue in WebBuilder:\n\n{link}\n\nThis link expires in 30 minutes. If you did not request it, ignore this email.",
+                    "subject": "Verify your Accretion email",
+                    "text": f"Verify your email to continue in Accretion:\n\n{link}\n\nThis link expires in 30 minutes. If you did not request it, ignore this email.",
                 },
             )
             response.raise_for_status()

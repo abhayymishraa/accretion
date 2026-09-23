@@ -49,7 +49,10 @@ def configure_sessions(app):
     app.add_middleware(
         SessionMiddleware,
         secret_key=SECRET_KEY,
-        session_cookie="webbuilder_oauth",
+        # Renamed with the product. SessionMiddleware reads a single cookie name,
+        # so OAuth flows started before a deploy fail closed and the user retries;
+        # the window is bounded by max_age below.
+        session_cookie="accretion_oauth",
         max_age=600,
         same_site="lax",
         https_only=api_url().startswith("https://"),
@@ -142,7 +145,7 @@ async def verified_identity(provider: str, client, token) -> tuple[str, str, str
         return (
             str(info["sub"]),
             info["email"].lower(),
-            str(info.get("name") or "WebBuilder member")[:100],
+            str(info.get("name") or "Accretion member")[:100],
         )
     response = await client.get("user", token=token)
     response.raise_for_status()
@@ -162,7 +165,7 @@ async def verified_identity(provider: str, client, token) -> tuple[str, str, str
     return (
         str(info["id"]),
         email.lower(),
-        str(info.get("name") or info.get("login") or "WebBuilder member")[:100],
+        str(info.get("name") or info.get("login") or "Accretion member")[:100],
     )
 
 
