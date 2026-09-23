@@ -12,7 +12,7 @@ const rowClassName = [
     "flex w-full min-w-0 min-h-[34px] items-center gap-[7px] rounded-[6px] px-[8px] py-[7px]",
     "cursor-pointer text-left text-[12px] leading-[1.4] text-muted-foreground",
     "transition-[background,color] duration-[120ms] ease-[ease] motion-reduce:transition-none",
-    "[&:hover]:bg-secondary [&:hover]:text-foreground",
+    "[&:hover]:bg-surface-2 [&:hover]:text-foreground",
     "data-[selected=true]:bg-accent data-[selected=true]:text-accent-foreground",
     "data-[selected=true]:[&:hover]:bg-accent data-[selected=true]:[&:hover]:text-accent-foreground",
     "focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-ring focus-visible:-outline-offset-2",
@@ -88,7 +88,7 @@ export function Folder({
                     title={value}
                 >
                     <ChevronRight
-                        className="transition-transform duration-[140ms] ease-[ease] group-data-[state=open]:rotate-90 motion-reduce:transition-none"
+                        className="transition-transform duration-[140ms] ease-[var(--ease-out)] group-data-[state=open]:rotate-90 motion-reduce:transition-none"
                         aria-hidden="true"
                     />
                     {expanded ? (

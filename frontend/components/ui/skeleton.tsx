@@ -7,7 +7,7 @@ export function Skeleton({ className, ...props }: ComponentProps<"div">) {
     return (
         <div
             data-slot="skeleton"
-            className={cn("rounded-md bg-secondary motion-safe:animate-pulse", className)}
+            className={cn("rounded-[8px] bg-surface-2 motion-safe:animate-pulse", className)}
             {...props}
         />
     );
