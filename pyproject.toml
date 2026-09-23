@@ -82,17 +82,16 @@ select = [
     "C901",   # cyclomatic complexity
 ]
 
+[tool.ruff.lint.flake8-bugbear]
+# `Field(default=[])` is pydantic's sentinel, not a mutable default: it produces
+# the same tool schema as a bare literal, which a default_factory does not.
+extend-immutable-calls = ["pydantic.Field"]
+
 [tool.ruff.lint.mccabe]
 # pydantic-ai's ceiling. The exemptions below are a shrinking list, not a policy.
 max-complexity = 15
 
 [tool.ruff.lint.per-file-ignores]
-# These hold model-facing prose. Re-wrapping a line changes the text the model
-# reads, so line length is not ours to enforce here.
-"agent/run/prompts.py" = ["E501"]
-"agent/tools/skills.py" = ["E501"]
-# Tool docstrings are the descriptions the model reads when choosing a tool.
-"agent/tools/tools.py" = ["E501"]
 # Functions that already exceeded the ceiling when it was introduced. Each is a
 # state machine that predates this rule; none is exempt because it should be.
 # Removing an entry here is the goal, adding one needs a reason.

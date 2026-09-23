@@ -9,6 +9,7 @@ from typing import Any, Literal
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from langchain_core.tools import tool
 from langchain_core.utils.function_calling import convert_to_openai_tool
+from pydantic import Field
 
 from ..budget.usage import invoke_with_usage, prompt_cache_key, record_usage
 from ..context.compaction import backoff_growth, compact, context_limit, hard_limit
@@ -96,7 +97,7 @@ async def verify(workspace: WorkspaceTools) -> dict[str, Any]:
                 ],
             },
         }
-    build = await workspace.command("npm run build", timeout=90)
+    build = await workspace.command("npm run build", timeout_seconds=90)
     if not build["ok"]:
         return {"ok": False, "build": build, "browser": {"checked": False}}
     # Flush only after a successful build; infrastructure failures escape repair.
@@ -129,7 +130,7 @@ async def run_editor(sandbox, prompt, emit, checkpoint, metrics, model=None, mem
         summary: str,
         steps: list[str],
         question: str = "",
-        options: list[str] = [],  # noqa: B006  part of the tool schema
+        options: list[str] = Field(default=[]),
     ) -> dict[str, Any]:
         """Pause only for a newly discovered material user choice. Never combine with other calls.
 

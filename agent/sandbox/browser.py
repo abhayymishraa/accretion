@@ -41,7 +41,7 @@ async def check_browser(workspace, *, preflight=False, viewport=None, path='/', 
     if checks:
         args += ['--checks', json.dumps(checks)]
     command = 'PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers ' + shlex.join(['node', '-e', script, '--', *args])
-    result: dict[str, Any] = await workspace.command(command, timeout=90 if checks else 45)
+    result: dict[str, Any] = await workspace.command(command, timeout_seconds=90 if checks else 45)
     return result
 
 

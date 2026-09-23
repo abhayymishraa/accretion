@@ -23,7 +23,7 @@ def sandbox_rate(cpu, memory_mb):
     )
 
 
-async def reserve_runtime(chat_id, timeout, previous=None, info=None):  # noqa: ASYNC109
+async def reserve_runtime(chat_id, lease_seconds, previous=None, info=None):
     async with AsyncSessionLocal() as db:
         user_id = await db.scalar(select(Chat.user_id).where(Chat.id == chat_id))
         if user_id is None:
@@ -44,7 +44,7 @@ async def reserve_runtime(chat_id, timeout, previous=None, info=None):  # noqa: 
     remaining = (
         max(0, (info.end_at - datetime.now(UTC)).total_seconds()) if info and info.state.value == "running" else 0
     )
-    duration = max(timeout, int(remaining) + 1) + 60
+    duration = max(lease_seconds, int(remaining) + 1) + 60
     if duration >= 86400:
         raise BudgetLimitError("Preview timeout exceeds the supported spending window.")
     return await reserve(

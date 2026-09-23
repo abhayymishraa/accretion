@@ -68,8 +68,8 @@ class WorkspaceTools:
             self.cache[path] = content
         return self.cache[path]
 
-    async def command(self, command: str, timeout: int = 60) -> dict[str, Any]:  # noqa: ASYNC109
-        return await run_command(self.sandbox, command, cwd=ROOT, timeout=timeout)
+    async def command(self, command: str, timeout_seconds: int = 60) -> dict[str, Any]:
+        return await run_command(self.sandbox, command, cwd=ROOT, timeout=timeout_seconds)
 
     def definitions(self):
         @tool
@@ -107,9 +107,14 @@ class WorkspaceTools:
             self.cache.update({path: item.content for path, item in zip(paths, files, strict=True)})
             return {"ok": True, "changed_files": paths}
 
-        @tool
+        @tool(
+            description=(
+                "Run a bounded shell command in the project for concrete diagnostics or"
+                " requested skill discovery. The dev server is already running: never start"
+                " it again. Do not install relative paths as packages."
+            )
+        )
         async def execute_command(command: str) -> dict[str, Any]:
-            """Run a bounded shell command in the project for concrete diagnostics or requested skill discovery. The dev server is already running: never start it again. Do not install relative paths as packages."""
             if len(command) > 2000:
                 raise ValueError("Command is too long")
             if re.search(r"npm\s+(?:i|install)\s+(?:\.{1,2})(?:\s|$)", command):
@@ -123,14 +128,23 @@ class WorkspaceTools:
                 # Shell can modify files even on failed commands.
                 self.revision += 1
 
-        @tool
+        @tool(
+            description=(
+                "Inspect the page or exercise its main workflow with up to eight CSS-selector"
+                " steps ending in an expect_* assertion. Supply a meaningful sequence for"
+                " desktop and mobile before finishing; the host replays the latest sequence"
+                " for each after the final edit. Fresh isolated browser state each call. Only"
+                " local UI interactions: network writes and external navigation are blocked."
+                " Optional screenshot returns one viewport image, at most twice per run. Does"
+                " not replace final build checks."
+            )
+        )
         async def inspect_preview(
             viewport: Literal["desktop", "mobile"] = "desktop",
             path: str = "/",
             screenshot: bool = False,
-            steps: Annotated[list[PreviewStep], Field(max_length=8)] = [],  # noqa: B006
+            steps: Annotated[list[PreviewStep], Field(max_length=8)] = Field(default=[]),
         ) -> dict[str, Any]:
-            """Inspect the page or exercise its main workflow with up to eight CSS-selector steps ending in an expect_* assertion. Supply a meaningful sequence for desktop and mobile before finishing; the host replays the latest sequence for each after the final edit. Fresh isolated browser state each call. Only local UI interactions: network writes and external navigation are blocked. Optional screenshot returns one viewport image, at most twice per run. Does not replace final build checks."""
             from ..sandbox.browser import inspect_preview as inspect
 
             return await inspect(self, viewport=viewport, path=path, screenshot=screenshot, steps=steps)
