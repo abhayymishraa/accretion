@@ -6,13 +6,16 @@ import time
 from collections import Counter
 from typing import Any, Literal
 
+import httpx
+import openai
+from e2b import SandboxException
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from langchain_core.tools import tool
 from langchain_core.utils.function_calling import convert_to_openai_tool
 from pydantic import Field
 
 from ..budget.usage import invoke_with_usage, prompt_cache_key, record_usage
-from ..context.compaction import backoff_growth, compact, context_limit, hard_limit
+from ..context.compaction import backoff_growth, compact, context_limit, hard_limit, is_context_overflow
 from ..context.context import CONTEXT_RULES, choose_files
 from ..context.transcript import append as append_transcript
 from ..context.transcript import load as load_transcript
@@ -232,6 +235,39 @@ async def run_editor(sandbox, prompt, emit, checkpoint, metrics, model=None, mem
     failures: Counter[tuple[Any, ...]] = Counter()
     repairs = metrics.get("repairs", 0)
     summary = None
+    overflow_retried = False
+
+    async def current_file(path):
+        try:
+            return await workspace.read(path)
+        except (ValueError, SandboxException, httpx.HTTPError):
+            return None
+
+    async def reclaim_context(limit, trigger):
+        nonlocal messages, summary, stored
+        await emit("stage", message="Reclaiming conversation context")
+        uncompacted = messages
+        messages, report = await compact(
+            model,
+            messages,
+            lambda batch: estimate_input_tokens(model, batch, tool_schema)[0],
+            limit,
+            skills=skills,
+            previous=summary,
+            metrics=metrics,
+            read_file=current_file,
+        )
+        report["trigger"] = trigger
+        summary = report.get("summary") or summary
+        metrics["compaction"] = report
+        if chat_id and messages is not uncompacted:
+            # Compaction is the one non-append-only edit, so the stored
+            # transcript is rewritten rather than extended. Keyed on the list
+            # actually changing: the lossy projection rewrites tool results in
+            # place, leaving the step list empty and nothing summarized.
+            stored = await replace_transcript(chat_id, without_preview_images(messages)[1:])
+        return report
+
     for turn in range(metrics.get("turns", 0), max_turns):
         metrics["turns"] = turn + 1
         if repairs:
@@ -242,25 +278,7 @@ async def run_editor(sandbox, prompt, emit, checkpoint, metrics, model=None, mem
         # batched pass at this single threshold; pruning every turn would never
         # hold a prefix-cache hit.
         if estimated_input > window_limit and estimated_input >= retry_above:
-            await emit("stage", message="Reclaiming conversation context")
-            uncompacted = messages
-            messages, report = await compact(
-                model,
-                messages,
-                lambda batch: estimate_input_tokens(model, batch, tool_schema)[0],
-                window_limit,
-                skills=skills,
-                previous=summary,
-                metrics=metrics,
-            )
-            summary = report.get("summary") or summary
-            metrics["compaction"] = report
-            if chat_id and messages is not uncompacted:
-                # Compaction is the one non-append-only edit, so the stored
-                # transcript is rewritten rather than extended. Keyed on the list
-                # actually changing: the lossy projection rewrites tool results in
-                # place, leaving the step list empty and nothing summarized.
-                stored = await replace_transcript(chat_id, without_preview_images(messages)[1:])
+            await reclaim_context(window_limit, "threshold")
             estimated_input, estimator = estimate_input_tokens(model, messages, tool_schema)
             # Do not pay for the same failing pass every turn; wait for the view to
             # grow before trying again, and drop the hold once one succeeds.
@@ -293,9 +311,19 @@ async def run_editor(sandbox, prompt, emit, checkpoint, metrics, model=None, mem
         # max_completion_tokens, not max_tokens: on the Responses API the latter is
         # dropped without error and the request keeps the model's own ceiling, so
         # the limit computed above never reached the provider.
-        response = await invoke_with_usage(
-            bound, messages, max_completion_tokens=output_limit, prompt_cache_key=cache_key
-        )
+        try:
+            response = await invoke_with_usage(
+                bound, messages, max_completion_tokens=output_limit, prompt_cache_key=cache_key
+            )
+        except openai.APIStatusError as exc:
+            # Pi, Cline: one compact-and-retry per run, only if the view shrank.
+            if overflow_retried or not is_context_overflow(exc):
+                raise
+            overflow_retried = True
+            report = await reclaim_context(min(window_limit, estimated_input // 2), "overflow")
+            if report["tokens_after"] >= estimated_input:
+                raise
+            continue
         messages = without_preview_images(messages)
         record_usage(metrics, response, phase="editor", estimated_input=estimated_input)
         if metrics.get("total_tokens", 0) + metrics.get("reserved_tokens", 0) >= token_budget:

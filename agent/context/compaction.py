@@ -21,8 +21,10 @@ rather than transient evidence.
 import asyncio
 import json
 import logging
+import re
 from typing import Any
 
+import openai
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
 from ..budget.usage import invoke_with_usage, prompt_cache_key, record_usage
@@ -131,6 +133,18 @@ CARRY_TRUNCATED = "\n[earlier part of this request truncated to fit the context 
 
 ELIDED = "[tool result elided to fit the context window]"
 DROPPED = "[{count} earlier messages dropped to fit the context window]"
+
+# Qwen Code: 5 files, 5k tokens each, 50k total; ~4.24 chars per token.
+ATTACHED_FILES = 5
+ATTACHED_FILE_CHARS = 21_200
+ATTACHED_TOTAL_CHARS = 212_000
+
+_BACKTICKS = re.compile(r"`+")
+
+
+def is_context_overflow(exc):
+    """Provider refused the request as too long. OpenAI sets this code; Codex reads it too."""
+    return isinstance(exc, openai.APIStatusError) and (exc.code == "context_length_exceeded" or exc.status_code == 413)
 
 
 def context_limit():
@@ -318,6 +332,16 @@ def transcribe(messages):
     return "\n".join(lines)
 
 
+def _touched(call):
+    """("read" | "written" | None, paths) for one tool call."""
+    args = call.get("args") or {}
+    if call["name"] == "read_files":
+        return "read", args.get("paths") or []
+    if call["name"] == "write_files":
+        return "written", [f.get("path") for f in args.get("files") or [] if f.get("path")]
+    return None, []
+
+
 def ledger(messages):
     """Files touched, computed from tool calls rather than asked of the model.
 
@@ -325,16 +349,35 @@ def ledger(messages):
     model left it out. A file list is the one part of a summary that never needs
     to be guessed.
     """
-    read: set[str] = set()
-    written: set[str] = set()
+    touched: dict[str, set[str]] = {"read": set(), "written": set()}
     for message in messages:
         for call in getattr(message, "tool_calls", None) or []:
-            args = call.get("args") or {}
-            if call["name"] == "read_files":
-                read.update(args.get("paths") or [])
-            elif call["name"] == "write_files":
-                written.update(f.get("path") for f in (args.get("files") or []) if f.get("path"))
-    return {"read": sorted(read), "written": sorted(written)}
+            kind, paths = _touched(call)
+            if kind:
+                touched[kind].update(paths)
+    return {kind: sorted(paths) for kind, paths in touched.items()}
+
+
+def recent_files(messages):
+    """Files read or written, newest first (Qwen Code's extractRecentFilePaths)."""
+    paths: list[str] = []
+    for message in reversed(messages):
+        for call in reversed(getattr(message, "tool_calls", None) or []):
+            paths += [path for path in reversed(_touched(call)[1]) if isinstance(path, str) and path not in paths]
+    return paths
+
+
+async def attach_files(paths, read_file):
+    """Fresh content of recent files (Qwen Code). Unreadable or oversize files stay ledger-only."""
+    embedded, remaining = [], ATTACHED_TOTAL_CHARS
+    for path in paths[:ATTACHED_FILES]:
+        content = await read_file(path)
+        if content is None or len(content) > min(ATTACHED_FILE_CHARS, remaining):
+            continue
+        remaining -= len(content)
+        fence = "`" * max(3, max((len(run) for run in _BACKTICKS.findall(content)), default=0) + 1)
+        embedded.append(f"### {path}\n{fence}\n{content}\n{fence}")
+    return "\n\n## Current content of recently touched files\n\n" + "\n\n".join(embedded) if embedded else ""
 
 
 async def summarize(model, messages, instruction, *, previous=None, metrics=None):
@@ -473,7 +516,7 @@ def carried_requests(messages, cut):
     return list(reversed(carried))
 
 
-def rebuild(messages, cut, summary, facts):
+def rebuild(messages, cut, summary, facts, attached=""):
     """System prompt, the surviving requests, the summary, then the kept tail.
 
     Goose appends a line telling the model not to talk about the compaction,
@@ -481,6 +524,7 @@ def rebuild(messages, cut, summary, facts):
     """
     body = f"{summary}\n\n## Files\nRead:\n" + ("\n".join(f"- {p}" for p in facts["read"]) or "- none")
     body += "\nModified:\n" + ("\n".join(f"- {p}" for p in facts["written"]) or "- none")
+    body += attached
     return [
         messages[0],
         *carried_requests(messages, cut),
@@ -513,7 +557,7 @@ def reclaim(messages, measure, limit, *, skills=None):
     return messages, steps
 
 
-async def compact(model, messages, measure, limit, *, skills=None, previous=None, metrics=None):
+async def compact(model, messages, measure, limit, *, skills=None, previous=None, metrics=None, read_file=None):
     """Reclaim the window: free steps, then one summary, then a hard reset.
 
     Returns the messages and a record of what ran. A step that cannot help is
@@ -555,7 +599,12 @@ async def compact(model, messages, measure, limit, *, skills=None, previous=None
         previous=previous,
         metrics=metrics,
     )
-    rebuilt = rebuild(messages, cut, summary, ledger(span)) if summary else None
+    attached = ""
+    if summary and read_file is not None:
+        # Skip files the kept tail already shows.
+        in_tail = set(recent_files(messages[cut:]))
+        attached = await attach_files([p for p in recent_files(span) if p not in in_tail], read_file)
+    rebuilt = rebuild(messages, cut, summary, ledger(span), attached) if summary else None
     # A summary that is empty, or larger than what it replaced, is not worth
     # keeping; both fall through to the lossy projection rather than failing.
     if rebuilt is None or measure(rebuilt) >= before:
@@ -574,9 +623,10 @@ async def compact(model, messages, measure, limit, *, skills=None, previous=None
     report["summarized"], report["summary"] = True, summary
 
     if measure(rebuilt) > limit:
-        # Hard reset: the kept tail is itself the pressure, so it goes into the
-        # summary rather than surviving it (OpenHands' hard_context_reset).
-        rebuilt = rebuilt[:4]
+        # Hard reset (OpenHands): drop the tail, keep its requests and files.
+        whole = messages[1:]
+        attached = await attach_files(recent_files(whole), read_file) if read_file is not None else ""
+        rebuilt = rebuild(messages, len(messages), summary, ledger(whole), attached)
         report["outcome"] = "hard_reset"
         if measure(rebuilt) > limit:
             rebuilt = truncate_projection(rebuilt, measure, limit)

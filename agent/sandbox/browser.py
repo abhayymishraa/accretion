@@ -9,6 +9,7 @@ from uuid import uuid4
 from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
+from .commands import MAX_STREAM_OUTPUT
 from .config import sandbox_settings
 
 MAX_SCREENSHOT_BYTES = 200_000
@@ -41,7 +42,10 @@ async def check_browser(workspace, *, preflight=False, viewport=None, path='/', 
     if checks:
         args += ['--checks', json.dumps(checks)]
     command = 'PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers ' + shlex.join(['node', '-e', script, '--', *args])
-    result: dict[str, Any] = await workspace.command(command, timeout_seconds=90 if checks else 45)
+    # JSON observation: a tail cut would break parsing.
+    result: dict[str, Any] = await workspace.command(
+        command, timeout_seconds=90 if checks else 45, max_output=MAX_STREAM_OUTPUT
+    )
     return result
 
 

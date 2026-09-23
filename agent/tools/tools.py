@@ -9,7 +9,7 @@ from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
 from ..sandbox.browser import PreviewStep
-from ..sandbox.commands import run_command
+from ..sandbox.commands import MAX_OUTPUT, run_command
 
 ROOT = "/home/user/react-app"
 MAX_FILE_BYTES = 200_000
@@ -68,8 +68,8 @@ class WorkspaceTools:
             self.cache[path] = content
         return self.cache[path]
 
-    async def command(self, command: str, timeout_seconds: int = 60) -> dict[str, Any]:
-        return await run_command(self.sandbox, command, cwd=ROOT, timeout=timeout_seconds)
+    async def command(self, command: str, timeout_seconds: int = 60, max_output: int = MAX_OUTPUT) -> dict[str, Any]:
+        return await run_command(self.sandbox, command, cwd=ROOT, timeout=timeout_seconds, max_output=max_output)
 
     def definitions(self):
         @tool

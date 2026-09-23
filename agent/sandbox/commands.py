@@ -1,18 +1,36 @@
 """Bounded command observations. Reconnect to owned processes, never replay them."""
 from typing import Any
 import asyncio
+from uuid import uuid4
 
+import httpx
 from e2b import CommandExitException, SandboxException
 
 MAX_OUTPUT = 12_000
 MAX_STREAM_OUTPUT = 256_000
+# Pi's bash tool: keep the tail, save full text to a file named in the output.
+# ponytail: files die with the sandbox; a stale path means rerun the command.
+_FULL_OUTPUT_DIR = '/tmp/tool-output'
+
+
+async def _bounded_output(sandbox, text: str, stream: str, max_output: int) -> str:
+    if len(text) <= max_output:
+        return text
+    path = f'{_FULL_OUTPUT_DIR}/{uuid4().hex}-{stream}.log'
+    try:
+        await sandbox.files.write(path, text, request_timeout=10)
+    except (SandboxException, httpx.HTTPError):
+        where = 'full output could not be saved'
+    else:
+        where = f'full output: {path}'
+    return text[-max_output:] + f'\n[showing the last {max_output} of {len(text)} characters; {where}]'
 
 
 class CommandStateError(SandboxException):
     """The run must retire its sandbox before any further edits or checkpoints."""
 
 
-async def run_command(sandbox, command: str, *, cwd: str, timeout: int) -> dict[str, Any]:
+async def run_command(sandbox, command: str, *, cwd: str, timeout: int, max_output: int = MAX_OUTPUT) -> dict[str, Any]:
     handle = None
     received = 0
     reconnected = False
@@ -67,5 +85,6 @@ async def run_command(sandbox, command: str, *, cwd: str, timeout: int) -> dict[
     return {'ok': result.exit_code == 0, 'status': 'exited', 'pid': handle.pid,
             'exit_code': result.exit_code, 'reconnected': reconnected,
             'output_may_be_incomplete': reconnected,
-            'stdout': result.stdout[-MAX_OUTPUT:], 'stderr': result.stderr[-MAX_OUTPUT:],
+            'stdout': await _bounded_output(sandbox, result.stdout, 'stdout', max_output),
+            'stderr': await _bounded_output(sandbox, result.stderr, 'stderr', max_output),
             **({'error_type': 'CommandExitException'} if result.exit_code != 0 else {})}
