@@ -6,7 +6,6 @@ same operation can be reached from a second caller without going through HTTP.
 """
 
 import asyncio
-from typing import Any
 
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy import delete, func, select
@@ -19,9 +18,10 @@ from db.models import Chat, Message, ProjectRevision, Run, StorageDeletion, User
 from projects.constants import LIVE_RUN_STATUSES
 from projects.dependencies import owned_chat
 from projects.exceptions import ChatNotFound, NotChatOwner, ProjectBusy
+from projects.schemas import MessagePage, ProjectDeletion, ProjectList, ProjectSummary, RunAdmission
 
 
-async def message_page(db: AsyncSession, project_id: str, user: User, limit: int, before: str | None) -> dict[str, Any]:
+async def message_page(db: AsyncSession, project_id: str, user: User, limit: int, before: str | None) -> MessagePage:
     """One page of a project's conversation, plus which run is live."""
     # Not `owned_chat`: this route separates "no such chat" from "not yours",
     # and both messages are part of the published behaviour.
@@ -40,20 +40,18 @@ async def message_page(db: AsyncSession, project_id: str, user: User, limit: int
             .limit(2)
         )
     ).all()
-    return {
-        **page,
-        "active_run_id": next((row.id for row in active if row.status == "running"), None),
-        "pending_run_id": next((row.id for row in active if row.status == "awaiting_input"), None),
-        "chat": {
-            "id": chat.id,
-            "title": chat.title,
-            "app_url": chat.app_url,
-            "created_at": chat.created_at,
-        },
-    }
+    return MessagePage.model_validate(
+        {
+            **page,
+            "active_run_id": next((row.id for row in active if row.status == "running"), None),
+            "pending_run_id": next((row.id for row in active if row.status == "awaiting_input"), None),
+            # ProjectRef sets from_attributes, so pydantic reads the row itself.
+            "chat": chat,
+        }
+    )
 
 
-async def list_projects(db: AsyncSession, user: User) -> dict[str, Any]:
+async def list_projects(db: AsyncSession, user: User) -> ProjectList:
     """Projects by the latest accepted prompt, falling back to creation."""
     last_prompt = (
         select(func.max(Message.created_at))
@@ -65,14 +63,12 @@ async def list_projects(db: AsyncSession, user: User) -> dict[str, Any]:
     result = await db.execute(
         select(Chat, updated_at).where(Chat.user_id == user.id).order_by(updated_at.desc(), Chat.id)
     )
-    return {
-        "projects": [
-            {**jsonable_encoder(chat), "updated_at": jsonable_encoder(updated)} for chat, updated in result.all()
-        ]
-    }
+    return ProjectList(
+        projects=[ProjectSummary(**jsonable_encoder(chat), updated_at=updated) for chat, updated in result.all()]
+    )
 
 
-async def delete_project(db: AsyncSession, project_id: str, user: User) -> dict[str, Any]:
+async def delete_project(db: AsyncSession, project_id: str, user: User) -> ProjectDeletion:
     """Revoke access and commit the retry intent before calling any provider."""
     async with agent_service.admission:
         # Checkpoint creation locks this same row before inserting its object key.
@@ -96,12 +92,12 @@ async def delete_project(db: AsyncSession, project_id: str, user: User) -> dict[
         attempt_cleanup(cleanup_project_storage(keys)),
         attempt_cleanup(agent_service.retire_sandbox(project_id)),
     )
-    return {
-        "deleted": True,
-        "storage_cleanup": "completed" if storage_done else "queued",
-        "sandbox_cleanup": "completed" if sandbox_done else "queued",
-    }
+    return ProjectDeletion(
+        deleted=True,
+        storage_cleanup="completed" if storage_done else "queued",
+        sandbox_cleanup="completed" if sandbox_done else "queued",
+    )
 
 
-async def start_project(user: User, prompt: str, mode: str) -> dict[str, Any]:
-    return await agent_service.admit(user.id, prompt, mode=mode)
+async def start_project(user: User, prompt: str, mode: str) -> RunAdmission:
+    return RunAdmission.model_validate(await agent_service.admit(user.id, prompt, mode=mode))

@@ -50,15 +50,6 @@ warn_unreachable = true
 ignore_missing_imports = true
 exclude = "(agent/skills/|sandbox/|claude-seo/|graphify-out/|frontend/|alembic/)"
 
-# A route's return annotation is a FastAPI response-model declaration, not a
-# Python return contract: the handler returns a dict and FastAPI validates it
-# into the model. Returning the model instead would construct it twice, which
-# the FastAPI guidance calls out as an anti-pattern. So the mismatch is correct
-# here, and only here.
-[[tool.mypy.overrides]]
-module = ["auth.router", "files.router", "health.router", "previews.router", "projects.router", "runs.router"]
-disable_error_code = ["return-value"]
-
 [tool.ruff]
 line-length = 120
 target-version = "py312"

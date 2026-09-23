@@ -14,7 +14,7 @@ router = APIRouter()
 
 @router.get("/")
 async def get_health() -> Liveness:
-    return {"message": "Welcome", "status": "Healthy"}
+    return Liveness(message="Welcome", status="Healthy")
 
 
 @router.get("/health/ready")
@@ -23,4 +23,4 @@ async def get_readiness(db: DbSession) -> Readiness:
         await asyncio.wait_for(db.execute(text("SELECT 1")), timeout=12)
     except Exception:
         raise DatabaseUnavailable from None
-    return {"status": "ready"}
+    return Readiness(status="ready")
