@@ -10,7 +10,7 @@
 
 ## Sandbox runtimes
 
-`agent/sandbox_runtime.py` owns E2B sandboxes; `agent/service.py` drives it.
+`agent/sandbox/sandbox_runtime.py` owns E2B sandboxes; `agent/run/service.py` drives it.
 
 - `lifecycle` is create-time and immutable. `AsyncSandbox.create` accepts it, `connect` does not, and no setter exists. A change to it reaches new sandboxes only.
 - E2B defaults `on_timeout` to `kill`. A sandbox created without `lifecycle` is destroyed at timeout, not parked.
@@ -21,7 +21,8 @@
 
 ## Context compaction
 
-`agent/compaction.py` trims context, `agent/transcript.py` stores it, `agent/runner.py` calls both.
+`agent/context/compaction.py` trims context, `agent/context/transcript.py` stores it,
+`agent/run/runner.py` calls both.
 
 - Always on. There is no enable flag. `MODEL_CONTEXT_WINDOW` and `COMPACTION_RESERVE_TOKENS` size it, they do not switch it off.
 - The transcript is append-only per chat, not per run. A chat is one conversation; a later request reads what earlier ones did.
@@ -38,12 +39,11 @@
 ## Frontend architecture
 
 - Read `frontend/AGENTS.md` before changing frontend code. It defines the feature folders, request boundaries, naming, formatting, and enforced file limits.
-- The structure is adapted from the sibling TryMatcha repository. Evidence and deliberate differences are recorded in `docs/frontend-architecture.md`.
 - Keep frontend restructuring scoped to the frontend; do not transplant backend controller classes, change API contracts, or add state libraries solely to match a folder layout.
 
 ## Bundled skills
 
-Loader: `agent/skills.py`. Files: `agent/skills/<dir>/SKILL.md`. Registry: `SKILL_DIRECTORIES`.
+Loader: `agent/tools/skills.py`. Files: `agent/skills/<dir>/SKILL.md`. Registry: `SKILL_DIRECTORIES`.
 
 Three levels, do not collapse them:
 
@@ -75,7 +75,7 @@ Selection prose lives in `RuntimeSkills.prompt()`. Follows Codex and OpenCode. K
 - Keep: minimal set + state order, announce which skills and why, no reference-chasing, no carry across turns.
 - Descriptions are author text from SKILL.md frontmatter, capped 1024 chars, no newlines. Untrusted text in a trusted position. Review description diffs harder than body diffs.
 
-`MAX_SKILL_BYTES` caps one file. There is no per-run cap: `agent/compaction.py` is the limit, and it reclaims skill bodies by clearing `skills.loaded` so the model can read one again if it still needs it.
+`MAX_SKILL_BYTES` caps one file. There is no per-run cap: `agent/context/compaction.py` is the limit, and it reclaims skill bodies by clearing `skills.loaded` so the model can read one again if it still needs it.
 
 ### Updating
 
@@ -89,7 +89,7 @@ Domain-first, one package per concern. Adapted from
 - `main.py` owns composition only: middleware, lifespan and router registration. No endpoint lives here.
 - One package per domain, each owning its own routes: `auth/`, `projects/`, `runs/`, `files/`, `previews/`, `health/`.
 - `agent/` owns the build agent and has its own `agent/AGENTS.md`. Read it before changing that package.
-- `db/` owns the engine and session factory (`base.py`), ORM models (`models.py`), schema creation (`migrate.py`).
+- `db/` owns the engine and session factory (`base.py`) and the ORM models (`models.py`) that no single domain owns. Alembic owns schema creation; there is no `migrate.py`.
 - `config.py`, `exceptions.py`, `plans.py` and `request_timing.py` sit at the root because more than one domain uses them. That is the only reason to put a module there.
 - `scripts/` is not imported by the app.
 
@@ -173,7 +173,7 @@ Imports and async:
 - The app is async end to end. Never call a blocking function from an `async def` path: it stalls the loop for every other request on the worker. Use the async client, or `run_in_threadpool` where none exists.
 - Preserve cancellation. When work spans an `await`, check that a cancelled or failed task cannot leave a sandbox, upload, or row half-owned.
 
-Ruff owns formatting and linting, replacing black, isort and flake8. mypy runs in `strict` mode with the three annotation-demanding flags off — openai-agents' profile: every check that finds a bug, none that only demand signatures on existing code. It is clean; keep it that way rather than adding a suppression. Line length is 120. `agent/run/prompts.py`, `agent/tools/skills.py` and `agent/tools/tools.py` are exempt from line length: their long lines are prose the model reads, and re-wrapping one changes what it reads.
+Ruff owns formatting and linting, replacing black, isort and flake8. mypy runs in `strict` mode with the three annotation-demanding flags off — openai-agents' profile: every check that finds a bug, none that only demand signatures on existing code. It is clean; keep it that way rather than adding a suppression. Line length is 120, with no per-file exemption. Model-facing prose stays out of the rule's way instead of being excused from it: the system prompt lives in `agent/run/prompts.md`, and a tool description too long for one line is passed as `@tool(description=...)` rather than written as a docstring. There is no `noqa`, no `type: ignore` and no mypy override in authored code; removing the last one is the goal, adding one needs a reason and the user's agreement.
 
 - `make check` — the gate: `format-check`, `lint`, then `typecheck`.
 - `make format` — `ruff format`, then `ruff check --fix`.

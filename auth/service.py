@@ -40,6 +40,7 @@ from .schemas import (
     UserLogin,
     UserRegister,
     UserResponse,
+    VerificationRequested,
 )
 from .utils import (
     create_access_token,
@@ -51,7 +52,7 @@ from .utils import (
 from .verification import consume_token, email_configured, send_verification
 
 
-async def register_user(user: UserRegister, request_ip: str, db: AsyncSession):
+async def register_user(user: UserRegister, request_ip: str, db: AsyncSession) -> RegisterResponse:
     if not email_configured():
         raise VerificationNotConfigured
     email = str(user.email).lower()
@@ -82,7 +83,7 @@ async def register_user(user: UserRegister, request_ip: str, db: AsyncSession):
     return RegisterResponse()
 
 
-async def login_user(user_data: UserLogin, db: AsyncSession):
+async def login_user(user_data: UserLogin, db: AsyncSession) -> Token:
     """Authenticate user and return jwt"""
 
     result = await db.execute(select(User).where(func.lower(User.email) == str(user_data.email).lower()))
@@ -101,7 +102,7 @@ async def login_user(user_data: UserLogin, db: AsyncSession):
     return Token(access_token=access_token, refresh_token=refresh_token)
 
 
-async def refresh_token(token_data: RefreshTokenRequest, db: AsyncSession):
+async def refresh_token(token_data: RefreshTokenRequest, db: AsyncSession) -> Token:
     """refresh access token using refresh token"""
 
     payload = decode_token(token_data.refresh_token, token_type="refresh")
@@ -127,7 +128,7 @@ async def refresh_token(token_data: RefreshTokenRequest, db: AsyncSession):
     return Token(access_token=acccess_token, refresh_token=new_refresh_token)
 
 
-async def get_me(current_user: User, db: AsyncSession):
+async def get_me(current_user: User, db: AsyncSession) -> UserResponse:
     response = UserResponse.model_validate(current_user)
     # Reflect the available allowance without starting a new window on a profile read.
     if not response.credits_unlimited and (
@@ -146,7 +147,7 @@ async def update_me(
     profile: ProfileUpdate,
     current_user: User,
     db: AsyncSession,
-):
+) -> UserResponse:
     if not profile.name.strip():
         raise NameRequired
     current_user.name = profile.name.strip()
@@ -155,17 +156,17 @@ async def update_me(
     return await get_me(current_user, db)
 
 
-async def request_verification(data: EmailRequest, request_ip: str, db: AsyncSession):
+async def request_verification(data: EmailRequest, request_ip: str, db: AsyncSession) -> VerificationRequested:
     if not email_configured():
         raise VerificationNotConfigured
     user = await db.scalar(select(User).where(func.lower(User.email) == str(data.email).lower()))
     if user and not user.email_verified:
         await send_verification(db, user, request_ip)
         await db.commit()
-    return {"message": "If this account needs verification, an email is on its way. Check your inbox and spam folder."}
+    return VerificationRequested()
 
 
-async def confirm_verification(data: TokenRequest, db: AsyncSession):
+async def confirm_verification(data: TokenRequest, db: AsyncSession) -> Token:
     user_id = await consume_token(db, data.token, "verify_email")
     user = await db.get(User, user_id)
     if not user:

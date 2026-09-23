@@ -4,12 +4,11 @@
 OpenAPI component names, so renaming them breaks generated clients.
 """
 
-from datetime import datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from models import CustomModel
+from models import CustomModel, UtcDatetime
 
 
 class ChatPayload(BaseModel):
@@ -29,14 +28,14 @@ class RunEventItem(CustomModel):
 
     model_config = ConfigDict(extra="allow")
 
-    created_at: datetime | None = None
+    created_at: UtcDatetime | None = None
 
 
 class RunSummary(CustomModel):
     id: str
     status: str
     reason: str | None = None
-    created_at: datetime | None = None
+    created_at: UtcDatetime | None = None
     metrics: dict[str, Any] | None = None
     workflow: dict[str, Any] | None = None
     events: list[RunEventItem] = Field(default_factory=list)

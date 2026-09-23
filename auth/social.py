@@ -229,8 +229,8 @@ async def oauth_callback(provider: str, request: Request, db: DbSession):
     )
 
 
-@social_router.post("/oauth/exchange", response_model=Token)
-async def exchange_oauth(data: TokenRequest, db: DbSession):
+@social_router.post("/oauth/exchange")
+async def exchange_oauth(data: TokenRequest, db: DbSession) -> Token:
     user_id = await consume_token(db, data.token, "oauth_exchange")
     user = await db.get(User, user_id)
     if not user or (not user.email_verified):
