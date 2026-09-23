@@ -24,3 +24,4 @@ AGENT_HANDOFF_SAFE.md
 claude-seo/
 .claude
 docs
+.vercel

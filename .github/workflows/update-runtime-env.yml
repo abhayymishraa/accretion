@@ -1,7 +1,8 @@
 name: Update runtime env
 
-# Manual only. Patches an allowlisted set of cost ceilings in the Oracle runtime
-# file, then reruns the backend deploy so the next release picks them up.
+# Manual only. Patches an allowlisted set of cost ceilings and public origins in
+# the Oracle runtime file, then reruns the backend deploy so the next release
+# picks them up.
 on:
   workflow_dispatch:
     inputs:
@@ -23,6 +24,15 @@ on:
       MAX_LIVE_SANDBOXES:
         description: Running sandboxes at once. E2B Hobby allows 20; paused ones do not count
         default: "18"
+      FRONTEND_URL:
+        description: Deployed frontend origin, used for auth redirects
+        default: "https://accretion.abhayymishraa.com"
+      PUBLIC_API_URL:
+        description: Public backend origin, used for OAuth callback URLs
+        default: "https://api.accretion.abhayymishraa.com"
+      ALLOWED_ORIGINS:
+        description: Comma-separated CORS origins
+        default: "https://accretion.abhayymishraa.com"
       redeploy:
         description: Rerun deploy-backend.yml afterwards
         type: boolean
@@ -47,6 +57,9 @@ jobs:
           NEW_FREE_TIER_MONTHLY_BUDGET_USD: ${{ inputs.FREE_TIER_MONTHLY_BUDGET_USD }}
           NEW_MAX_CONCURRENT_RUNS: ${{ inputs.MAX_CONCURRENT_RUNS }}
           NEW_MAX_LIVE_SANDBOXES: ${{ inputs.MAX_LIVE_SANDBOXES }}
+          NEW_FRONTEND_URL: ${{ inputs.FRONTEND_URL }}
+          NEW_PUBLIC_API_URL: ${{ inputs.PUBLIC_API_URL }}
+          NEW_ALLOWED_ORIGINS: ${{ inputs.ALLOWED_ORIGINS }}
         run: |
           set -euo pipefail
           : "${DEPLOY_HOST:?Missing DEPLOY_HOST}"
@@ -58,6 +71,15 @@ jobs:
             var="NEW_${key}"
             [[ "${!var}" =~ ^[0-9]+(\.[0-9]+)?$ ]] || { echo "Invalid value for $key"; exit 1; }
           done
+
+          # Origins only: https, a host, optional port. No path, no credentials.
+          # ALLOWED_ORIGINS may list several. Values land in runtime.env verbatim.
+          origin='https://[a-z0-9]([a-z0-9.-]*[a-z0-9])?(:[0-9]{1,5})?'
+          for key in FRONTEND_URL PUBLIC_API_URL; do
+            var="NEW_${key}"
+            [[ "${!var}" =~ ^${origin}$ ]] || { echo "Invalid origin for $key"; exit 1; }
+          done
+          [[ "$NEW_ALLOWED_ORIGINS" =~ ^${origin}(,${origin})*$ ]] || { echo 'Invalid ALLOWED_ORIGINS'; exit 1; }
 
           install -d -m 700 ~/.ssh
           printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
@@ -76,6 +98,9 @@ jobs:
             NEW_FREE_TIER_MONTHLY_BUDGET_USD="$NEW_FREE_TIER_MONTHLY_BUDGET_USD" \
             NEW_MAX_CONCURRENT_RUNS="$NEW_MAX_CONCURRENT_RUNS" \
             NEW_MAX_LIVE_SANDBOXES="$NEW_MAX_LIVE_SANDBOXES" \
+            NEW_FRONTEND_URL="$NEW_FRONTEND_URL" \
+            NEW_PUBLIC_API_URL="$NEW_PUBLIC_API_URL" \
+            NEW_ALLOWED_ORIGINS="$NEW_ALLOWED_ORIGINS" \
             'bash -s' <<'REMOTE'
           set -euo pipefail
           file=/opt/webbuilder/runtime.env
@@ -96,7 +121,7 @@ jobs:
           trap 'rm -f "$tmp"' EXIT
           sudo cat "$file" | awk '
             BEGIN {
-              split("RUN_MAX_TOKENS FREE_DAILY_COST_USD FREE_MONTHLY_COST_USD FREE_TIER_MONTHLY_BUDGET_USD MAX_CONCURRENT_RUNS MAX_LIVE_SANDBOXES", a, " ")
+              split("RUN_MAX_TOKENS FREE_DAILY_COST_USD FREE_MONTHLY_COST_USD FREE_TIER_MONTHLY_BUDGET_USD MAX_CONCURRENT_RUNS MAX_LIVE_SANDBOXES FRONTEND_URL PUBLIC_API_URL ALLOWED_ORIGINS", a, " ")
               for (i in a) want[a[i]] = ENVIRON["NEW_" a[i]]
             }
             {
@@ -113,7 +138,7 @@ jobs:
           rm -f "$tmp"
 
           # Report key names and whether they changed. Never print other lines.
-          for k in RUN_MAX_TOKENS FREE_DAILY_COST_USD FREE_MONTHLY_COST_USD FREE_TIER_MONTHLY_BUDGET_USD MAX_CONCURRENT_RUNS MAX_LIVE_SANDBOXES; do
+          for k in RUN_MAX_TOKENS FREE_DAILY_COST_USD FREE_MONTHLY_COST_USD FREE_TIER_MONTHLY_BUDGET_USD MAX_CONCURRENT_RUNS MAX_LIVE_SANDBOXES FRONTEND_URL PUBLIC_API_URL ALLOWED_ORIGINS; do
             before=$(sudo grep -E "^${k}=" "$backup" | head -1 | cut -d= -f2- || true)
             after=$(sudo grep -E "^${k}=" "$file" | head -1 | cut -d= -f2- || true)
             printf '  %-32s %s -> %s\n' "$k" "${before:-<unset>}" "$after"
