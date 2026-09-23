@@ -40,7 +40,7 @@ jobs:
         run: |
           pip install --quiet langchain-core pydantic
           python -c "
-          from agent.skills import RuntimeSkills, SKILL_DIRECTORIES
+          from agent.tools.skills import RuntimeSkills, SKILL_DIRECTORIES
           loaded = RuntimeSkills().entries
           missing = sorted(set(SKILL_DIRECTORIES) - set(loaded))
           assert not missing, f'skills failed to load after sync: {missing}'

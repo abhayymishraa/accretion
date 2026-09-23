@@ -1,13 +1,16 @@
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
-from sqlalchemy.orm import DeclarativeBase
-from sqlalchemy.engine import make_url
-from typing import AsyncGenerator
-import os
 import ssl
+from collections.abc import AsyncGenerator
+from typing import Annotated
 
-DATABASE_URL = os.getenv(
-    "DATABASE_URL", "postgresql://user:password@localhost/webbuilder"
-)
+from fastapi import Depends
+from sqlalchemy import MetaData
+from sqlalchemy.engine import make_url
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.orm import DeclarativeBase
+
+from config import settings
+
+DATABASE_URL = settings.DATABASE_URL
 
 database_url = make_url(DATABASE_URL).set(drivername="postgresql+psycopg")
 connect_args = {
@@ -39,13 +42,23 @@ engine = create_async_engine(
 # expire_on_commit=False → means objects remain “usable” even after commit.
 # If it were True, SQLAlchemy would clear object state after a commit.
 
-AsyncSessionLocal = async_sessionmaker(
-    engine, class_=AsyncSession, expire_on_commit=False
-)
+AsyncSessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+
+# Deterministic names for constraints and indexes. Without these, the database
+# assigns its own, and a migration cannot refer to a constraint by name.
+# Objects created before this was set keep the names the database gave them.
+NAMING_CONVENTION = {
+    "ix": "ix_%(column_0_label)s",
+    "uq": "uq_%(table_name)s_%(column_0_name)s",
+    "ck": "ck_%(table_name)s_%(constraint_name)s",
+    "fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s",
+    "pk": "pk_%(table_name)s",
+}
 
 
 class Base(DeclarativeBase):
-    pass
+    metadata = MetaData(naming_convention=NAMING_CONVENTION)
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
@@ -54,10 +67,14 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
         try:
             # “Pauses” the function and hands out the session object to whoever called get_db().
             yield session
-            # When the route finishes using the session, Python returns control back to get_db() — continuing after the yield line.
+            # When the route finishes using the session, Python returns control back to
+            # get_db() — continuing after the yield line.
             await session.commit()
         except Exception:
             await session.rollback()
             raise
         finally:
             await session.close()
+
+
+DbSession = Annotated[AsyncSession, Depends(get_db)]
