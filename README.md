@@ -59,17 +59,3 @@ material is released before any summarizing model call is made.
 
 - [Sandbox template](sandbox/README.md), pinned versions and build policy
 - [Deployment and rollback](deploy/README.md)
-
-## Notes
-
-Pushes to `main` deploy the frontend through Vercel and the backend through
-GitHub Actions.
-
-The sandbox template must carry Playwright under `/opt/webbuilder-checks`, or
-the browser checks cannot run. The runner fails fast with a setup error when it
-is missing.
-
-OpenAI and E2B bill separately. Free hosting does not make generation free.
-
-This repository keeps no test suites. Build, preview and deployment checks stay
-enabled. Contributor rules are in [AGENTS.md](AGENTS.md).
