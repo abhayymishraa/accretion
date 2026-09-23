@@ -1,6 +1,6 @@
-from pydantic import BaseModel, EmailStr, Field, ConfigDict
 from datetime import datetime
-from typing import Optional
+
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from plans import DEFAULT_PLAN, plan_credits
 
@@ -31,8 +31,8 @@ class CostWindow(BaseModel):
 
 class CostAllowance(BaseModel):
     unlimited: bool
-    currency: str = 'USD'
-    reset_timezone: str = 'UTC'
+    currency: str = "USD"
+    reset_timezone: str = "UTC"
     daily: CostWindow
     monthly: CostWindow
 
@@ -47,12 +47,12 @@ class UserResponse(BaseModel):
     email_verified: bool = False
     providers: list[str] = Field(default_factory=list)
     created_at: datetime
-    last_query_at: Optional[datetime] = None
+    last_query_at: datetime | None = None
     tokens_remaining: int = plan_credits(DEFAULT_PLAN)
     credits_limit: int = plan_credits(DEFAULT_PLAN)
     credits_unlimited: bool = False
-    tokens_reset_at: Optional[datetime] = None
-    cost_allowance: Optional[CostAllowance] = None
+    tokens_reset_at: datetime | None = None
+    cost_allowance: CostAllowance | None = None
 
 
 class RefreshTokenRequest(BaseModel):

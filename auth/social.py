@@ -1,12 +1,11 @@
 """Authlib handles OAuth state, PKCE and OIDC signatures; local identities stay explicit."""
 
-import os
 import secrets
 from urllib.parse import urlencode
 
 import httpx
 from authlib.integrations.starlette_client import OAuth, OAuthError
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Request
 from fastapi.responses import RedirectResponse
 from joserfc.errors import JoseError
 from sqlalchemy import func, select
@@ -14,10 +13,19 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.middleware.sessions import SessionMiddleware
 
-from db.base import get_db
-from db.models import AuthIdentity, User
-from .dependencies import get_current_user
-from .schema import Token, TokenRequest
+from auth.config import auth_settings
+from auth.constants import PROVIDERS
+from auth.exceptions import (
+    EmailNotVerified,
+    ProviderNotConfigured,
+)
+from auth.models import AuthIdentity
+from config import settings
+from db.base import DbSession
+from db.models import User
+
+from .dependencies import CurrentUser
+from .schemas import Token, TokenRequest
 from .utils import (
     SECRET_KEY,
     create_access_token,
@@ -27,21 +35,15 @@ from .utils import (
 from .verification import consume_token, email_configured, frontend_url, issue_token
 
 social_router = APIRouter(prefix="/auth", tags=["auth"])
-PROVIDERS = ("google", "github")
 
 
 def api_url() -> str:
-    return os.getenv("PUBLIC_API_URL", "http://localhost:8000").rstrip("/")
+    return settings.PUBLIC_API_URL
 
 
 def provider_enabled(provider: str) -> bool:
     return (
-        provider in PROVIDERS
-        and len(os.getenv("SECRET_KEY", "")) >= 32
-        and all(
-            os.getenv(f"{provider.upper()}_{key}")
-            for key in ("CLIENT_ID", "CLIENT_SECRET")
-        )
+        provider in PROVIDERS and len(auth_settings.SECRET_KEY) >= 32 and all(auth_settings.oauth_credentials(provider))
     )
 
 
@@ -61,12 +63,10 @@ def configure_sessions(app):
 
 def oauth_client(provider: str):
     if not provider_enabled(provider):
-        raise HTTPException(503, "This sign-in provider is not configured yet.")
+        raise ProviderNotConfigured
     oauth = OAuth()
-    common = dict(
-        client_id=os.environ[f"{provider.upper()}_CLIENT_ID"],
-        client_secret=os.environ[f"{provider.upper()}_CLIENT_SECRET"],
-    )
+    client_id, client_secret = auth_settings.oauth_credentials(provider)
+    common = {"client_id": client_id, "client_secret": client_secret}
     if provider == "google":
         return oauth.register(
             "google",
@@ -103,11 +103,11 @@ async def auth_options():
 @social_router.post("/oauth/{provider}/link")
 async def link_provider(
     provider: str,
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    user: CurrentUser,
+    db: DbSession,
 ):
     if not provider_enabled(provider):
-        raise HTTPException(503, "This sign-in provider is not configured yet.")
+        raise ProviderNotConfigured
     ticket = await issue_token(db, user.id, f"link_{provider}")
     await db.commit()
     return {"url": f"{api_url()}/auth/oauth/{provider}?{urlencode({'ticket': ticket})}"}
@@ -118,7 +118,8 @@ async def start_oauth(
     provider: str,
     request: Request,
     ticket: str | None = None,
-    db: AsyncSession = Depends(get_db),
+    *,
+    db: DbSession,
 ):
     client = oauth_client(provider)
     link_user = await consume_token(db, ticket, f"link_{provider}") if ticket else None
@@ -126,21 +127,13 @@ async def start_oauth(
     request.session.clear()
     if link_user is not None:
         request.session["link_user"] = link_user
-    return await client.authorize_redirect(
-        request, f"{api_url()}/auth/oauth/{provider}/callback"
-    )
+    return await client.authorize_redirect(request, f"{api_url()}/auth/oauth/{provider}/callback")
 
 
 async def verified_identity(provider: str, client, token) -> tuple[str, str, str]:
     if provider == "google":
-        info = token.get(
-            "userinfo", {}
-        )  # Authlib validates signature, issuer, audience and nonce.
-        if (
-            info.get("email_verified") is not True
-            or not info.get("sub")
-            or not info.get("email")
-        ):
+        info = token.get("userinfo", {})  # Authlib validates signature, issuer, audience and nonce.
+        if info.get("email_verified") is not True or not info.get("sub") or not info.get("email"):
             raise ValueError("verified_email_required")
         return (
             str(info["sub"]),
@@ -153,11 +146,7 @@ async def verified_identity(provider: str, client, token) -> tuple[str, str, str
     response = await client.get("user/emails", token=token)
     response.raise_for_status()
     email = next(
-        (
-            entry["email"]
-            for entry in response.json()
-            if entry.get("primary") is True and entry.get("verified") is True
-        ),
+        (entry["email"] for entry in response.json() if entry.get("primary") is True and entry.get("verified") is True),
         None,
     )
     if not email or not info.get("id"):
@@ -210,9 +199,7 @@ async def resolve_identity(
 
 
 @social_router.get("/oauth/{provider}/callback")
-async def oauth_callback(
-    provider: str, request: Request, db: AsyncSession = Depends(get_db)
-):
+async def oauth_callback(provider: str, request: Request, db: DbSession):
     client = oauth_client(provider)
     try:
         token = await client.authorize_access_token(request)
@@ -230,8 +217,7 @@ async def oauth_callback(
         code = (
             str(exc)
             if isinstance(exc, ValueError)
-            and str(exc)
-            in {"link_required", "verified_email_required", "account_conflict"}
+            and str(exc) in {"link_required", "verified_email_required", "account_conflict"}
             else "oauth_failed"
         )
         destination = f"{frontend_url()}/auth/callback#error={code}"
@@ -244,11 +230,11 @@ async def oauth_callback(
 
 
 @social_router.post("/oauth/exchange", response_model=Token)
-async def exchange_oauth(data: TokenRequest, db: AsyncSession = Depends(get_db)):
+async def exchange_oauth(data: TokenRequest, db: DbSession):
     user_id = await consume_token(db, data.token, "oauth_exchange")
     user = await db.get(User, user_id)
     if not user or (not user.email_verified):
-        raise HTTPException(403, "Verify your email before continuing.")
+        raise EmailNotVerified
     await db.commit()
     return Token(
         access_token=create_access_token({"sub": str(user_id)}),
