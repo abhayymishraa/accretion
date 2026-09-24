@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 
 import { migrateKey } from "@/lib/storage/migrateKey";
 import { Moon, Sun } from "lucide-react";
+import { usePathname } from "next/navigation";
 import { createContext, useContext, useEffect, useSyncExternalStore } from "react";
 
 const ThemeContext = createContext({ light: false, toggle: () => {} });
@@ -12,6 +13,8 @@ const themeChanged = "accretion-theme-changed";
 const legacyThemeKey = "webbuilder-theme";
 let migrated = false;
 let fallbackLight: boolean | null = null;
+// Light-only like their data-palette content; the toggle lives in the workspace.
+const LIGHT_ONLY_ROUTES = new Set(["/", "/signin", "/signup", "/verify-email", "/auth/callback"]);
 
 function getTheme() {
     if (fallbackLight !== null) return fallbackLight;
@@ -48,9 +51,11 @@ function getServerTheme() {
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
     const light = useSyncExternalStore(subscribeTheme, getTheme, getServerTheme);
+    const pathname = usePathname();
     useEffect(() => {
-        document.documentElement.dataset.theme = light ? "light" : "dark";
-    }, [light]);
+        document.documentElement.dataset.theme =
+            light || LIGHT_ONLY_ROUTES.has(pathname) ? "light" : "dark";
+    }, [light, pathname]);
     const toggle = () => {
         const next = !light;
         try {
