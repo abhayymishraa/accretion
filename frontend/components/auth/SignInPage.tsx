@@ -35,7 +35,11 @@ export default function SignInPage() {
 
     if (checkingSession) {
         return (
-            <main className="grid min-h-[100dvh] place-items-center px-6" aria-busy="true">
+            <main
+                data-palette="light"
+                className="grid min-h-[100dvh] place-items-center bg-background px-6 text-foreground"
+                aria-busy="true"
+            >
                 {showChecking ? (
                     <p className="text-[13px] text-muted-foreground" role="status">
                         Checking your session…
