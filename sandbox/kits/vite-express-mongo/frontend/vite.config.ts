@@ -9,5 +9,6 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
     allowedHosts: [".e2b.app", ".e2b.dev"],
+    proxy: { "/api": "http://127.0.0.1:4000" },
   },
 });
