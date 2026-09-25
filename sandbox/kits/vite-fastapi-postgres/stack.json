@@ -1,0 +1,20 @@
+{
+  "id": "vite-fastapi-postgres",
+  "name": "React + FastAPI + Postgres",
+  "database": "postgres",
+  "services": [
+    {"name": "api", "cwd": "backend", "start": ".venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000", "port": 8000, "ready": "/api/health"},
+    {"name": "web", "cwd": "frontend", "start": "node node_modules/vite/bin/vite.js --host 0.0.0.0 --port 5173 --strictPort", "port": 5173, "ready": "/"}
+  ],
+  "preview_port": 5173,
+  "install": "cd frontend && npm ci --ignore-scripts && cd ../backend && python3 -m venv .venv && .venv/bin/pip install -q -r requirements.txt",
+  "build": "cd frontend && npm run build",
+  "typecheck": "cd frontend && npm run typecheck",
+  "migrate": "cd backend && .venv/bin/alembic upgrade head",
+  "seed": "",
+  "dump": "pg_dump --clean --if-exists --no-owner \"$DATABASE_URL\" > db/dump.sql",
+  "restore": "psql \"$DATABASE_URL\" -q -f db/dump.sql",
+  "migrations": ["backend/alembic/versions/"],
+  "env": ["POSTGRES_PASSWORD", "APP_SECRET"],
+  "entry": ["AGENTS.md", "frontend/src/App.tsx", "backend/app/main.py", "backend/app/models.py"]
+}
