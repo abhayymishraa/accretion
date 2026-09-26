@@ -3,8 +3,6 @@
 import asyncio
 import base64
 import hashlib
-import io
-import json
 import shlex
 import uuid
 import zipfile
@@ -15,12 +13,11 @@ from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert
 
 from agent import PACKAGE_ROOT
-from agent.sandbox.config import sandbox_settings
 from agent.storage.models import StorageUsage
 from db.base import AsyncSessionLocal
 from db.models import Chat, ProjectRevision, Run, RunEvent
 
-from ..sandbox.archive import MAX_ARCHIVE, MAX_BYTES, MAX_FILES, content_hash, manifest, safe_path
+from ..sandbox.archive import MAX_ARCHIVE, content_hash, manifest
 from ..tools.tools import ROOT
 from .config import storage_settings
 from .storage import StorageError, storage_call
@@ -201,7 +198,7 @@ async def sandbox_archive(sandbox, mode, data=None):
         if mode == "pack":
             encoded = result.stdout.strip()
             if len(encoded) > ((MAX_ARCHIVE + 2) // 3) * 4:
-                raise StorageError("Sandbox archive exceeds 10 MiB")
+                raise StorageError("Sandbox archive exceeds 32 MiB")
             return base64.b64decode(encoded, validate=True)
     finally:
         # Delete only the host-chosen temporary path, even on packaging failure.
@@ -209,40 +206,3 @@ async def sandbox_archive(sandbox, mode, data=None):
             await asyncio.wait_for(sandbox.files.remove(target), timeout=3)
         except Exception:
             pass
-
-
-def legacy_archive(chat_id):
-    # IDs come from owned DB rows, never an arbitrary client path.
-    folder = PROJECTS / str(uuid.UUID(chat_id))
-    metadata = folder / "metadata.json"
-    if not metadata.is_file():
-        return None
-    info = json.loads(metadata.read_text())
-    names = info.get("files", [])
-    if len(names) > MAX_FILES or len(set(names)) != len(names):
-        raise StorageError("Legacy snapshot has invalid file metadata")
-    buffer, total = io.BytesIO(), 0
-    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as z:
-        for name in names:
-            safe_path(name)
-            path = folder / "files" / name if info.get("version") == 2 else folder / name.replace("/", "_")
-            if not path.resolve().is_relative_to(folder.resolve()) or not path.is_file():
-                raise StorageError("Legacy snapshot is incomplete; original files retained")
-            total += path.stat().st_size
-            if total > MAX_BYTES:
-                raise StorageError("Legacy snapshot exceeds storage limits")
-            z.write(path, name)
-            if buffer.tell() > MAX_ARCHIVE:
-                raise StorageError("Legacy snapshot exceeds archive limit")
-    return buffer.getvalue()
-
-
-async def ensure_revision(chat_id):
-    revision = await latest_revision(chat_id)
-    if revision:
-        return revision
-    async with archive_slots:
-        archive = await asyncio.to_thread(legacy_archive, chat_id)
-        if archive is not None:
-            await save_revision(chat_id, None, archive, sandbox_settings.E2B_TEMPLATE_ID)
-    return await latest_revision(chat_id)

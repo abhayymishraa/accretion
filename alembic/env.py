@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 import agent.budget.models
 import agent.context.models
+import agent.sandbox.models
 import agent.storage.models
 import auth.models
 import db.models
@@ -26,7 +27,14 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 # Importing a module registers its tables; one missing here is a table autogenerate will drop.
-MODEL_MODULES = (agent.budget.models, agent.context.models, agent.storage.models, auth.models, db.models)
+MODEL_MODULES = (
+    agent.budget.models,
+    agent.context.models,
+    agent.sandbox.models,
+    agent.storage.models,
+    auth.models,
+    db.models,
+)
 
 target_metadata = Base.metadata
 

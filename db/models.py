@@ -30,12 +30,11 @@ class User(Base):
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
-    # Rate limiting fields
-    last_query_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, default=None)
-
     # Credits are the only limit a user sees. One credit per root run; follow-ups
     # inside a run are free. The grant and the reset month come from plans.py.
     plan: Mapped[str] = mapped_column(String(32), nullable=False, default=DEFAULT_PLAN, server_default=DEFAULT_PLAN)
+    # The user's last pick, pre-filling the picker in the prompt box (spec 4.2, dyad's selectedModel).
+    default_model_choice: Mapped[str] = mapped_column(String(128), default="auto", server_default="auto")
     tokens_remaining: Mapped[int] = mapped_column(Integer, default=plan_credits(DEFAULT_PLAN))
     tokens_reset_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, default=None)
 
@@ -74,7 +73,6 @@ class User(Base):
             self.tokens_reset_at = month_window(now)[1]
         if self.tokens_remaining > 0:
             self.tokens_remaining -= 1
-            self.last_query_at = now
             return True
         return False
 
@@ -86,6 +84,8 @@ class Chat(Base):
     user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"))
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     app_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    # The kit the project started from (sandbox/kits/<kit>/stack.json).
+    kit: Mapped[str] = mapped_column(String(64), server_default="vite-fastapi-postgres")
     # Kept separate: failed drafts must not replace the last verified build.
     latest_saved_revision_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     latest_verified_revision_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
@@ -128,7 +128,8 @@ class Run(Base):
     chat_id: Mapped[str] = mapped_column(ForeignKey("chats.id", ondelete="CASCADE"), index=True)
     status: Mapped[str] = mapped_column(String(24), default="running", index=True)
     prompt: Mapped[str] = mapped_column(Text)
-    events: Mapped[list[Any]] = mapped_column(JSON, default=list[Any])
+    # "auto" or the registry id the user picked for this request (spec 4.2).
+    model_choice: Mapped[str] = mapped_column(String(128), default="auto", server_default="auto")
     metrics: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict[str, Any])
     # Immutable proposal + atomically recorded continuation; separate from prunable diagnostics.
     workflow: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict[str, Any], server_default="{}")
