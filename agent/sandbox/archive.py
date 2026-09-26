@@ -11,9 +11,10 @@ import stat
 import sys
 import zipfile
 
-MAX_FILES = 250
-MAX_BYTES = 32 * 1024 * 1024
-MAX_ARCHIVE = 10 * 1024 * 1024
+# Spec 8: full-stack kits carry a backend, migrations and a database dump.
+MAX_FILES = 600
+MAX_BYTES = 64 * 1024 * 1024
+MAX_ARCHIVE = 32 * 1024 * 1024
 EXCLUDED = {'.git', '.env', '.venv', 'node_modules', 'dist', '.next', '.cache', '__pycache__'}
 
 
@@ -33,24 +34,24 @@ def safe_path(name):
 def manifest(archive):
     """Validate before serving/extracting. Never trust ZIP size or path metadata alone."""
     if len(archive) > MAX_ARCHIVE:
-        raise ValueError('Project archive exceeds 10 MiB')
+        raise ValueError('Project archive exceeds 32 MiB')
     entries, total = {}, 0
     with zipfile.ZipFile(io.BytesIO(archive)) as z:
         if len(z.infolist()) > MAX_FILES:
-            raise ValueError('Project exceeds 250 files')
+            raise ValueError('Project exceeds 600 files')
         for item in z.infolist():
             name = safe_path(item.filename)
             mode = item.external_attr >> 16
             if name in entries or item.is_dir() or (stat.S_IFMT(mode) not in (0, stat.S_IFREG)):
                 raise ValueError('Archive contains duplicate or non-regular files')
             if item.flag_bits & 1 or item.file_size > MAX_BYTES - total:
-                raise ValueError('Project exceeds 32 MiB or is encrypted')
+                raise ValueError('Project exceeds 64 MiB or is encrypted')
             digest, size = hashlib.sha256(), 0
             with z.open(item) as stream:
                 while chunk := stream.read(64 * 1024):
                     size += len(chunk)
                     if total + size > MAX_BYTES:
-                        raise ValueError('Project exceeds 32 MiB')
+                        raise ValueError('Project exceeds 64 MiB')
                     digest.update(chunk)
             total += size
             entries[name] = {'size': size, 'sha256': digest.hexdigest()}
@@ -98,9 +99,9 @@ def pack(root, target):
         for name in before:
             z.write(root / name, name)
             if Path(target).stat().st_size > MAX_ARCHIVE:
-                raise ValueError('Project archive exceeds 10 MiB')
+                raise ValueError('Project archive exceeds 32 MiB')
     if Path(target).stat().st_size > MAX_ARCHIVE:
-        raise ValueError('Project archive exceeds 10 MiB')
+        raise ValueError('Project archive exceeds 32 MiB')
     # Detect concurrent background writers, including deletes/renames during collection.
     if manifest(Path(target).read_bytes()) != before or workspace_files(root) != before:
         raise ValueError('Workspace changed during checkpoint; stop background writers')

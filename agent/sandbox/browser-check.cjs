@@ -11,7 +11,9 @@ const { chromium } = require('/opt/webbuilder-checks/node_modules/playwright');
   const screenshotPath = screenshotArg && !screenshotArg.startsWith('--') ? screenshotArg : undefined;
   const checksAt = process.argv.indexOf('--checks');
   const checks = checksAt === -1 ? {} : JSON.parse(process.argv[checksAt + 1]);
-  const origin = 'http://127.0.0.1:5173';
+  // The project previews the port its kit's stack.json names (spec 8).
+  const previewPort = JSON.parse(require('fs').readFileSync('.accretion/stack.json', 'utf8')).preview_port;
+  const origin = 'http://127.0.0.1:' + previewPort;
   const addError = message => {
     if (errors.length < 10) errors.push(String(message).slice(0, 500));
   };

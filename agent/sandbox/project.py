@@ -1,0 +1,86 @@
+"""A kit project's life in its sandbox (spec 8): first start, restore, and database dumps.
+
+Everything here runs from the project root with the project's .env sourced.
+"""
+
+import json
+import shlex
+
+from e2b import AsyncTemplate
+
+from ..tools.tools import ROOT
+from .config import sandbox_settings
+from .kits import KITS, TEMPLATE_KITS_DIR, Kit
+from .migrations import record_applied
+from .preview import control_preview
+from .secrets import ensure_secrets, env_file
+
+
+async def template_ref() -> str:
+    """The exact build E2B_TEMPLATE's tag points at now. Projects store this, not the tag, so a
+    later tag move never changes the image an existing project restores onto."""
+    name, tag = sandbox_settings.E2B_TEMPLATE.split(":", 1)
+    for item in await AsyncTemplate.get_tags(name):
+        if item.tag == tag:
+            return f"{name}:{item.build_id}"
+    raise KitTemplateMissing(f"Template tag {sandbox_settings.E2B_TEMPLATE!r} does not exist; run make template-build")
+
+
+class KitTemplateMissing(Exception):
+    pass
+
+
+async def _start_database(sandbox, kit: Kit) -> None:
+    """Spec 8: only the kit's database runs; the template starts none at boot."""
+    await sandbox.commands.run(f"accretion-db start {kit.database}", timeout=60)
+
+
+async def _run(sandbox, command: str, *, timeout: int = 180) -> None:
+    """One stack.json step from the project root with .env loaded. Empty means nothing to do."""
+    if command:
+        await sandbox.commands.run(f"set -a; . ./.env; set +a; {command}", cwd=ROOT, timeout=timeout)
+
+
+async def _write_config(sandbox, chat_id: str, kit: Kit) -> None:
+    """.env from the project's secrets (mode 600) and the kit's stack.json for the process controller."""
+    values = await ensure_secrets(chat_id, kit)
+    await sandbox.files.write(f"{ROOT}/.env", env_file(values))
+    await sandbox.commands.run(f"chmod 600 {ROOT}/.env && mkdir -p {ROOT}/.accretion {ROOT}/db", timeout=10)
+    await sandbox.files.write(f"{ROOT}/.accretion/stack.json", json.dumps(kit.model_dump(), indent=2))
+
+
+async def start_new(sandbox, chat_id: str, kit_id: str) -> None:
+    """A new project: the kit, dependencies included, copied from the template, then migrated and started."""
+    kit = KITS[kit_id]
+    source = shlex.quote(f"{TEMPLATE_KITS_DIR}/{kit.id}")
+    await sandbox.commands.run(f"cp -a {source}/. {ROOT}/", timeout=120)
+    await _write_config(sandbox, chat_id, kit)
+    await _start_database(sandbox, kit)
+    await _run(sandbox, kit.migrate)
+    await record_applied(sandbox, kit.model_dump())
+    await _run(sandbox, kit.seed)
+    await control_preview(sandbox, "start")
+
+
+async def restore(sandbox, chat_id: str, kit_id: str) -> None:
+    """After a revision archive is unpacked: dependencies, then the database from its dump
+    (or the kit's migrations when the revision has none), then the services."""
+    kit = KITS[kit_id]
+    await _write_config(sandbox, chat_id, kit)
+    await _run(sandbox, kit.install, timeout=300)
+    await _start_database(sandbox, kit)
+    # Kits write their dump as db/dump.* (stack.json `dump`); db/ may also hold source files.
+    listing = await sandbox.commands.run(f"ls {ROOT}/db/dump.* 2>/dev/null || true", timeout=10)
+    if kit.restore and listing.stdout.strip():
+        # The dump matches the revision's .accretion/migrated.json; a newer migration file in the
+        # revision stays unapplied until the gate runs it.
+        await _run(sandbox, kit.restore)
+    else:
+        await _run(sandbox, kit.migrate)
+        await record_applied(sandbox, kit.model_dump())
+    await control_preview(sandbox, "start")
+
+
+async def dump(sandbox, kit_id: str) -> None:
+    """Spec 3: the database travels with the revision, dumped into db/ before each checkpoint."""
+    await _run(sandbox, KITS[kit_id].dump, timeout=120)

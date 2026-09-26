@@ -114,9 +114,8 @@ class SandboxRuntimes:
                 self.forget_handle(row.chat_id)
         return state
 
-    async def acquire(self, chat_id, revision):
-        """Return (handle, needs_source_restore); caller already reserved admission."""
-        template = revision.template_id if revision else sandbox_settings.E2B_TEMPLATE_ID
+    async def acquire(self, chat_id, revision, template):
+        """Return (handle, needs_source_restore); caller already reserved admission and chose the template."""
         revision_id = revision.id if revision else None
         generation = sandbox_settings.E2B_RUNTIME_GENERATION
         row = await self.get(chat_id)
@@ -203,7 +202,9 @@ class SandboxRuntimes:
             return await self.retire(row.chat_id)
         try:
             async with asyncio.timeout(30):
-                await AsyncSandbox.pause(row.sandbox_id, request_timeout=30)
+                # Explicit since e2b 2.51 stopped presetting it: without memory a
+                # resume cold-boots and the preview server is gone.
+                await AsyncSandbox.pause(row.sandbox_id, keep_memory=True, request_timeout=30)
             await self.change(row, state='paused')
             await settle_runtime(row.spend_id)
             await self.change(row, spend_id=None)
