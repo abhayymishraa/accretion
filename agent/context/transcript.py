@@ -12,9 +12,11 @@ the service already makes when it ends a run at a limit.
 """
 
 import logging
+from collections.abc import Sequence
+from typing import Any
 
 from langchain_core.messages import messages_from_dict, messages_to_dict
-from sqlalchemy import delete, select
+from sqlalchemy import Text, cast, delete, func, select
 
 from agent.context.models import TranscriptEntry
 from db.base import AsyncSessionLocal
@@ -33,7 +35,7 @@ async def load(chat_id):
     history instead.
     """
     async with AsyncSessionLocal() as db:
-        rows = (
+        rows: Sequence[dict[str, Any]] = (
             (
                 await db.execute(
                     select(TranscriptEntry.payload)
@@ -84,3 +86,14 @@ async def replace(chat_id, messages):
             ]
         )
     return len(messages)
+
+
+async def size_chars(chat_id: str) -> int:
+    """Stored transcript size in characters: a cheap bound for picking a model that fits."""
+    async with AsyncSessionLocal() as db:
+        total = await db.scalar(
+            select(func.coalesce(func.sum(func.length(cast(TranscriptEntry.payload, Text))), 0)).where(
+                TranscriptEntry.chat_id == chat_id
+            )
+        )
+    return int(total or 0)

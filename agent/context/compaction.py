@@ -24,10 +24,10 @@ import logging
 import re
 from typing import Any
 
-import openai
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
 from ..budget.usage import invoke_with_usage, prompt_cache_key, record_usage
+from ..routing.providers import cache_options, limit_output
 from .config import context_settings
 
 logger = logging.getLogger("webbuilder.runs")
@@ -142,21 +142,15 @@ ATTACHED_TOTAL_CHARS = 212_000
 _BACKTICKS = re.compile(r"`+")
 
 
-def is_context_overflow(exc):
-    """Provider refused the request as too long. OpenAI sets this code; Codex reads it too."""
-    return isinstance(exc, openai.APIStatusError) and (exc.code == "context_length_exceeded" or exc.status_code == 413)
+def context_limit(window):
+    """Input tokens allowed before the window has to be reclaimed: Pi's shouldCompact,
+    window minus reserve, for the model this run uses (spec 5)."""
+    # Capped at the share the 400k reserve takes of Luna's 1.05M window (about 38%), so
+    # a 256k model still compacts before it is full instead of never.
+    return window - min(context_settings.COMPACTION_RESERVE_TOKENS, window * 400_000 // 1_050_000)
 
 
-def context_limit():
-    """Input tokens allowed before the window has to be reclaimed."""
-    window = context_settings.MODEL_CONTEXT_WINDOW
-    reserve = context_settings.COMPACTION_RESERVE_TOKENS
-    if reserve >= window:
-        raise ValueError("COMPACTION_RESERVE_TOKENS must leave room inside the context window")
-    return window - reserve
-
-
-def hard_limit():
+def hard_limit(window):
     """Input tokens beyond which a request cannot be sent at all.
 
     Codex separates the two: `auto_compact_token_limit` is where compaction
@@ -164,18 +158,17 @@ def hard_limit():
     and output) is the wall. Crossing the trigger is survivable, which is the
     whole point of holding a reserve; crossing this is not.
     """
-    window = context_settings.MODEL_CONTEXT_WINDOW
     return window * 95 // 100
 
 
-def backoff_growth():
+def backoff_growth(window):
     """How far the view must grow before a failed compaction is attempted again.
 
     Reasonix backs a failed attempt off until the view has grown by 5% of the
     window, which bounds what one turn can spend retrying something that is not
     working.
     """
-    return context_settings.MODEL_CONTEXT_WINDOW // 20
+    return window // 20
 
 
 def tool_origins(messages):
@@ -325,8 +318,8 @@ def transcribe(messages):
                 text = text[:TRANSCRIPT_TOOL_CHARS] + f" ...[{len(text) - TRANSCRIPT_TOOL_CHARS} chars cut]"
             lines.append(f"[Tool result]: {text}")
         elif isinstance(message, AIMessage):
-            if message.text():
-                lines.append(f"[Assistant]: {message.text()}")
+            if message.text:
+                lines.append(f"[Assistant]: {message.text}")
             for call in message.tool_calls or []:
                 lines.append(f"[Assistant tool calls]: {call['name']}({json.dumps(call['args'])[:400]})")
     return "\n".join(lines)
@@ -397,15 +390,9 @@ async def summarize(model, messages, instruction, *, previous=None, metrics=None
     payload = transcribe(messages)
     if previous:
         payload = f"Previous summary:\n{previous}\n\n{payload}"
-    # model_copy, not bind() or a call kwarg. Both documented routes put
-    # `reasoning: null` on the wire; setting the field instead makes LangChain
-    # omit it, which is how Pi does it too: it builds the options object without
-    # the key rather than with a falsy one. The copy is shallow, so the
-    # spend-tracking http client and its reserve/settle hooks are shared rather
-    # than rebuilt, and it leaves the caller's model untouched -- Codex isolates
-    # compaction from live session state for the same reason, so a summary that
-    # fails cannot leave the editing loop misconfigured.
-    summarizer = model.model_copy(update={"max_tokens": SUMMARY_MAX_TOKENS, "reasoning": None})
+    # A copy at the provider's default reasoning, never bind() or a call kwarg:
+    # see limit_output. A summary that fails cannot misconfigure the live loop.
+    summarizer = limit_output(model, SUMMARY_MAX_TOKENS, reasoning=False)
     try:
         response = await asyncio.wait_for(
             invoke_with_usage(
@@ -415,7 +402,7 @@ async def summarize(model, messages, instruction, *, previous=None, metrics=None
                     HumanMessage(content=payload),
                     HumanMessage(content=instruction),
                 ],
-                prompt_cache_key=prompt_cache_key(SUMMARY_RULES, [], "compaction"),
+                **cache_options(model, prompt_cache_key(SUMMARY_RULES, [], "compaction")),
             ),
             timeout=SUMMARY_TIMEOUT,
         )
@@ -426,7 +413,7 @@ async def summarize(model, messages, instruction, *, previous=None, metrics=None
         # Summaries are billed against the same run budget as editing turns, so
         # they have to be counted there too.
         record_usage(metrics, response, phase="compaction")
-    return response.text().strip() or None
+    return response.text.strip() or None
 
 
 async def fold(model, messages, cut, turn_start, split, *, previous=None, metrics=None):

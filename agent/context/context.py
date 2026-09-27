@@ -58,13 +58,12 @@ def choose_files(paths, prompt, evidence, limit=8):
     selected = [path for _, path in sorted(useful, reverse=True)[:limit]]
     for path in (
         "package.json",
-        "src/App.tsx",
-        "src/pages/Home.tsx",
-        "src/App.jsx",
-        "src/pages/Home.jsx",
-        "src/index.css",
-        "src/App.css",
-        "tsconfig.json",
+        # Kit entry points (sandbox/kits/*/stack.json `entry`).
+        "app/page.tsx",
+        "app/api/notes/route.ts",
+        "frontend/src/App.tsx",
+        "backend/app/main.py",
+        "backend/src/index.ts",
     ):
         if path in paths and path not in selected and len(selected) < limit:
             selected.append(path)
