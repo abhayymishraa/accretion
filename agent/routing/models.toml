@@ -1,0 +1,100 @@
+# Model registry. One entry per model a run may use.
+#
+# Prices are USD per million tokens as decimal strings: money never passes
+# through a binary float (agent/AGENTS.md, Budgets). The cost keys follow
+# models.dev, the registry OpenCode reads: input, output, cache_read,
+# cache_write. `attachment` means the model accepts image input.
+# `card` is the plain-language description the router reads (spec 4.1):
+# speed and cost are words, never numbers, because Jev is weak at arithmetic.
+#
+# Sources: docs/model-registry-draft.md, provider pricing pages, and
+# OpenRouter's /api/v1/models, all read 2026-09-25/26.
+
+# name is shown in the picker. auto = false keeps a model out of Auto; the user can
+# still pick it.
+[[models]]
+id = "gpt-5.6-luna"
+name = "GPT-5.6 Luna"
+auto = true
+provider = "openai"
+context_window = 1_050_000
+attachment = true
+cost = { input = "0.20", output = "1.20", cache_read = "0.02", cache_write = "0.25" }
+# Prompts above 272k input tokens bill input at 2x and output at 1.5x.
+long_context = { above = 272_000, input = "0.40", output = "1.80", cache_read = "0.04", cache_write = "0.50" }
+card = { what = "Focused, high-volume coding and editing with tool calls; reads screenshots", not_for = "The hardest multi-step design or debugging work", speed = "fast", cost = "cheap" }
+
+[[models]]
+id = "gemini-3.8-flash"
+name = "Gemini 3.8 Flash"
+auto = true
+provider = "gemini"
+context_window = 1_048_576
+attachment = true
+# Introductory prices through 2026-12-31; they double on 2027-01-01. Update then.
+# Implicit caching has no write charge, so cache_write equals input.
+cost = { input = "0.75", output = "3.75", cache_read = "0.075", cache_write = "0.75" }
+card = { what = "Long-horizon software engineering and autonomous agent work across many files; reads screenshots", not_for = "Trivial one-line edits where a lighter model is enough", speed = "fast", cost = "moderate" }
+
+[[models]]
+id = "gemini-3.5-flash-lite"
+name = "Gemini 3.5 Flash-Lite"
+auto = true
+provider = "gemini"
+context_window = 1_048_576
+attachment = true
+cost = { input = "0.30", output = "2.50", cache_read = "0.03", cache_write = "0.30" }
+card = { what = "Short edits, classification and simple data processing at high volume; reads screenshots", not_for = "Complex multi-file features or architecture decisions", speed = "fast", cost = "cheap" }
+
+# The escalation tier: what "a stronger model" means after a failed step (spec 4.1, 4.4).
+# Preview model; prices read from ai.google.dev/gemini-api/docs/pricing on 2026-09-26.
+# Thinking tokens bill as output.
+[[models]]
+id = "gemini-3.1-pro-preview"
+name = "Gemini 3.1 Pro"
+auto = true
+provider = "gemini"
+context_window = 1_048_576
+attachment = true
+cost = { input = "2.00", output = "12.00", cache_read = "0.20", cache_write = "2.00" }
+# Prompts above 200k tokens bill input and cache at 2x and output at 1.5x.
+long_context = { above = 200_000, input = "4.00", output = "18.00", cache_read = "0.40", cache_write = "4.00" }
+card = { what = "The hardest multi-step design, debugging and architecture work, when other models have failed; reads screenshots", not_for = "Routine edits and ordinary features a cheaper model handles", speed = "slow", cost = "expensive" }
+
+# OpenRouter free models: development only. 20 requests a minute, 50 a day,
+# so unsuitable for full builds. All are text-only.
+[[models]]
+id = "poolside/laguna-s-2.1:free"
+name = "Laguna S 2.1 (free)"
+auto = false
+provider = "openrouter"
+context_window = 262_144
+attachment = false
+cost = { input = "0", output = "0", cache_read = "0", cache_write = "0" }
+card = { what = "Coding-agent work with tool calls", not_for = "Screenshots or images; production traffic", speed = "medium", cost = "free" }
+
+[[models]]
+id = "nvidia/nemotron-3-ultra-550b-a55b:free"
+name = "Nemotron 3 Ultra (free)"
+auto = false
+provider = "openrouter"
+context_window = 1_000_000
+attachment = false
+cost = { input = "0", output = "0", cache_read = "0", cache_write = "0" }
+card = { what = "Reasoning and multi-step orchestration over long context", not_for = "Screenshots or images; production traffic", speed = "slow", cost = "free" }
+
+[[models]]
+id = "cohere/north-mini-code:free"
+name = "North Mini Code (free)"
+auto = false
+provider = "openrouter"
+context_window = 256_000
+attachment = false
+cost = { input = "0", output = "0", cache_read = "0", cache_write = "0" }
+card = { what = "Small, quick coding tasks with tool calls", not_for = "Large features, long reasoning, images; production traffic", speed = "fast", cost = "free" }
+
+# The router: Jev, TypeSafe's System One model (docs.typesafe.ai/models.md).
+# Billed per input token; output is free. Called by agent/routing/jev.py.
+[router]
+model = "jev-latest"
+cost = { input = "0.042", output = "0", cache_read = "0.042", cache_write = "0.042" }
