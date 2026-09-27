@@ -1,37 +1,49 @@
 """One editing conversation with shared budgets and host-controlled verification."""
 
+import asyncio
 import json
 import logging
 import time
 from collections import Counter
+from collections.abc import Awaitable, Callable
 from typing import Any, Literal
 
 import httpx
-import openai
 from e2b import SandboxException
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from langchain_core.tools import tool
 from langchain_core.utils.function_calling import convert_to_openai_tool
 from pydantic import Field
 
+from ..budget.budget import dollar_nanos
 from ..budget.usage import invoke_with_usage, prompt_cache_key, record_usage
-from ..context.compaction import backoff_growth, compact, context_limit, hard_limit, is_context_overflow
+from ..context.compaction import backoff_growth, compact, context_limit, hard_limit
 from ..context.context import CONTEXT_RULES, choose_files
 from ..context.transcript import append as append_transcript
 from ..context.transcript import load as load_transcript
 from ..context.transcript import replace as replace_transcript
+from ..routing.failures import cool_down, is_context_overflow, is_transient
+from ..routing.history import for_model
+from ..routing.providers import bind_tools, cache_options, chat_model, entry_for, output_truncated, same_tier
 from ..sandbox.browser import check_browser, ensure_preview_current
 from ..sandbox.commands import CommandStateError
 from ..tools.public_tools import encode_public, preflight_failure, public_tool_details
 from ..tools.skills import RuntimeSkills
 from ..tools.tools import FileWriteError, WorkspaceTools, list_files
+from .agent import llm
 from .config import run_settings
 from .prompts import SYSTEM_PROMPT
 
 logger = logging.getLogger("webbuilder.runs")
 
-# OpenHands stops on the fourth consecutive failure of the same action.
-ERROR_STREAK = 3
+# Spec 5 stuck rail: the same call 4 times (Gemini CLI loop detection) or the same error
+# 3 times (OpenHands StuckDetector) gets one nudge, then the run pauses.
+REPEAT_LIMIT = 4
+ERROR_REPEAT_LIMIT = 3
+# Spec 5 grace turn: a run within this many seconds of its time budget gets one turn to finish.
+GRACE_SECONDS = 120
+# Safe to run together: they only read (spec 5, Codex RwLock).
+READ_ONLY = frozenset({"read_files", "read_skill", "search_project_history"})
 
 
 class RunLimitError(Exception):
@@ -85,7 +97,20 @@ def estimate_input_tokens(model, messages, tool_schema: str) -> tuple[int, str]:
     return count + 2000 + images * 4096, estimator
 
 
-async def verify(workspace: WorkspaceTools) -> dict[str, Any]:
+async def read_project_file(workspace: WorkspaceTools, path: str) -> str | None:
+    """The file's text, or None when it is missing or unreadable (the same errors current_file expects)."""
+    try:
+        return await workspace.read(path)
+    except (ValueError, SandboxException, httpx.HTTPError):
+        return None
+
+
+async def verify(
+    workspace: WorkspaceTools,
+    stack: dict[str, Any],
+    migrate: Callable[[], Awaitable[dict[str, Any]]] | None = None,
+) -> dict[str, Any]:
+    """Typecheck and build, the migration gate, then the browser."""
     missing = [view for view in ("desktop", "mobile") if view not in workspace.preview_checks]
     if missing:
         return {
@@ -100,16 +125,36 @@ async def verify(workspace: WorkspaceTools) -> dict[str, Any]:
                 ],
             },
         }
-    build = await workspace.command("npm run build", timeout_seconds=90)
+    # Spec 8: the kit's own typecheck and build are the gate.
+    steps = " && ".join(f"({step})" for step in (stack["typecheck"], stack["build"]) if step)
+    build = await workspace.command(f"set -a; . ./.env; set +a; {steps}", timeout_seconds=180)
     if not build["ok"]:
         return {"ok": False, "build": build, "browser": {"checked": False}}
+    result: dict[str, Any] = {"build": build}
+    if migrate is not None:
+        result["migration"] = await migrate()
+        if not result["migration"]["ok"]:
+            return {"ok": False, **result, "browser": {"checked": False}}
     # Flush only after a successful build; infrastructure failures escape repair.
     await ensure_preview_current(workspace)
     browser = await check_browser(workspace, checks=workspace.preview_checks)
-    return {"ok": browser["ok"], "build": build, "browser": browser}
+    return {"ok": browser["ok"], **result, "browser": browser}
 
 
-async def run_editor(sandbox, prompt, emit, checkpoint, metrics, model=None, memory=None, request_context=None):
+async def run_editor(
+    sandbox,
+    prompt,
+    emit,
+    checkpoint,
+    metrics,
+    model=None,
+    memory=None,
+    request_context=None,
+    user_model=False,
+    deadline=None,
+    inbox=None,
+    migrate=None,
+):
     workspace = WorkspaceTools(sandbox)
     workspace.screenshot_attempts = metrics.get("preview_screenshot_attempts", 0)
     await emit("stage", message="Checking sandbox browser tools")
@@ -122,8 +167,8 @@ async def run_editor(sandbox, prompt, emit, checkpoint, metrics, model=None, mem
         raise SandboxSetupError(explanation)
     await emit("verification", ok=True, message="Sandbox browser startup check passed")
     if model is None:
-        from .agent import llm
-
+        # llm is imported at module level on purpose: building it validates
+        # DEFAULT_MODEL, its key and image input, so a bad setting fails at boot.
         model = llm
     tools = {t.name: t for t in workspace.definitions()}
 
@@ -160,8 +205,9 @@ async def run_editor(sandbox, prompt, emit, checkpoint, metrics, model=None, mem
     # low enough to interrupt healthy work is the wrong instrument.
     max_turns = run_settings.RUN_MAX_TURNS
     max_calls = run_settings.RUN_MAX_TOOL_CALLS
-    token_budget = run_settings.RUN_MAX_TOKENS
-    window_limit, ceiling = context_limit(), hard_limit()
+    cost_cap = dollar_nanos(run_settings.RUN_MAX_COST_USD, "RUN_MAX_COST_USD")
+    window = entry_for(model).context_window
+    window_limit, ceiling = context_limit(window), hard_limit(window)
     retry_above = 0
     max_repairs = 2
     context = await memory.build(prompt, metrics) if memory is not None else {}
@@ -177,11 +223,20 @@ async def run_editor(sandbox, prompt, emit, checkpoint, metrics, model=None, mem
             }
         except Exception:
             initial[path] = {"error": "Unable to read; inspect with tools before editing"}
+    # Spec 4.3: the kit's stack.json and the project's AGENTS.md (stack, conventions, current
+    # condition) come from the project itself.
+    stack_text = await read_project_file(workspace, ".accretion/stack.json")
+    if not stack_text:
+        raise SandboxSetupError("Project has no .accretion/stack.json. No editing model request was made.")
+    stack = json.loads(stack_text)
+    agents_md = await read_project_file(workspace, "AGENTS.md") or ""
     formatted_tools = [convert_to_openai_tool(t) for t in tools.values()]
-    bound = model.bind_tools(formatted_tools, parallel_tool_calls=False)
+    bound = bind_tools(model, formatted_tools)
     tool_schema = json.dumps(formatted_tools, ensure_ascii=False)
     chat_id = getattr(memory, "chat_id", None)
     prior = await load_transcript(chat_id) if chat_id else []
+    # The previous run may have used another model; its signed replay data is not ours.
+    prior = for_model(prior, entry_for(model).id)
     if prior:
         # Earlier turns are real messages now, so the blob must not repeat them.
         context = {key: value for key, value in context.items() if key not in ("recent_messages", "initial_request")}
@@ -194,6 +249,7 @@ async def run_editor(sandbox, prompt, emit, checkpoint, metrics, model=None, mem
             + CONTEXT_RULES
             + skill_prompt
             + "\nInitial files may be excerpts. Read complete files before replacing them."
+            + (f"\n\n# This project (AGENTS.md)\n{agents_md[:20000]}" if agents_md else "")
         ),
         *prior,
         HumanMessage(
@@ -233,9 +289,15 @@ async def run_editor(sandbox, prompt, emit, checkpoint, metrics, model=None, mem
     cache_key = prompt_cache_key(messages[0].content, formatted_tools, getattr(memory, "chat_id", ""))
     repeated: Counter[tuple[Any, ...]] = Counter()
     failures: Counter[tuple[Any, ...]] = Counter()
+    # Spec 5: each rail nudges once, then pauses. Notes are flushed after a batch's tool
+    # results, so a nudge never separates a tool call from its result.
+    nudged: set[str] = set()
+    notes: list[str] = []
+    stop: str | None = None
     repairs = metrics.get("repairs", 0)
     summary = None
     overflow_retried = False
+    inbox = inbox if inbox is not None else []
 
     async def current_file(path):
         try:
@@ -268,198 +330,273 @@ async def run_editor(sandbox, prompt, emit, checkpoint, metrics, model=None, mem
             stored = await replace_transcript(chat_id, without_preview_images(messages)[1:])
         return report
 
-    for turn in range(metrics.get("turns", 0), max_turns):
-        metrics["turns"] = turn + 1
-        if repairs:
-            await emit("stage", message="Repairing verification errors")
-        await checkpoint()
-        estimated_input, estimator = estimate_input_tokens(model, messages, tool_schema)
-        # Bound the conversation against the model's window, not a byte count. One
-        # batched pass at this single threshold; pruning every turn would never
-        # hold a prefix-cache hit.
-        if estimated_input > window_limit and estimated_input >= retry_above:
-            await reclaim_context(window_limit, "threshold")
-            estimated_input, estimator = estimate_input_tokens(model, messages, tool_schema)
-            # Do not pay for the same failing pass every turn; wait for the view to
-            # grow before trying again, and drop the hold once one succeeds.
-            retry_above = estimated_input + backoff_growth() if estimated_input > window_limit else 0
-        if estimated_input > ceiling:
-            metrics["token_budget"] = {
-                "stage": "context_window",
-                "limit": ceiling,
-                "trigger": window_limit,
-                "estimated_input": estimated_input,
-                "estimator": estimator,
-            }
-            raise RunLimitError("Context budget reached; request a smaller change")
-        # Keep room for a useful response without always demanding the full 8k output ceiling.
-        output_limit = min(
-            8192,
-            token_budget - metrics.get("total_tokens", 0) - metrics.get("reserved_tokens", 0) - estimated_input - 1,
-        )
-        if output_limit < 1024:
-            metrics["token_budget"] = {
-                "stage": "preflight",
-                "limit": token_budget,
-                "used": metrics.get("total_tokens", 0),
-                "reserved": metrics.get("reserved_tokens", 0),
-                "estimated_input": estimated_input,
-                "output_reserve": 1024,
-                "estimator": estimator,
-            }
-            raise RunLimitError("Token budget reached")
-        # max_completion_tokens, not max_tokens: on the Responses API the latter is
-        # dropped without error and the request keeps the model's own ceiling, so
-        # the limit computed above never reached the provider.
-        try:
-            response = await invoke_with_usage(
-                bound, messages, max_completion_tokens=output_limit, prompt_cache_key=cache_key
-            )
-        except openai.APIStatusError as exc:
-            # Pi, Cline: one compact-and-retry per run, only if the view shrank.
-            if overflow_retried or not is_context_overflow(exc):
-                raise
-            overflow_retried = True
-            report = await reclaim_context(min(window_limit, estimated_input // 2), "overflow")
-            if report["tokens_after"] >= estimated_input:
-                raise
-            continue
-        messages = without_preview_images(messages)
-        record_usage(metrics, response, phase="editor", estimated_input=estimated_input)
-        if metrics.get("total_tokens", 0) + metrics.get("reserved_tokens", 0) >= token_budget:
-            metrics["token_budget"] = {
-                "stage": "provider_usage",
-                "limit": token_budget,
-                "used": metrics.get("total_tokens", 0),
-                "reserved": metrics.get("reserved_tokens", 0),
-            }
-            raise RunLimitError("Token budget reached")
-        metadata = response.response_metadata
-        if (metadata.get("incomplete_details") or {}).get("reason") == "max_output_tokens" or metadata.get(
-            "finish_reason"
-        ) == "length":
-            metrics["token_budget"] = {
-                "stage": "model_output",
-                "limit": token_budget,
-                "used": metrics.get("total_tokens", 0),
-                "output_limit": output_limit,
-            }
-            raise RunLimitError("Model output budget reached; request a smaller change")
-        messages.append(response)
-        if response.invalid_tool_calls:
-            raise VerificationError("Model returned an invalid tool call")
-        if any(call["name"] == "request_decision" for call in response.tool_calls) and len(response.tool_calls) != 1:
-            raise VerificationError(
-                "A decision request cannot be combined with editing tools. No calls in this batch were executed."
-            )
-        if not response.tool_calls:
-            await emit("stage", message="Checking production build and browser")
-            checks = await verify(workspace)
-            metrics["checks"] = checks
-            await emit(
-                "verification",
-                ok=checks["ok"],
-                message="Build and selected desktop/mobile acceptance checks passed"
-                if checks["ok"]
-                else "Verification failed",
-                checks=checks,
-            )
-            await checkpoint()
-            if checks["ok"]:
-                await remember()
-                return {
-                    "summary": response.text()[:1500] or "Application updated.",
-                    "url": "https://" + sandbox.get_host(5173),
-                }
-            if repairs >= max_repairs:
-                raise VerificationError("Build or browser checks still fail after two repair passes")
-            repairs += 1
-            metrics["repairs"] = repairs
-            messages.append(HumanMessage(content="Fix only these verification errors: " + json.dumps(checks)))
-            continue
-        before_revision = workspace.revision
-        for call in response.tool_calls:
-            metrics["tool_calls"] = metrics.get("tool_calls", 0) + 1
-            if metrics["tool_calls"] > max_calls:
-                raise RunLimitError("Tool-call budget reached")
-            fingerprint = (call["name"], json.dumps(call["args"], sort_keys=True))
-            # Reads are deduplicated until a mutation; other repeated operations are bounded globally.
-            key = (
-                *fingerprint,
-                workspace.revision if call["name"] in {"read_files", "inspect_preview"} else 0,
-            )
-            repeated[key] += 1
-            if repeated[key] >= 3:
-                raise RunLimitError("Stopped repetitive tool calls without progress")
-            call_id = call["id"]
-            stage = {
-                "read_files": "Inspecting existing files",
-                "read_skill": "Loading relevant guidance",
-                "write_files": "Editing project files",
-                "execute_command": "Running a workspace command",
-                "inspect_preview": "Checking the requested interactions",
-            }.get(call["name"])
-            if stage:
-                await emit("stage", message=stage)
-            await emit(
-                "tool_started",
-                call_id=call_id,
-                name=call["name"],
-                details=public_tool_details(call["name"], args=call["args"]),
-            )
-            started = time.monotonic()
-            fatal_error = None
-            try:
-                if call["name"] not in tools:
-                    raise ValueError("Unknown tool")
-                result = await tools[call["name"]].ainvoke(call["args"])
-            except Exception as exc:
-                result = {"ok": False, "error": str(exc)[:2000]}
-                if isinstance(exc, (CommandStateError, FileWriteError)):
-                    fatal_error = exc
-                    result.update(error_type=type(exc).__name__, status="unknown")
-            duration = round((time.monotonic() - started) * 1000)
-            metrics["preview_screenshot_attempts"] = workspace.screenshot_attempts
-            image = result.pop("_image", None) if call["name"] == "inspect_preview" else None
-            serialized = json.dumps(result, ensure_ascii=False)
-            detail = public_tool_details(call["name"], args=call["args"], result=result)
-            # Keep valid JSON for old clients; new clients consume the structured projection.
-            await emit(
-                "tool_completed",
-                call_id=call_id,
-                name=call["name"],
-                ok=bool(result.get("ok")),
-                duration_ms=duration,
-                details=detail,
-                output=encode_public(detail),
-            )
-            if fatal_error is not None:
-                # Never checkpoint or edit while a command/upload may still mutate files.
-                raise fatal_error
-            # OpenHands' action-error streak: the same tool failing over and over,
-            # with different arguments each time, is a loop the repetition counter
-            # above cannot see. Any success clears it, so only a trailing run counts.
-            if result.get("ok"):
-                failures.clear()
-            else:
-                failures[call["name"]] += 1
-                if failures[call["name"]] > ERROR_STREAK:
-                    raise RunLimitError(f"Stopped after repeated {call['name']} failures without progress")
-            tool_content: str | list[Any] = serialized
-            if image is not None:
-                tool_content = [{"type": "text", "text": serialized}, image]
-                metrics["preview_screenshots"] = metrics.get("preview_screenshots", 0) + 1
+    def nudge(reason, text, stop_message):
+        nonlocal stop
+        if reason in nudged:
+            stop = stop_message
+        else:
+            nudged.add(reason)
+            notes.append(text)
+
+    def flush_notes():
+        if stop is not None:
+            raise RunLimitError(stop)
+        messages.extend(HumanMessage(content=note) for note in notes)
+        notes.clear()
+
+    def drain_inbox():
+        """Pi's steering queue: messages the user sent mid-run join the next model call."""
+        if inbox:
             messages.append(
-                ToolMessage(
-                    content=tool_content,
-                    tool_call_id=call_id,
-                    status="success" if result.get("ok") else "error",
+                HumanMessage(
+                    content="The user sent this while you were working. Take it into account now:\n" + "\n".join(inbox)
                 )
             )
-            if call["name"] == "request_decision" and result.get("ok"):
+            inbox.clear()
+
+    async def call_model():
+        """Spec 6: back off and retry a transient provider error up to 4 times, then move
+        to the next model at the same cost level (Auto only) and cool the failed one down."""
+        nonlocal model, bound, window, window_limit, ceiling, messages
+        for attempt in range(5):
+            try:
+                return await invoke_with_usage(bound, messages, **cache_options(model, cache_key))
+            except Exception as exc:
+                if not is_transient(exc):
+                    raise
+                if attempt == 4:
+                    break
+                await asyncio.sleep(2**attempt)
+        failed = entry_for(model).id
+        cool_down(failed)
+        replacement = None if user_model else same_tier(failed)
+        if replacement is None:
+            raise RunLimitError(
+                "The model provider is unavailable right now"
+                + (". Try Auto for this step" if user_model else "; retry in a few minutes")
+            )
+        await emit("stage", message="Switching to another model")
+        metrics.setdefault("model_switches", []).append({"from": failed, "to": replacement})
+        metrics["model"] = replacement
+        model = chat_model(replacement)
+        bound = bind_tools(model, formatted_tools)
+        window = entry_for(model).context_window
+        window_limit, ceiling = context_limit(window), hard_limit(window)
+        messages = for_model(messages, replacement)
+        return await invoke_with_usage(bound, messages, **cache_options(model, cache_key))
+
+    async def run_call(call):
+        """Run one tool call and publish its events. Rails are applied afterwards, in order."""
+        stage = {
+            "read_files": "Inspecting existing files",
+            "read_skill": "Loading relevant guidance",
+            "write_files": "Editing project files",
+            "execute_command": "Running a workspace command",
+            "inspect_preview": "Checking the requested interactions",
+        }.get(call["name"])
+        if stage:
+            await emit("stage", message=stage)
+        await emit(
+            "tool_started",
+            call_id=call["id"],
+            name=call["name"],
+            details=public_tool_details(call["name"], args=call["args"]),
+        )
+        started = time.monotonic()
+        fatal_error = None
+        try:
+            if call["name"] not in tools:
+                raise ValueError("Unknown tool")
+            result = await tools[call["name"]].ainvoke(call["args"])
+        except Exception as exc:
+            result = {"ok": False, "error": str(exc)[:2000]}
+            if isinstance(exc, (CommandStateError, FileWriteError)):
+                fatal_error = exc
+                result.update(error_type=type(exc).__name__, status="unknown")
+        duration = round((time.monotonic() - started) * 1000)
+        metrics["preview_screenshot_attempts"] = workspace.screenshot_attempts
+        image = result.pop("_image", None) if call["name"] == "inspect_preview" else None
+        detail = public_tool_details(call["name"], args=call["args"], result=result)
+        # Keep valid JSON for old clients; new clients consume the structured projection.
+        await emit(
+            "tool_completed",
+            call_id=call["id"],
+            name=call["name"],
+            ok=bool(result.get("ok")),
+            duration_ms=duration,
+            details=detail,
+            output=encode_public(detail),
+        )
+        return result, image, fatal_error
+
+    try:
+        for turn in range(metrics.get("turns", 0), max_turns):
+            metrics["turns"] = turn + 1
+            if repairs:
+                await emit("stage", message="Repairing verification errors")
+            await checkpoint()
+            # Checked once per turn, before anything that can spend. The hooks record
+            # every reservation as it is made, so a run overshoots by at most one turn.
+            # Spec 5: the first time a cap is hit the model gets one grace turn to finish.
+            over_cost = metrics.get("cost_nanos", 0) >= cost_cap
+            over_time = deadline is not None and time.monotonic() > deadline - GRACE_SECONDS
+            if over_cost or over_time:
+                metrics["cost_budget"] = {"limit_nanos": cost_cap, "spent_nanos": metrics.get("cost_nanos", 0)}
+                nudge(
+                    "grace",
+                    "Budget almost used. Stop exploring: finish the smallest working version of the change "
+                    "now, then reply without calling tools.",
+                    "Cost budget reached" if over_cost else "Time budget reached",
+                )
+                flush_notes()
+            drain_inbox()
+            estimated_input, estimator = estimate_input_tokens(model, messages, tool_schema)
+            # Bound the conversation against the model's window, not a byte count. One
+            # batched pass at this single threshold; pruning every turn would never
+            # hold a prefix-cache hit.
+            if estimated_input > window_limit and estimated_input >= retry_above:
+                await reclaim_context(window_limit, "threshold")
+                estimated_input, estimator = estimate_input_tokens(model, messages, tool_schema)
+                # Do not pay for the same failing pass every turn; wait for the view to
+                # grow before trying again, and drop the hold once one succeeds.
+                retry_above = estimated_input + backoff_growth(window) if estimated_input > window_limit else 0
+            if estimated_input > ceiling:
+                metrics["token_budget"] = {
+                    "stage": "context_window",
+                    "limit": ceiling,
+                    "trigger": window_limit,
+                    "estimated_input": estimated_input,
+                    "estimator": estimator,
+                }
+                # Spec 4.2: with the user's own model there is no silent switch; offer Auto instead.
+                raise RunLimitError(
+                    "Context budget reached; request a smaller change" + (" or try Auto" if user_model else "")
+                )
+            try:
+                response = await call_model()
+            except Exception as exc:
+                # Pi, Cline: one compact-and-retry per run, only if the view shrank.
+                if overflow_retried or not is_context_overflow(exc):
+                    raise
+                overflow_retried = True
+                report = await reclaim_context(min(window_limit, estimated_input // 2), "overflow")
+                if report["tokens_after"] >= estimated_input:
+                    raise
+                continue
+            messages = without_preview_images(messages)
+            record_usage(metrics, response, phase="editor", estimated_input=estimated_input)
+            if output_truncated(response.response_metadata):
+                metrics["token_budget"] = {"stage": "model_output", "used": metrics.get("total_tokens", 0)}
+                raise RunLimitError("Model output budget reached; request a smaller change")
+            calls = response.tool_calls
+            # Checked before the reply joins the transcript, so a stop never leaves calls without results.
+            if metrics.get("tool_calls", 0) + len(calls) > max_calls:
+                raise RunLimitError("Tool-call budget reached")
+            messages.append(response)
+            if response.invalid_tool_calls:
+                raise VerificationError("Model returned an invalid tool call")
+            if any(call["name"] == "request_decision" for call in calls) and len(calls) != 1:
+                raise VerificationError(
+                    "A decision request cannot be combined with editing tools. No calls in this batch were executed."
+                )
+            if not calls and not response.text.strip() and "empty" not in nudged:
+                # OpenHands: an empty reply gets one nudge before it is treated as done.
+                nudged.add("empty")
+                messages.append(HumanMessage(content="Call a tool to continue, or reply with what you changed."))
+                continue
+            if not calls:
+                await emit("stage", message="Checking production build and browser")
+                checks = await verify(workspace, stack, migrate)
+                metrics["checks"] = checks
+                await emit(
+                    "verification",
+                    ok=checks["ok"],
+                    message="Build and selected desktop/mobile acceptance checks passed"
+                    if checks["ok"]
+                    else "Verification failed",
+                    checks=checks,
+                )
                 await checkpoint()
-                await remember()
-                return {"decision": result["decision"]}
-        await checkpoint(workspace.revision != before_revision)
+                if checks["ok"]:
+                    await remember()
+                    return {
+                        "summary": response.text[:1500] or "Application updated.",
+                        "url": "https://" + sandbox.get_host(stack["preview_port"]),
+                    }
+                if repairs >= max_repairs:
+                    raise VerificationError(
+                        "Build or browser checks still fail after two repair passes"
+                        + (". Try Auto for this step." if user_model else "")
+                    )
+                repairs += 1
+                metrics["repairs"] = repairs
+                messages.append(HumanMessage(content="Fix only these verification errors: " + json.dumps(checks)))
+                continue
+            before_revision = workspace.revision
+            metrics["tool_calls"] = metrics.get("tool_calls", 0) + len(calls)
+            for call in calls:
+                fingerprint = (call["name"], json.dumps(call["args"], sort_keys=True))
+                # Reads are deduplicated until a mutation; other repeated operations are bounded globally.
+                key = (*fingerprint, workspace.revision if call["name"] in {"read_files", "inspect_preview"} else 0)
+                repeated[key] += 1
+                if repeated[key] >= REPEAT_LIMIT:
+                    repeated[key] = 0
+                    nudge(
+                        "repeat",
+                        "You have repeated the same call without progress. Try a different approach or finish.",
+                        "Stopped repetitive tool calls without progress",
+                    )
+            # Spec 5 (Codex, Reasonix): consecutive read-only calls run together; anything that can
+            # change files, run commands or drive the one browser runs alone, in order.
+            outcomes: list[tuple[dict[str, Any], Any, Exception | None]] = []
+            index = 0
+            while index < len(calls):
+                end = index + 1
+                if calls[index]["name"] in READ_ONLY:
+                    while end < len(calls) and calls[end]["name"] in READ_ONLY:
+                        end += 1
+                outcomes += await asyncio.gather(*(run_call(call) for call in calls[index:end]))
+                fatal_error = outcomes[-1][2]
+                if fatal_error is not None:
+                    # Never checkpoint or edit while a command/upload may still mutate files.
+                    raise fatal_error
+                index = end
+            for call, (result, image, _) in zip(calls, outcomes, strict=True):
+                # OpenHands' action-error streak, keyed by the error itself so a loop that keeps
+                # hitting the same wall is caught. Any success clears it.
+                if result.get("ok"):
+                    failures.clear()
+                else:
+                    error_key = (call["name"], str(result.get("error"))[:200])
+                    failures[error_key] += 1
+                    if failures[error_key] >= ERROR_REPEAT_LIMIT:
+                        failures[error_key] = 0
+                        nudge(
+                            "error",
+                            f"{call['name']} keeps failing with the same error. Change approach instead of retrying.",
+                            f"Stopped after repeated {call['name']} failures without progress",
+                        )
+                serialized = json.dumps(result, ensure_ascii=False)
+                tool_content: str | list[Any] = serialized
+                if image is not None:
+                    tool_content = [{"type": "text", "text": serialized}, image]
+                    metrics["preview_screenshots"] = metrics.get("preview_screenshots", 0) + 1
+                messages.append(
+                    ToolMessage(
+                        content=tool_content,
+                        tool_call_id=call["id"],
+                        status="success" if result.get("ok") else "error",
+                    )
+                )
+                if call["name"] == "request_decision" and result.get("ok"):
+                    await checkpoint()
+                    await remember()
+                    return {"decision": result["decision"]}
+            flush_notes()
+            await checkpoint(workspace.revision != before_revision)
+            await remember()
+        raise RunLimitError("Model-turn budget reached")
+    except RunLimitError:
+        # Spec 5: the transcript is saved at every pause, so the next message resumes from here.
         await remember()
-    raise RunLimitError("Model-turn budget reached")
+        raise

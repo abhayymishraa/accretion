@@ -1,21 +1,17 @@
 """Read-only request routing and immutable, bounded proposals for user decisions."""
 
-import json
-import logging
 from typing import Literal
 
-from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_core.utils.function_calling import convert_to_openai_tool
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select
 
 from db.base import AsyncSessionLocal
 from db.models import Chat, Message
 
-from ..budget.usage import invoke_with_usage, prompt_cache_key, record_usage
 from ..events import redact
-from .config import run_settings
-from .runner import RunLimitError, VerificationError, estimate_input_tokens
+from .agent import llm
+from .runner import VerificationError
+from .structured import ask_structured
 
 ROUTING_RULES = """Choose the next action for a React app-building request. You cannot edit or run commands here.
 For an informational request without authorization to change the app, choose answer. Respond from
@@ -99,8 +95,6 @@ async def select_workflow(live, model=None):
     if live.workflow.get("approved"):
         return live.workflow
     if model is None:
-        from .agent import llm
-
         model = llm
     async with AsyncSessionLocal() as db:
         chat = await db.get(Chat, live.chat_id)
@@ -117,62 +111,26 @@ async def select_workflow(live, model=None):
         # The project can be deleted while this run is in flight; treat a
         # missing row as "no saved revision" rather than raising.
         revision = chat.latest_saved_revision_id if chat else None
-    schema = convert_to_openai_tool(WorkflowDecision)
-    schema["function"]["name"] = "select_workflow"
-    schema["function"]["description"] = (
-        "Choose execution, clarification, an approval-required plan, or an informational answer."
-    )
-    messages = [
-        SystemMessage(content=ROUTING_RULES),
-        HumanMessage(
-            content=json.dumps(
-                {
-                    "request": live.prompt,
-                    "mode": live.workflow.get("mode", "auto"),
-                    "continuation": live.workflow.get("context"),
-                    "recent_context": evidence,
-                    "saved_revision_id": revision,
-                },
-                ensure_ascii=False,
-            )
-        ),
-    ]
-    estimate, _ = estimate_input_tokens(model, messages, json.dumps(schema))
-    budget = run_settings.RUN_MAX_TOKENS
-    if live.metrics.get("total_tokens", 0) + live.metrics.get("reserved_tokens", 0) + estimate + 2048 >= budget:
-        raise RunLimitError("Token budget reached before request routing")
-    response = await invoke_with_usage(
-        model.bind_tools([schema], tool_choice="select_workflow", parallel_tool_calls=False),
-        messages,
-        max_tokens=2048,
-        prompt_cache_key=prompt_cache_key(ROUTING_RULES, [schema], live.chat_id),
-    )
-    record_usage(live.metrics, response, phase="routing", estimated_input=estimate)
-    if live.metrics.get("total_tokens", 0) + live.metrics.get("reserved_tokens", 0) >= budget:
-        raise RunLimitError("Token budget reached during request routing")
-    metadata = response.response_metadata
-    if (
-        metadata.get("finish_reason") == "length"
-        or (metadata.get("incomplete_details") or {}).get("reason") == "max_output_tokens"
-    ):
-        raise VerificationError("The routing response was incomplete. No files were edited.")
-    if (
-        response.invalid_tool_calls
-        or len(response.tool_calls) != 1
-        or response.tool_calls[0]["name"] != "select_workflow"
-    ):
-        raise VerificationError("Could not select a safe workflow. No files were edited.")
-    try:
-        decision = WorkflowDecision.model_validate(response.tool_calls[0]["args"]).model_dump()
-    except ValidationError as exc:
-        # Keep validator diagnostics, never the user's prompt or model arguments.
-        errors = exc.errors(include_input=False, include_context=False, include_url=False)
-        logging.getLogger("webbuilder.runs").warning(
-            "Workflow validation failed run_id=%s errors=%s",
-            live.id,
-            json.dumps([{"type": error["type"], "message": error["msg"]} for error in errors]),
+    decision = (
+        await ask_structured(
+            model,
+            system=ROUTING_RULES,
+            payload={
+                "request": live.prompt,
+                "mode": live.workflow.get("mode", "auto"),
+                "continuation": live.workflow.get("context"),
+                "recent_context": evidence,
+                "saved_revision_id": revision,
+            },
+            schema=WorkflowDecision,
+            name="select_workflow",
+            description="Choose execution, clarification, an approval-required plan, or an informational answer.",
+            metrics=live.metrics,
+            phase="routing",
+            cache_scope=live.chat_id,
+            what="routing",
         )
-        raise VerificationError("The proposed workflow was incomplete. No files were edited.") from None
+    ).model_dump()
     if live.workflow.get("mode") == "plan" and decision["kind"] != "plan":
         raise VerificationError("Planning was requested but no plan was returned. No files were edited.")
     return {**redact(decision), "revision_id": revision, "context": live.workflow.get("context")}

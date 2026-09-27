@@ -12,6 +12,18 @@ from ..sandbox.browser import PreviewStep
 from ..sandbox.commands import MAX_OUTPUT, run_command
 
 ROOT = "/home/user/react-app"
+# Starting a second dev server breaks the host-owned preview (spec 8: services are started
+# by the host from stack.json). Builds (`vite build`, `next build`) stay allowed.
+# Long-running processes the kits already run (sandbox/kits/*/stack.json services) or that never exit.
+DEV_SERVER = re.compile(
+    r"npm\s+run\s+(?:dev|start)\b|\buvicorn\b|\bnext\s+(?:dev|start)\b|\bvite(?:\.js)?(?!\s+build)(?:\s|$)"
+    r"|\b(?:tsx|node)\b[^|;&]*\bsrc/index\.ts\b|\bmongod\b|\bpg_ctl\b|\bsystemctl\b|\btail\s+-f\b"
+)
+# Spec 6 migration gate: the host applies migrations, after checking they keep saved data.
+MIGRATE = re.compile(
+    r"\balembic\s+(?:upgrade|downgrade|stamp)\b|\bnpm\s+run\s+migrate\b|\bdrizzle-kit\s+(?:migrate|push)\b"
+    r"|\b(?:tsx|node)\s+(?:\S*/)?(?:db/migrate|src/db)\.ts\b|\bmongosh\b|\bpsql\b"
+)
 MAX_FILE_BYTES = 200_000
 
 
@@ -110,8 +122,8 @@ class WorkspaceTools:
         @tool(
             description=(
                 "Run a bounded shell command in the project for concrete diagnostics or"
-                " requested skill discovery. The dev server is already running: never start"
-                " it again. Do not install relative paths as packages."
+                " requested skill discovery. The project's services are already running:"
+                " never start a dev server. Do not install relative paths as packages."
             )
         )
         async def execute_command(command: str) -> dict[str, Any]:
@@ -119,8 +131,13 @@ class WorkspaceTools:
                 raise ValueError("Command is too long")
             if re.search(r"npm\s+(?:i|install)\s+(?:\.{1,2})(?:\s|$)", command):
                 raise ValueError("Relative imports are not npm packages")
-            if re.search(r"npm\s+run\s+(?:dev|start)\b", command):
-                raise ValueError("The template already runs the dev server")
+            if DEV_SERVER.search(command):
+                raise ValueError("The project's services are already running; do not start another server")
+            if MIGRATE.search(command):
+                raise ValueError(
+                    "Do not migrate or edit the database directly: write the migration file and finish."
+                    " The host applies new migrations when it checks your work."
+                )
             try:
                 return await self.command(command)
             finally:
@@ -152,12 +169,15 @@ class WorkspaceTools:
         return [read_files, write_files, execute_command, inspect_preview]
 
 
+# Skips what checkpoints skip (agent/sandbox/archive.py EXCLUDED) and shares their limit.
 LIST_FILES_JS = r"""
 const fs=require('fs'),path=require('path');const out=[];
+const skip=['node_modules','.git','.venv','dist','.next','.cache','__pycache__','.env'];
 function walk(dir){for(const e of fs.readdirSync(dir,{withFileTypes:true})){
- if(['node_modules','.git','dist','.next','.env'].includes(e.name)||e.name.startsWith('.env.'))continue;
- const p=path.join(dir,e.name);if(e.isDirectory())walk(p);else if(e.isFile())out.push(p);
- if(out.length>250)throw Error('Project file limit exceeded');
+ if(skip.includes(e.name)||e.name.startsWith('.env.'))continue;
+ const p=path.join(dir,e.name);
+ if(e.isDirectory())walk(p);else if(e.isFile())out.push(p);
+ if(out.length>600)throw Error('Project file limit exceeded');
 }}walk('.');console.log(JSON.stringify(out));
 """
 

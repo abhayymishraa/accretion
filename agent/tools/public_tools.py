@@ -145,8 +145,8 @@ def preflight_failure(result):
     ):
         return (
             "browser_tools_missing",
-            "The sandbox is missing the required browser tooling. Check E2B_TEMPLATE_ID and use "
-            "the webbuilder-react-verified template with Playwright and Chromium installed. "
+            "The sandbox is missing the required browser tooling. Check E2B_TEMPLATE points at a"
+            " template built by sandbox/templates.py. "
             "No editing model request was made.",
         )
     return (

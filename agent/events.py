@@ -119,4 +119,3 @@ async def archive_run(run_id):
         if not run:
             return  # Project deletion already queued the deterministic log key for cleanup.
         run.log_key, run.log_sha256 = key, archive_sha256
-        run.events = []

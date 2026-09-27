@@ -39,7 +39,7 @@ REFERENCE_DIRECTORIES = {
     "vercel-react-best-practices": "rules",
 }
 # Per file, so a single oversized file cannot be read into memory whole. There is no
-# per-run ceiling: the model loads the skills a task needs, bounded by RUN_MAX_TOKENS.
+# per-run ceiling: the model loads the skills a task needs, bounded by RUN_MAX_COST_USD.
 MAX_SKILL_BYTES = 96 * 1024
 PROVENANCE_FILES = ("taste-source.json", "find-skills-source.json", "design-sources.json")
 logger = logging.getLogger(__name__)

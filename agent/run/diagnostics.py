@@ -34,7 +34,7 @@ async def recent_metrics(sandbox_id):
 
 
 async def lifecycle_events(sandbox_id):
-    # E2B 2.49.1 has no public lifecycle-event SDK method. Use its documented
+    # E2B 2.51.0 has no public lifecycle-event SDK method. Use its documented
     # sandbox-scoped REST endpoint, never the all-projects event feed.
     key = sandbox_settings.E2B_API_KEY
     if not key:

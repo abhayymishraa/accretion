@@ -1,33 +1,20 @@
-"""The configured model client. Budget and usage hooks ride on its HTTP transport."""
+"""The configured default model client. Budget and usage hooks ride on its HTTP transport."""
 
-import httpx
 from dotenv import load_dotenv
-from langchain_openai import ChatOpenAI
 
-from ..budget.model_budget import reserve_model_request, settle_model_response
-from ..budget.usage import capture_provider_usage
-from .config import run_settings
+from ..routing.config import routing_settings
+from ..routing.providers import chat_model
+from ..routing.registry import MODELS
+from ..sandbox.config import sandbox_settings
 
 load_dotenv()
 
-api_key = run_settings.OPENAI_API_KEY
+# chat_model first: it rejects an unknown id or a missing key with a clear message.
+llm = chat_model(routing_settings.DEFAULT_MODEL)
 
-if not api_key:
-    raise ValueError("OPENAI_API_KEY not found in environment variables.")
-
-llm = ChatOpenAI(
-    model=run_settings.OPENAI_MODEL,
-    api_key=api_key,
-    use_responses_api=True,
-    output_version="v0",
-    reasoning={"effort": "low"},
-    max_tokens=8192,
-    timeout=90,
-    max_retries=1,
-    http_async_client=httpx.AsyncClient(
-        event_hooks={
-            "request": [reserve_model_request],
-            "response": [capture_provider_usage, settle_model_response],
-        }
-    ),
-)
+# Fail at boot, not with a provider 400 on the first screenshot mid-run.
+if sandbox_settings.PREVIEW_SCREENSHOTS_ENABLED and not MODELS[routing_settings.DEFAULT_MODEL].attachment:
+    raise ValueError(
+        f"DEFAULT_MODEL {routing_settings.DEFAULT_MODEL!r} cannot read images. "
+        "Set PREVIEW_SCREENSHOTS_ENABLED=false or choose a model with attachment = true."
+    )

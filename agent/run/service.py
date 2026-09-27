@@ -19,17 +19,22 @@ from agent.storage.config import storage_settings
 from db.base import AsyncSessionLocal
 from db.models import Chat, Message, Run, RunEvent, SandboxRuntime, User
 
-from ..budget.budget import BudgetLimitError, require_allowance
+from ..budget.budget import BudgetLimitError, dollar_nanos, require_allowance
 from ..budget.model_budget import spend_scope
 from ..context.context import ContextError, ProjectContext
+from ..context.transcript import size_chars as transcript_size_chars
 from ..events import MAX_RUN_EVENTS, redact, run_events
+from ..routing import jev
+from ..routing import providers as routing_providers
+from ..routing import router as routing_router
+from ..sandbox import migrations, project
 from ..sandbox.browser import check_browser
 from ..sandbox.commands import CommandStateError
+from ..sandbox.kits import KITS
 from ..sandbox.preview import PreviewError, control_preview
 from ..sandbox.sandbox_runtime import SandboxRuntimes
 from ..storage.persistence import (
     archive_slots,
-    ensure_revision,
     latest_revision,
     revision_bytes,
     sandbox_archive,
@@ -50,6 +55,79 @@ if not logger.handlers:
 logger.propagate = False
 
 
+async def chat_kit(chat_id):
+    """The kit a project started from (Chat.kit)."""
+    async with AsyncSessionLocal() as db:
+        kit = await db.scalar(select(Chat.kit).where(Chat.id == chat_id))
+    if kit not in KITS:
+        raise SandboxSetupError(f"Project kit {kit!r} is not available. No editing model request was made.")
+    return kit
+
+
+DELETE_DATA, KEEP_DATA = "Delete the data", "Keep my data"
+# Spec 4 step 3: Jev's limit is 32k tokens; about 20k tokens of input, at ~3 characters each.
+_JEV_INPUT_CHARS = 60_000
+
+
+def approved_data_loss(live) -> list[str]:
+    """The migration files the user agreed to lose data for: only when this request answers the
+    data-loss question, and only the files that question named."""
+    context = live.workflow.get("context") or {}
+    exchanges = context.get("exchanges") or []
+    if not exchanges or exchanges[-1].get("reply") != DELETE_DATA:
+        return []
+    return list(context.get("data_loss_files") or [])
+
+
+def original_request(live) -> str:
+    context = live.workflow.get("context") or {}
+    return str(context.get("original_request") or live.prompt)
+
+
+async def pick_kit(live) -> None:
+    """Spec 4 step 3: Jev picks a new app's kit from plain kit names; the user is never asked.
+    Code falls back to DEFAULT_KIT. Jev receives the user's own words, so a named stack counts."""
+    request = original_request(live)[: _JEV_INPUT_CHARS // 2]
+    exchanges = (live.workflow.get("context") or {}).get("exchanges", [])
+    clarifications = [exchange.get("reply", "") for exchange in exchanges]
+    while clarifications and len(str([request, clarifications])) > _JEV_INPUT_CHARS:
+        clarifications.pop(0)
+    answers = await jev.ask(
+        {"request": request, "clarifications": clarifications},
+        {
+            "kit": {
+                "type": "choice",
+                "instructions": "Which starter app is the best base for building this app?",
+                "criteria": {kit.id: kit.name for kit in KITS.values()},
+            }
+        },
+    )
+    answer = (answers or {}).get("kit")
+    choice = answer.get("choice") if isinstance(answer, dict) else None
+    kit = choice if choice in KITS else sandbox_settings.DEFAULT_KIT
+    live.metrics["kit_pick"] = {"jev": answers, "kit": kit, "fallback": None if choice in KITS else "default_kit"}
+    async with AsyncSessionLocal.begin() as db:
+        await db.execute(update(Chat).where(Chat.id == live.chat_id).values(kit=kit))
+
+
+async def last_outcome(chat_id, *, exclude):
+    """The model and verification result of the chat's previous finished run."""
+    async with AsyncSessionLocal() as db:
+        run = await db.scalar(
+            select(Run)
+            .where(Run.chat_id == chat_id, Run.id != exclude, Run.status != "running")
+            .order_by(Run.created_at.desc(), Run.id.desc())
+            .limit(1)
+        )
+    if run is None:
+        return {}
+    metrics = run.metrics or {}
+    return {
+        "model": metrics.get("model"),
+        "failed": run.status == "failed" and metrics.get("error_type") == "VerificationError",
+    }
+
+
 @dataclass
 class LiveRun:
     id: str
@@ -65,6 +143,12 @@ class LiveRun:
     message_id: str | None = None
     workflow: dict[str, Any] = field(default_factory=dict[str, Any])
     sandbox_started: bool = False
+    model_choice: str = "auto"
+    # Spec 5 steering: messages the user sends while this run works, drained before each model call.
+    inbox: list[str] = field(default_factory=list)
+    # Read-only tools run in parallel (spec 5), so their events arrive together: each takes its
+    # sequence number and is stored under this lock, or two get the same number.
+    emit_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
 
 class Service:
@@ -175,7 +259,7 @@ class Service:
             await self.runtimes.maintain(set(), shutdown=True)
 
     async def admit(
-        self, user_id: int, prompt: str, chat_id: str | None = None, *, mode="auto", response=None
+        self, user_id: int, prompt: str, chat_id: str | None = None, *, mode="auto", response=None, model_choice="auto"
     ) -> dict[str, Any]:
         prompt = prompt.strip()
         if (not prompt and response is None) or len(prompt) > 12000:
@@ -216,6 +300,11 @@ class Service:
                 if response is not None:
                     parent, fingerprint = await decision_source(db, user_id, *response)
                     workflow, metrics = await prepare_continuation(db, parent, response[1], response[2])
+                    # The model is sticky across a decision: the child reuses the parent's (metrics["model"]).
+                    model_choice = parent.model_choice
+                else:
+                    # Remembered for the next prompt, like dyad's selectedModel setting (spec 4.2).
+                    user.default_model_choice = model_choice
                 try:
                     await require_allowance(db, user)
                 except BudgetLimitError as exc:
@@ -237,7 +326,7 @@ class Service:
                         raise HTTPException(409, "Answer or dismiss the pending question or plan first.")
                 else:
                     chat_id = str(uuid.uuid4())
-                    db.add(Chat(id=chat_id, user_id=user_id, title=prompt[:100]))
+                    db.add(Chat(id=chat_id, user_id=user_id, title=prompt[:100], kit=sandbox_settings.DEFAULT_KIT))
                     await db.flush()
                 if parent is None:
                     if not user.use_token():
@@ -257,6 +346,7 @@ class Service:
                         chat_id=chat_id,
                         prompt=prompt,
                         status="running",
+                        model_choice=model_choice,
                         workflow=workflow,
                         metrics=metrics,
                     )
@@ -274,6 +364,7 @@ class Service:
                 message_id=message_id,
                 workflow=workflow,
                 metrics=metrics,
+                model_choice=model_choice,
             )
             self.active[run_id] = live
             if parent is not None:
@@ -319,12 +410,13 @@ class Service:
         )
 
     async def emit(self, live, kind, **payload):
-        if len(live.events) >= MAX_RUN_EVENTS:
-            raise RunLimitError("Activity budget reached")
-        event = self.event(live, kind, **payload)
-        async with AsyncSessionLocal.begin() as db:
-            db.add(RunEvent(run_id=live.id, sequence=event["sequence"], payload=event))
-        live.events.append(event)
+        async with live.emit_lock:
+            if len(live.events) >= MAX_RUN_EVENTS:
+                raise RunLimitError("Activity budget reached")
+            event = self.event(live, kind, **payload)
+            async with AsyncSessionLocal.begin() as db:
+                db.add(RunEvent(run_id=live.id, sequence=event["sequence"], payload=event))
+            live.events.append(event)
         self.publish(live.chat_id, event)
         record = {k: event[k] for k in ("e", "run_id", "sequence")}
         if kind == "stage":
@@ -341,8 +433,13 @@ class Service:
             await db.execute(update(Run).where(Run.id == live.id).values(metrics=redact(live.metrics)))
 
     async def get_e2b_sandbox(self, id: str):
-        revision = await ensure_revision(id)
-        sandbox, restore = await self.runtimes.acquire(id, revision)
+        revision = await latest_revision(id)
+        kit_id = await chat_kit(id)
+        try:
+            template = revision.template_id if revision else await project.template_ref()
+        except project.KitTemplateMissing as exc:
+            raise SandboxSetupError(f"{exc}. No editing model request was made.") from None
+        sandbox, restore = await self.runtimes.acquire(id, revision, template)
         if not restore:
             return sandbox
         try:
@@ -352,24 +449,25 @@ class Service:
             )
         except Exception:
             raise SandboxSetupError(
-                "Sandbox archive tools are unavailable. Rebuild sandbox/e2b.Dockerfile with Python 3.11 or later."
+                "Sandbox archive tools are unavailable. Rebuild the template (sandbox/templates.py)."
                 " No editing model request was made."
             ) from None
+        # Spec 8: restore code, dependencies and the database dump, or start from the kit
+        # when the project has no saved revision yet.
         if revision:
-            # Stop watchers before replacing their source tree or dependencies.
+            # Stop services before replacing their source tree or dependencies.
             await control_preview(sandbox, "stop")
             async with archive_slots:
                 await sandbox_archive(sandbox, "restore", await revision_bytes(revision))
-            if "package-lock.json" not in revision.manifest:
-                raise StorageError("Saved project needs package-lock.json before preview can be restored")
-            await sandbox.commands.run("npm ci --ignore-scripts --no-audit --no-fund", cwd=ROOT, timeout=90)
-            await control_preview(sandbox, "start")
+            await project.restore(sandbox, id, kit_id)
+        else:
+            await project.start_new(sandbox, id, kit_id)
         return sandbox
 
-    async def preview_ready(self, sandbox):
+    async def preview_ready(self, sandbox, port):
         await sandbox.commands.run(
             "curl --fail --silent --retry 5 --retry-connrefused "
-            "--retry-delay 2 --max-time 5 http://localhost:5173/ >/dev/null",
+            f"--retry-delay 2 --max-time 5 http://localhost:{port}/ >/dev/null",
             cwd=ROOT,
             timeout=45,
         )
@@ -381,20 +479,27 @@ class Service:
             return
         if len(live.events) >= MAX_RUN_EVENTS:
             raise RunLimitError("Activity budget reached before checkpoint")
-        current = await latest_revision(live.chat_id)
+        kit_id = await chat_kit(live.chat_id)
+        runtime = await self.runtimes.get(live.chat_id)
+        template = runtime.template_id if runtime else await project.template_ref()
+        # Spec 3: the database travels with the revision.
+        await project.dump(live.sandbox, kit_id)
         async with archive_slots:
             archive = await sandbox_archive(live.sandbox, "pack")
-            live.revision_id, event = await save_revision(
-                live.chat_id,
-                live.id,
-                archive,
-                current.template_id if current else sandbox_settings.E2B_TEMPLATE_ID,
-                lambda revision_id: self.event(
-                    live, "checkpoint_saved", revision_id=revision_id, message="Project files saved"
-                ),
-            )
+            # The checkpoint event takes a sequence number too (see LiveRun.emit_lock).
+            async with live.emit_lock:
+                live.revision_id, event = await save_revision(
+                    live.chat_id,
+                    live.id,
+                    archive,
+                    template,
+                    lambda revision_id: self.event(
+                        live, "checkpoint_saved", revision_id=revision_id, message="Project files saved"
+                    ),
+                )
+                if event:
+                    live.events.append(event)
         if event:
-            live.events.append(event)
             self.publish(live.chat_id, event)
 
     async def open_preview(self, chat_id) -> dict[str, Any]:
@@ -409,13 +514,14 @@ class Service:
             await self.require_sandbox_capacity(chat_id)
             self.opening.add(chat_id)
         try:
-            revision = await ensure_revision(chat_id)
+            revision = await latest_revision(chat_id)
             if not revision:
                 raise HTTPException(404, "No saved project yet")
             async with asyncio.timeout(180):
                 sandbox = await self.get_e2b_sandbox(chat_id)
+                port = KITS[await chat_kit(chat_id)].preview_port
                 try:
-                    await self.preview_ready(sandbox)
+                    await self.preview_ready(sandbox, port)
                 except CommandStateError:
                     raise
                 except Exception:
@@ -426,8 +532,8 @@ class Service:
                     # Repair the server in the same sandbox before considering a
                     # future open/restore. Do not allocate a VM for a module cache.
                     await control_preview(sandbox, "restart")
-                    await self.preview_ready(sandbox)
-                url = "https://" + sandbox.get_host(5173)
+                    await self.preview_ready(sandbox, port)
+                url = "https://" + sandbox.get_host(port)
                 async with AsyncSessionLocal.begin() as db:
                     chat = await db.get(Chat, chat_id, with_for_update=True)
                     if not chat or chat.latest_saved_revision_id != revision.id:
@@ -519,14 +625,44 @@ class Service:
                             "cached_input_tokens",
                             "cache_write_tokens",
                             "uncached_input_tokens",
+                            "model",
+                            "router",
+                            "cost_nanos",
                         )
                     },
                 }
             )
         )
 
+    async def model_for(self, live):
+        """One model for every call in this run (spec 5). A continuation keeps its parent's."""
+        sticky = live.metrics.get("model")
+        if sticky:
+            if sticky not in {entry.id for entry in routing_providers.usable_models()}:
+                # Its key was removed, or screenshots were turned on for a text-only model.
+                raise RunLimitError(
+                    "The model this conversation uses is no longer available. Choose another model or Auto"
+                )
+            return routing_providers.chat_model(sticky)
+        previous = await last_outcome(live.chat_id, exclude=live.id)
+        pick = await routing_router.pick_model(
+            live.prompt,
+            model_choice=live.model_choice,
+            # About 3 characters per token, plus the system prompt, tools and the new request.
+            needed_tokens=await transcript_size_chars(live.chat_id) // 3 + 20_000,
+            remaining_nanos=dollar_nanos(run_settings.RUN_MAX_COST_USD, "RUN_MAX_COST_USD")
+            - live.metrics.get("cost_nanos", 0),
+            failed_model=previous.get("model") if previous.get("failed") else None,
+        )
+        live.metrics["model"], live.metrics["router"] = pick.model_id, pick.log
+        return routing_providers.chat_model(pick.model_id)
+
     async def execute(self, live):
-        scope_token = spend_scope.set({"user_id": live.user_id, "run_id": live.id, "limit_error": None})
+        # The hooks add each reservation and settlement to live.metrics["cost_nanos"],
+        # which the loop checks against RUN_MAX_COST_USD. Same dict, not a copy.
+        scope_token = spend_scope.set(
+            {"user_id": live.user_id, "run_id": live.id, "limit_error": None, "metrics": live.metrics}
+        )
         started = time.monotonic()
         previous_elapsed = live.metrics.get("elapsed_ms", 0)
         status, reason, result = "failed", "The run failed. Submit a new request to retry.", None
@@ -538,7 +674,8 @@ class Service:
             async with asyncio.timeout(remaining_time):
                 await self.emit(live, "run_started", message="Starting your request")
                 await self.emit(live, "stage", message="Understanding your request")
-                live.workflow = await select_workflow(live)
+                model = await self.model_for(live)
+                live.workflow = await select_workflow(live, model=model)
                 await self.emit(
                     live,
                     "approach",
@@ -549,18 +686,21 @@ class Service:
                     status = "answered" if live.workflow["kind"] == "answer" else "awaiting_input"
                     reason = live.workflow["summary"]
                     return
-                async with self.admission:
-                    await self.require_sandbox_capacity(live.chat_id, requesting_run=live.id)
-                    live.sandbox_started = True
-                live.sandbox = await self.get_e2b_sandbox(live.chat_id)
-                # Commit unsafe state before the first possible mutation.
-                await self.runtimes.invalidate(live.chat_id)
+                if await latest_revision(live.chat_id) is None:
+                    await self.emit(live, "stage", message="Choosing how to build it")
+                    await pick_kit(live)
+                await self.open_sandbox(live)
+                stack = KITS[await chat_kit(live.chat_id)].model_dump()
                 result = await run_editor(
                     live.sandbox,
                     live.prompt,
                     lambda kind, **data: self.emit(live, kind, **data),
                     lambda dirty=False: self.checkpoint(live, dirty),
                     live.metrics,
+                    model=model,
+                    user_model=live.model_choice != "auto",
+                    deadline=started + remaining_time,
+                    inbox=live.inbox,
                     request_context={
                         "continuation": live.workflow.get("context"),
                         "approach": public_workflow(live.workflow),
@@ -569,6 +709,7 @@ class Service:
                     memory=ProjectContext(live.chat_id, live.user_id, live.message_id)
                     if live.user_id is not None and live.message_id is not None
                     else None,
+                    migrate=lambda: migrations.gate(live.sandbox, stack, allow_data_loss=approved_data_loss(live)),
                 )
                 if "decision" in result:
                     current = await latest_revision(live.chat_id)
@@ -586,6 +727,14 @@ class Service:
                     result["summary"]
                     + "\n\nProduction build and the selected desktop/mobile acceptance checks passed.",
                 )
+        except migrations.DestructiveMigration as exc:
+            # Spec 6: a change that deletes saved data waits for the user's answer.
+            status, reason = await self.ask(
+                live,
+                "This change would delete some saved data. Delete that data, or keep it and change the approach?",
+                [DELETE_DATA, KEEP_DATA],
+                data_loss_files=exc.files,
+            )
         except TimeoutError:
             status, reason = (
                 "timed_out",
@@ -675,6 +824,44 @@ class Service:
                 self.publish(live.chat_id, {"e": "resync"})
             self.active.pop(live.id, None)
             spend_scope.reset(scope_token)
+
+    async def open_sandbox(self, live):
+        async with self.admission:
+            await self.require_sandbox_capacity(live.chat_id, requesting_run=live.id)
+            live.sandbox_started = True
+        live.sandbox = await self.get_e2b_sandbox(live.chat_id)
+        # Commit unsafe state before the first possible mutation.
+        await self.runtimes.invalidate(live.chat_id)
+
+    async def ask(self, live, question, options, data_loss_files=None):
+        """Pause with one question. The continuation carries the original request, plus the
+        migration files a data-loss question is about, so the answer approves exactly those."""
+        current = await latest_revision(live.chat_id)
+        context: dict[str, Any] = {"original_request": original_request(live), "exchanges": []}
+        if data_loss_files:
+            context["data_loss_files"] = data_loss_files
+        live.workflow = {
+            "kind": "clarify",
+            "summary": question[:700],
+            "steps": [],
+            "question": question[:500],
+            "options": options,
+            "revision_id": current.id if current else None,
+            "context": context,
+        }
+        await self.emit(live, "approach", message=question, workflow=public_workflow(live.workflow))
+        return "awaiting_input", question
+
+    async def steer(self, run_id, text) -> bool:
+        """Queue a user message for a running build (Pi's steering queue). False if it is not running."""
+        live = self.active.get(run_id)
+        if live is None or live.cancelling or live.task is None or live.task.done():
+            return False
+        async with AsyncSessionLocal.begin() as db:
+            db.add(Message(id=str(uuid.uuid4()), chat_id=live.chat_id, role="user", content=text))
+        live.inbox.append(text)
+        self.publish(live.chat_id, {"e": "resync"})
+        return True
 
     async def cancel(self, run_id):
         live = self.active.get(run_id)

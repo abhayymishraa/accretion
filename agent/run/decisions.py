@@ -59,7 +59,7 @@ async def prepare_continuation(db, parent, action, text):
     workflow: dict[str, Any] = {"mode": "plan" if action == "revise" else "auto", "context": context}
     if action == "approve":
         workflow.update(public_workflow(parent.workflow), approved=True, kind="execute")
-    # The entire continuation shares the original token/tool limits, not a fresh allowance.
+    # The entire continuation shares the original cost and tool limits, not a fresh allowance.
     metrics = {
         key: value
         for key, value in (parent.metrics or {}).items()
@@ -68,6 +68,8 @@ async def prepare_continuation(db, parent, action, text):
             "input_tokens",
             "output_tokens",
             "total_tokens",
+            "cost_nanos",
+            "model",
             "reserved_tokens",
             "model_calls",
             "tool_calls",
