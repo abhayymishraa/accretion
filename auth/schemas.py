@@ -44,12 +44,12 @@ class UserResponse(CustomModel):
     email_verified: bool = False
     providers: list[str] = Field(default_factory=list)
     created_at: UtcDatetime
-    last_query_at: UtcDatetime | None = None
     tokens_remaining: int = plan_credits(DEFAULT_PLAN)
     credits_limit: int = plan_credits(DEFAULT_PLAN)
     credits_unlimited: bool = False
     tokens_reset_at: UtcDatetime | None = None
     cost_allowance: CostAllowance | None = None
+    default_model_choice: str = "auto"
 
 
 class RefreshTokenRequest(BaseModel):

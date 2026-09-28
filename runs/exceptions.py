@@ -1,10 +1,14 @@
 """Failures callers can see when starting, reading or cancelling a run."""
 
-from exceptions import Gone, NotFound, UnprocessableEntity
+from exceptions import Conflict, Gone, NotFound, UnprocessableEntity
 
 
 class RunNotFound(NotFound):
     DETAIL = "Run not found"
+
+
+class RunNotRunning(Conflict):
+    DETAIL = "This build has already finished. Send your message as a new request."
 
 
 class InvalidHistoryPage(UnprocessableEntity):

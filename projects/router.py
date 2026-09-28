@@ -28,7 +28,7 @@ async def get_chat_messages(
 
 @router.post("/projects")
 async def create_project(payload: ChatPayload, current_user: CurrentUser) -> RunAdmission:
-    return await service.start_project(current_user, payload.prompt, payload.mode)
+    return await service.start_project(current_user, payload.prompt, payload.mode, payload.model_choice)
 
 
 @router.get("/projects")

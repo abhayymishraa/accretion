@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent.run.service import agent_service
-from agent.storage.persistence import archive_slots, ensure_revision, revision_bytes
+from agent.storage.persistence import archive_slots, latest_revision, revision_bytes
 from db.models import ProjectRevision
 from files.constants import MAX_INLINE_TEXT_BYTES, MAX_REVISIONS_PAGE
 from files.exceptions import FileNotInRevision, NoSavedRevision
@@ -26,7 +26,7 @@ async def saved_revision(chat_id: str, revision_id: str | None, db: AsyncSession
         )
     else:
         await db.close()
-        revision = await ensure_revision(chat_id)
+        revision = await latest_revision(chat_id)
     if not revision:
         raise NoSavedRevision
     return revision
@@ -36,7 +36,7 @@ async def file_list(db: AsyncSession, project_id: str) -> FileList:
     with measure("metadata"):
         # Release this read transaction before helpers acquire their own connection.
         await db.close()
-        revision = await ensure_revision(project_id)
+        revision = await latest_revision(project_id)
     return FileList(
         project_id=project_id,
         files=list(revision.manifest) if revision else [],

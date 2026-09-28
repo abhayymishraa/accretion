@@ -51,7 +51,7 @@ async def issue_token(db: AsyncSession, user_id: int, purpose: str, minutes: int
 
 async def consume_token(db: AsyncSession, token: str, purpose: str) -> int:
     now = datetime.now(UTC)
-    user_id = await db.scalar(
+    user_id: int | None = await db.scalar(
         update(AuthToken)
         .where(
             AuthToken.digest == token_digest(token),

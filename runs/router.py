@@ -3,20 +3,25 @@
 from fastapi import APIRouter, Depends, WebSocket
 from fastapi.responses import Response
 
-from auth.dependencies import CurrentUser
+from auth.dependencies import CurrentUser, get_current_user
 from db.base import DbSession
 from projects.dependencies import owned_project
 from projects.schemas import RunAdmission
 from runs import service, socket
 from runs.dependencies import OwnedRun
-from runs.schemas import ChatPayload, DecisionPayload, RunEventsPage, RunList
+from runs.schemas import ChatPayload, DecisionPayload, ModelList, RunEventsPage, RunList, SteerPayload
 
 router = APIRouter()
 
 
 @router.post("/projects/{project_id}/runs")
 async def create_run(project_id: str, payload: ChatPayload, current_user: CurrentUser) -> RunAdmission:
-    return await service.start_run(current_user, project_id, payload.prompt, payload.mode)
+    return await service.start_run(current_user, project_id, payload.prompt, payload.mode, payload.model_choice)
+
+
+@router.get("/models", dependencies=[Depends(get_current_user)])
+async def list_models() -> ModelList:
+    return service.model_options()
 
 
 @router.post("/runs/{run_id}/respond")
@@ -27,6 +32,11 @@ async def respond_to_run(run_id: str, payload: DecisionPayload, current_user: Cu
 @router.get("/projects/{project_id}/runs", dependencies=[Depends(owned_project)])
 async def get_runs(project_id: str, offset: int = 0, limit: int = 10) -> RunList:
     return await service.run_page(project_id, offset, limit)
+
+
+@router.post("/runs/{run_id}/steer")
+async def steer_run(run: OwnedRun, payload: SteerPayload) -> RunList:
+    return await service.steer(run, payload.text)
 
 
 @router.post("/runs/{run_id}/cancel")

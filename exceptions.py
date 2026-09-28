@@ -42,7 +42,7 @@ class Gone(DetailedHTTPException):
 
 
 class UnprocessableEntity(DetailedHTTPException):
-    STATUS_CODE = status.HTTP_422_UNPROCESSABLE_ENTITY
+    STATUS_CODE = status.HTTP_422_UNPROCESSABLE_CONTENT
     DETAIL = "Unprocessable request"
 
 

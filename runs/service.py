@@ -5,6 +5,7 @@ import hashlib
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent.events import run_events
+from agent.routing import providers as routing_providers
 from agent.run.service import agent_service
 from agent.storage.persistence import archive_slots, read_object
 from agent.storage.storage import StorageError
@@ -16,12 +17,25 @@ from runs.constants import (
     MAX_RUN_LOG_BYTES,
     MAX_RUNS_PAGE,
 )
-from runs.exceptions import InvalidEventCursor, InvalidHistoryPage, RunLogExpired, RunLogUnavailable
-from runs.schemas import RunEventsPage, RunList
+from runs.exceptions import InvalidEventCursor, InvalidHistoryPage, RunLogExpired, RunLogUnavailable, RunNotRunning
+from runs.schemas import ModelList, RunEventsPage, RunList
 
 
-async def start_run(user: User, project_id: str, prompt: str, mode: str) -> RunAdmission:
-    return RunAdmission.model_validate(await agent_service.admit(user.id, prompt, project_id, mode=mode))
+async def start_run(user: User, project_id: str, prompt: str, mode: str, model_choice: str) -> RunAdmission:
+    return RunAdmission.model_validate(
+        await agent_service.admit(user.id, prompt, project_id, mode=mode, model_choice=model_choice)
+    )
+
+
+def model_options() -> ModelList:
+    return ModelList.model_validate(
+        {
+            "models": [
+                {"id": m.id, "name": m.name, "speed": m.card.speed, "cost": m.card.cost}
+                for m in routing_providers.usable_models()
+            ]
+        }
+    )
 
 
 async def answer_run(user: User, run_id: str, action: str, text: str) -> RunAdmission:
@@ -35,6 +49,12 @@ async def run_page(project_id: str, offset: int, limit: int) -> RunList:
     if offset < 0 or not 1 <= limit <= MAX_RUNS_PAGE:
         raise InvalidHistoryPage
     return RunList.model_validate({"runs": await agent_service.snapshot(project_id, offset, limit)})
+
+
+async def steer(run: Run, text: str) -> RunList:
+    if not await agent_service.steer(run.id, text.strip()):
+        raise RunNotRunning
+    return RunList.model_validate({"runs": await agent_service.snapshot(run.chat_id)})
 
 
 async def cancel(run: Run) -> RunList:

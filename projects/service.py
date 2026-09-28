@@ -99,5 +99,5 @@ async def delete_project(db: AsyncSession, project_id: str, user: User) -> Proje
     )
 
 
-async def start_project(user: User, prompt: str, mode: str) -> RunAdmission:
-    return RunAdmission.model_validate(await agent_service.admit(user.id, prompt, mode=mode))
+async def start_project(user: User, prompt: str, mode: str, model_choice: str) -> RunAdmission:
+    return RunAdmission.model_validate(await agent_service.admit(user.id, prompt, mode=mode, model_choice=model_choice))

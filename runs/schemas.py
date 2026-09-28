@@ -6,14 +6,40 @@ OpenAPI component names, so renaming them breaks generated clients.
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from agent.routing import providers as routing_providers
 from models import CustomModel, UtcDatetime
 
 
 class ChatPayload(BaseModel):
     prompt: str
     mode: Literal["auto", "plan"] = "auto"
+    # "auto", or a model id from GET /models (spec 4.2).
+    model_choice: str = "auto"
+
+    @field_validator("model_choice")
+    @classmethod
+    def _available(cls, value: str) -> str:
+        if value != "auto" and value not in {entry.id for entry in routing_providers.usable_models()}:
+            raise ValueError(f"Model {value!r} is not available. Choose Auto.")
+        return value
+
+
+class ModelOption(CustomModel):
+    id: str
+    name: str
+    speed: str
+    cost: str
+
+
+class ModelList(CustomModel):
+    models: list[ModelOption]
+
+
+class SteerPayload(BaseModel):
+    # Spec 5 steering: an update the running build should take into account.
+    text: str = Field(min_length=1, max_length=4000)
 
 
 class DecisionPayload(BaseModel):
