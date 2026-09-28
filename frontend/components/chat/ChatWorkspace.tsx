@@ -37,6 +37,9 @@ export default function ChatWorkspace({ chatId }: { chatId: string }) {
         showPreview,
         setShowPreview,
         userData,
+        models,
+        modelChoice,
+        setModelChoice,
         mobilePane,
         setMobilePane,
         projectFiles,
@@ -189,6 +192,9 @@ export default function ChatWorkspace({ chatId }: { chatId: string }) {
                             awaitingInput={awaitingInput}
                             mode={mode}
                             onModeChange={setMode}
+                            models={models}
+                            modelChoice={modelChoice}
+                            onModelChoiceChange={setModelChoice}
                         />
                     </section>
                     {showPreview && (

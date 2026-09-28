@@ -1,9 +1,11 @@
 import { ComposerMenu } from "@/components/chat/ComposerMenu";
+import { ModelPicker } from "@/components/chat/ModelPicker";
 import { Button } from "@/components/ui/button";
 import { useComposerMenu } from "@/hooks/chat/useComposerMenu";
 // Composer structure adapted from Beautiful UI ChatComposer, MIT © 2026 Shane Levine.
 // See ../ember/BEAUTIFUL-UI-LICENSE. The parent owns the real run lifecycle.
 import { ArrowUpIcon, FileTextIcon, StopIcon } from "@radix-ui/react-icons";
+import type { ModelOption } from "@/types/models.type";
 import { useRef } from "react";
 
 const MENU_ID = "chat-prompt-menu";
@@ -25,6 +27,9 @@ interface ChatInputProps {
     awaitingInput?: boolean;
     mode: "auto" | "plan";
     onModeChange: (mode: "auto" | "plan") => void;
+    models: ModelOption[];
+    modelChoice: string;
+    onModelChoiceChange: (value: string) => void;
 }
 
 export function ChatInput({
@@ -39,8 +44,12 @@ export function ChatInput({
     awaitingInput = false,
     mode,
     onModeChange,
+    models,
+    modelChoice,
+    onModelChoiceChange,
 }: ChatInputProps) {
-    const canCompose = wsConnected && !isBuilding && !awaitingInput;
+    // Typing stays open while building: the message becomes a steering update (spec 5).
+    const canCompose = wsConnected && !awaitingInput;
     const prompt = useRef<HTMLTextAreaElement>(null);
     const menu = useComposerMenu({
         textarea: prompt,
@@ -176,6 +185,12 @@ export function ChatInput({
                             </label>
                         ))}
                     </fieldset>
+                    <ModelPicker
+                        models={models}
+                        value={modelChoice}
+                        disabled={!canCompose || isBuilding}
+                        onChange={onModelChoiceChange}
+                    />
 
                     <div className="ml-auto flex items-center gap-2">
                         <ConnectionPill
@@ -183,6 +198,18 @@ export function ChatInput({
                             building={isBuilding}
                             awaiting={awaitingInput}
                         />
+                        {isBuilding && input.trim() && (
+                            <Button
+                                type="submit"
+                                variant="send"
+                                className="rounded-full"
+                                disabled={!canCompose}
+                                aria-label="Send update to the running build"
+                                title="Send update"
+                            >
+                                <ArrowUpIcon />
+                            </Button>
+                        )}
                         {isBuilding ? (
                             <Button
                                 type="button"

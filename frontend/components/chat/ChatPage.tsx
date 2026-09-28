@@ -20,6 +20,9 @@ export default function ChatPage() {
         userData,
         handleSignOut,
         handleSubmit,
+        models,
+        modelChoice,
+        setModelChoice,
     } = useNewProject();
     return (
         <div className="ember-chat-home flex h-dvh flex-col overflow-hidden [&>.ember-workspace-header]:shrink-0">
@@ -86,6 +89,9 @@ export default function ChatPage() {
                                     disabled={!isAuthenticated}
                                     onInputChange={setInput}
                                     onSubmit={handleSubmit}
+                                    models={models}
+                                    modelChoice={modelChoice}
+                                    onModelChoiceChange={setModelChoice}
                                 />
                                 {error && (
                                     <p

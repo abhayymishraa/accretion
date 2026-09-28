@@ -1,8 +1,10 @@
+import { ModelPicker } from "@/components/chat/ModelPicker";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { MAX_PROJECT_DRAFT_LENGTH } from "@/lib/projects/draft";
 import { starterBriefs } from "@/lib/projects/starterBriefs";
 import { ArrowRight, ArrowUp, Loader2, Plus } from "lucide-react";
+import type { ModelOption } from "@/types/models.type";
 import { useRef, useState } from "react";
 
 interface ChatInputBoxProps {
@@ -11,6 +13,9 @@ interface ChatInputBoxProps {
     disabled?: boolean;
     onInputChange: (value: string) => void;
     onSubmit: (e: React.FormEvent) => void;
+    models: ModelOption[];
+    modelChoice: string;
+    onModelChoiceChange: (value: string) => void;
 }
 
 export function ChatInputBox({
@@ -19,6 +24,9 @@ export function ChatInputBox({
     disabled = false,
     onInputChange,
     onSubmit,
+    models,
+    modelChoice,
+    onModelChoiceChange,
 }: ChatInputBoxProps) {
     const field = useRef<HTMLInputElement>(null);
     const [showExamples, setShowExamples] = useState(false);
@@ -48,17 +56,25 @@ export function ChatInputBox({
                 required
             />
             <div className="mt-2 flex items-center justify-between gap-3">
-                <Button
-                    variant="utility"
-                    type="button"
-                    disabled={controlsDisabled}
-                    className="gap-2 px-2"
-                    aria-expanded={showExamples}
-                    aria-controls="project-brief-examples"
-                    onClick={() => setShowExamples(!showExamples)}
-                >
-                    <Plus size={16} aria-hidden="true" /> Start with an example
-                </Button>
+                <div className="flex min-w-0 items-center gap-2">
+                    <Button
+                        variant="utility"
+                        type="button"
+                        disabled={controlsDisabled}
+                        className="gap-2 px-2"
+                        aria-expanded={showExamples}
+                        aria-controls="project-brief-examples"
+                        onClick={() => setShowExamples(!showExamples)}
+                    >
+                        <Plus size={16} aria-hidden="true" /> Start with an example
+                    </Button>
+                    <ModelPicker
+                        models={models}
+                        value={modelChoice}
+                        disabled={controlsDisabled}
+                        onChange={onModelChoiceChange}
+                    />
+                </div>
                 <Button
                     type="submit"
                     disabled={controlsDisabled || !input.trim()}
