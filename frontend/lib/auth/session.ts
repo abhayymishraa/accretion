@@ -8,6 +8,12 @@ export function getSessionId(): string | null {
     return localStorage.getItem("auth_session_id") || localStorage.getItem("auth_token");
 }
 
+// Other tabs' writes to the session keys; for useSyncExternalStore.
+export function subscribeSession(onChange: () => void) {
+    window.addEventListener("storage", onChange);
+    return () => window.removeEventListener("storage", onChange);
+}
+
 export function clearSession() {
     clearHistoryCache();
     clearFileContentCache();

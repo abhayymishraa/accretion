@@ -1,16 +1,11 @@
 "use client";
 
-import { clearSession } from "@/lib/auth/session";
+import { clearSession, subscribeSession } from "@/lib/auth/session";
 
 import { authService } from "@/services/service.auth";
 import { type UserData } from "@/types/auth.type";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useSyncExternalStore } from "react";
-
-function subscribeSession(onChange: () => void) {
-    window.addEventListener("storage", onChange);
-    return () => window.removeEventListener("storage", onChange);
-}
 
 export function useProjectsPage() {
     const router = useRouter();

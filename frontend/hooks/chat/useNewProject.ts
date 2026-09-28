@@ -14,6 +14,7 @@ import { starterBriefs } from "@/lib/projects/starterBriefs";
 import { authService } from "@/services/service.auth";
 import { projectService } from "@/services/service.projects";
 import { type UserData } from "@/types/auth.type";
+import { useModelChoice } from "./useModelChoice";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
@@ -23,6 +24,7 @@ export function useNewProject() {
     const [error, setError] = useState("");
     const [isAuthenticated, setIsAuthenticated] = useState(false);
     const [userData, setUserData] = useState<UserData | null>(null);
+    const modelChoice = useModelChoice(userData?.default_model_choice);
     const router = useRouter();
     const initialDraft = useRef<string | null>(null);
 
@@ -90,7 +92,7 @@ export function useNewProject() {
         setError("");
 
         try {
-            const response = await projectService.createChat(input.trim());
+            const response = await projectService.createChat(input.trim(), modelChoice.choice);
             try {
                 sessionStorage.removeItem(PROJECT_DRAFT_KEY);
             } catch {
@@ -99,6 +101,7 @@ export function useNewProject() {
             router.push(`/chat/${response.chat_id}`);
         } catch (err) {
             console.error("Error creating chat:", err);
+            modelChoice.rejected(err);
             setError("Failed to create chat. Please try again.");
             setIsLoading(false);
         }
@@ -113,5 +116,8 @@ export function useNewProject() {
         userData,
         handleSignOut,
         handleSubmit,
+        models: modelChoice.models,
+        modelChoice: modelChoice.choice,
+        setModelChoice: modelChoice.setChoice,
     };
 }

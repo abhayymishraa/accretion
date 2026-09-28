@@ -3,14 +3,24 @@
 import { runService } from "@/services/service.runs";
 
 import { usePreviewLifecycle } from "@/hooks/preview/usePreviewLifecycle";
+import { subscribeSession } from "@/lib/auth/session";
 import type { UserData } from "@/types/auth.type";
 import type { Message } from "@/types/chat.type";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+    useCallback,
+    useEffect,
+    useLayoutEffect,
+    useMemo,
+    useRef,
+    useState,
+    useSyncExternalStore,
+} from "react";
 
 import { useProjectFiles } from "@/hooks/files/useProjectFiles";
 import { useChatHistory } from "./useChatHistory";
 import { useChatConnection } from "./useChatConnection";
+import { useModelChoice } from "./useModelChoice";
 import { useWorkspaceLayout } from "./useWorkspaceLayout";
 export function useChatWorkspace(chatId: string) {
     const router = useRouter();
@@ -36,7 +46,25 @@ export function useChatWorkspace(chatId: string) {
         workspaceVisible,
         containerRef,
     } = useWorkspaceLayout();
-    const [userData, setUserData] = useState<UserData | null>(null);
+    // The session client and socket own authentication; this is display data only. It is
+    // read as an external store so the server and the first client render agree.
+    const storedUser = useSyncExternalStore(
+        subscribeSession,
+        () => localStorage.getItem("user_data"),
+        () => null,
+    );
+    const [updatedUser, setUserData] = useState<UserData | null>(null);
+    const userData = useMemo(() => {
+        if (updatedUser) return updatedUser;
+        if (!storedUser) return null;
+        try {
+            return JSON.parse(storedUser) as UserData;
+        } catch (err) {
+            console.error("Failed to parse user data:", err);
+            return null;
+        }
+    }, [updatedUser, storedUser]);
+    const modelChoice = useModelChoice(userData?.default_model_choice);
     const preview = usePreviewLifecycle({
         projectId: chatId,
         revisionId,
@@ -57,19 +85,6 @@ export function useChatWorkspace(chatId: string) {
         if (!element) return;
         programmatic.current = true;
         element.scrollTop = element.scrollHeight;
-    }, []);
-
-    // The session client and socket own authentication; this is display data only.
-    useEffect(() => {
-        const user = localStorage.getItem("user_data");
-
-        if (user) {
-            try {
-                setUserData(JSON.parse(user));
-            } catch (err) {
-                console.error("Failed to parse user data:", err);
-            }
-        }
     }, []);
 
     const history = useChatHistory({
@@ -135,18 +150,31 @@ export function useChatWorkspace(chatId: string) {
     const handleSendMessage = async (e: React.FormEvent) => {
         e.preventDefault();
         const prompt = input.trim();
-        if (!prompt || isBuilding) return;
+        if (!prompt) return;
+        if (isBuilding) {
+            // A running build takes the message as a steering update (spec 5).
+            if (!runId) return;
+            try {
+                await runService.steer(runId, prompt);
+                setInput("");
+                history.refreshHistory();
+            } catch (err) {
+                setError(err instanceof Error ? err.message : "Update was not accepted");
+            }
+            return;
+        }
         setIsBuilding(true);
         setError(null);
         followLatest.current = true;
         try {
-            const data = await runService.start(chatId, prompt, mode);
+            const data = await runService.start(chatId, prompt, mode, modelChoice.choice);
             setRunId(data.run_id);
             setInput("");
             if (userData) {
                 const updated = {
                     ...userData,
                     tokens_remaining: data.tokens_remaining,
+                    default_model_choice: modelChoice.choice,
                 };
                 localStorage.setItem("user_data", JSON.stringify(updated));
                 setUserData(updated);
@@ -155,6 +183,7 @@ export function useChatWorkspace(chatId: string) {
             if (!wsConnected) history.refreshHistory();
         } catch (err) {
             setIsBuilding(false);
+            modelChoice.rejected(err);
             setError(err instanceof Error ? err.message : "Request was not accepted");
         }
     };
@@ -210,5 +239,8 @@ export function useChatWorkspace(chatId: string) {
         containerRef,
         handleSendMessage,
         handleCancel,
+        models: modelChoice.models,
+        modelChoice: modelChoice.choice,
+        setModelChoice: modelChoice.setChoice,
     };
 }

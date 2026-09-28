@@ -12,6 +12,7 @@ export interface UserData {
     email_verified?: boolean;
     created_at?: string;
     providers?: string[];
+    default_model_choice?: string;
 }
 
 export interface LoginResponse {

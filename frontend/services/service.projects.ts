@@ -20,8 +20,11 @@ export const projectService = {
     /**
      * Create or start a new chat
      */
-    createChat: async (prompt: string): Promise<ChatResponse> => {
-        const response = await apiClient.post<ChatResponse>("/projects", { prompt });
+    createChat: async (prompt: string, modelChoice = "auto"): Promise<ChatResponse> => {
+        const response = await apiClient.post<ChatResponse>("/projects", {
+            prompt,
+            model_choice: modelChoice,
+        });
         return response.data;
     },
 

@@ -17,12 +17,12 @@ export function useRunDetails(message: Message, expanded: boolean) {
         if (!expanded || !message.details_pending || loadedVersion.current === version) return;
         const controller = new AbortController();
         const session = getSessionId();
-        setError(null);
         historyService
             .details(message.id.replace(/^run:/, ""), controller.signal)
             .then((result) => {
                 if (!controller.signal.aborted && getSessionId() === session) {
                     loadedVersion.current = version;
+                    setError(null);
                     setEvents(result.events);
                 }
             })
@@ -50,6 +50,9 @@ export function useRunDetails(message: Message, expanded: boolean) {
         ...details,
         loading: expanded && message.details_pending && !events && !error,
         error,
-        retry: () => setAttempt((value) => value + 1),
+        retry: () => {
+            setError(null);
+            setAttempt((value) => value + 1);
+        },
     };
 }
