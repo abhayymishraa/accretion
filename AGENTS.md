@@ -24,7 +24,7 @@
 `agent/context/compaction.py` trims context, `agent/context/transcript.py` stores it,
 `agent/run/runner.py` calls both.
 
-- Always on. There is no enable flag. `MODEL_CONTEXT_WINDOW` and `COMPACTION_RESERVE_TOKENS` size it, they do not switch it off.
+- Always on. There is no enable flag. The run's model window (`agent/routing/models.toml`) and `COMPACTION_RESERVE_TOKENS` size it, they do not switch it off.
 - The transcript is append-only per chat, not per run. A chat is one conversation; a later request reads what earlier ones did.
 - Never separate a tool call from its result. Every `AIMessage.tool_calls` entry must keep its matching `ToolMessage.tool_call_id`. An orphan is a provider 400, so each cut path rechecks the pairing.
 - Summarize with `model.model_copy(...)`, never `bind()` or a call kwarg: both put `reasoning: null` on the wire. `model_copy` also leaves the caller's model untouched, so a failed summary cannot misconfigure the live loop.

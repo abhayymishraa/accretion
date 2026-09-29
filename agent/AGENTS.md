@@ -29,11 +29,12 @@ the environment from the tools.
 
 | Package | Owns | Modules |
 | --- | --- | --- |
-| `run/` | The editing loop and what it is built from | `agent.py`, `prompts.py`, `runner.py`, `service.py`, `workflow.py`, `decisions.py`, `diagnostics.py` |
-| `sandbox/` | The E2B environment and everything executed inside it | `sandbox_runtime.py`, `preview.py`, `preview_process.py`, `commands.py`, `browser.py`, `archive.py` |
+| `run/` | The editing loop and what it is built from | `agent.py`, `prompts.py`, `runner.py`, `service.py`, `workflow.py`, `decisions.py`, `diagnostics.py`, `structured.py` |
+| `sandbox/` | The E2B environment and everything executed inside it | `sandbox_runtime.py`, `preview.py`, `preview_process.py`, `commands.py`, `browser.py`, `archive.py`, `kits.py`, `project.py`, `secrets.py`, `migrations.py` |
 | `tools/` | The tool surface offered to the model | `tools.py`, `public_tools.py`, `skills.py` |
 | `context/` | What the model is shown and what it remembers | `compaction.py`, `context.py`, `transcript.py`, `history.py` |
 | `budget/` | Cost admission and accounting | `budget.py`, `model_budget.py`, `sandbox_budget.py`, `usage.py` |
+| `routing/` | Which model runs: the registry, a client per provider, Jev, the pick, and history rewrite on a model change | `models.toml`, `registry.py`, `providers.py`, `jev.py`, `router.py`, `history.py`, `failures.py` |
 | `storage/` | Durable artifacts and their lifecycle | `storage.py`, `persistence.py`, `init_storage.py`, `maintenance.py` |
 | package root | The one surface the groups share | `events.py` |
 
@@ -46,7 +47,7 @@ surface but is not one yet.
 ### Settings
 
 Each group owns a `config.py` holding one `BaseSettings` subclass: `run/`,
-`context/`, `sandbox/`, `budget/` and `storage/`. A module reads settings from
+`context/`, `sandbox/`, `budget/`, `storage/` and `routing/`. A module reads settings from
 its own group, or imports another group's settings object by name. Nothing in
 this package reads `os.getenv` directly.
 
