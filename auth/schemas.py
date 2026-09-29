@@ -1,7 +1,6 @@
 from pydantic import BaseModel, EmailStr, Field
 
 from models import CustomModel, UtcDatetime
-from plans import DEFAULT_PLAN, plan_credits
 
 
 class UserRegister(BaseModel):
@@ -21,19 +20,13 @@ class Token(CustomModel):
     token_type: str = "bearer"
 
 
-class CostWindow(CustomModel):
+class CostAllowance(CustomModel):
+    """This month's model budget. Resets on the first of the month, UTC."""
+
+    unlimited: bool
     limit_usd: float
-    used_or_reserved_usd: float
     remaining_usd: float
     resets_at: UtcDatetime
-
-
-class CostAllowance(CustomModel):
-    unlimited: bool
-    currency: str = "USD"
-    reset_timezone: str = "UTC"
-    daily: CostWindow
-    monthly: CostWindow
 
 
 class UserResponse(CustomModel):
@@ -44,10 +37,6 @@ class UserResponse(CustomModel):
     email_verified: bool = False
     providers: list[str] = Field(default_factory=list)
     created_at: UtcDatetime
-    tokens_remaining: int = plan_credits(DEFAULT_PLAN)
-    credits_limit: int = plan_credits(DEFAULT_PLAN)
-    credits_unlimited: bool = False
-    tokens_reset_at: UtcDatetime | None = None
     cost_allowance: CostAllowance | None = None
     default_model_choice: str = "auto"
 

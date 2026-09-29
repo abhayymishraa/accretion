@@ -8,11 +8,9 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.utils.function_calling import convert_to_openai_tool
 from pydantic import BaseModel, ValidationError
 
-from ..budget.budget import dollar_nanos
 from ..budget.usage import invoke_with_usage, prompt_cache_key, record_usage
 from ..routing.providers import bind_tools, cache_options, limit_output, output_truncated
-from .config import run_settings
-from .runner import RunLimitError, VerificationError, estimate_input_tokens
+from .runner import VerificationError, estimate_input_tokens
 
 logger = logging.getLogger("webbuilder.runs")
 
@@ -36,8 +34,6 @@ async def ask_structured[M: BaseModel](
     tool["function"]["name"], tool["function"]["description"] = name, description
     messages = [SystemMessage(content=system), HumanMessage(content=json.dumps(payload, ensure_ascii=False))]
     estimate, _ = estimate_input_tokens(model, messages, json.dumps(tool))
-    if metrics.get("cost_nanos", 0) >= dollar_nanos(run_settings.RUN_MAX_COST_USD, "RUN_MAX_COST_USD"):
-        raise RunLimitError(f"Cost budget reached before {what}")
     response = await invoke_with_usage(
         bind_tools(limit_output(model, max_output), [tool], parallel=False, tool_choice=name),
         messages,

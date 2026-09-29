@@ -1,13 +1,18 @@
 // API Response Types
 
+/** This month's build budget, in USD. Resets on the first of the month, UTC. */
+export interface CostAllowance {
+    unlimited: boolean;
+    limit_usd: number;
+    remaining_usd: number;
+    resets_at: string;
+}
+
 export interface UserData {
     id: number;
     email: string;
     name: string;
-    tokens_remaining: number;
-    credits_limit: number;
-    tokens_reset_at?: string | null;
-    credits_unlimited?: boolean;
+    cost_allowance?: CostAllowance | null;
     bio?: string;
     email_verified?: boolean;
     created_at?: string;

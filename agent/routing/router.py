@@ -8,7 +8,7 @@ One Jev request also answers the front door's kind and difficulty, logged only.
 from dataclasses import dataclass
 from typing import Any
 
-from ..budget.model_budget import model_cost, model_rates
+from ..budget.model_budget import call_bound, model_rates
 from . import failures, jev
 from .config import routing_settings
 from .providers import usable_models
@@ -39,8 +39,11 @@ def _price(entry: ModelEntry) -> tuple[int, int]:
     return rates["output"], rates["input"]
 
 
-def _candidates(needed_tokens: int, remaining_nanos: int, failed_model: str | None) -> list[ModelEntry]:
+def _candidates(needed_tokens: int, remaining_nanos: int | None, failed_model: str | None) -> list[ModelEntry]:
     """Spec 4.1 step 1: drop a model the context would not fit or the budget cannot afford.
+    `remaining_nanos` is the user's monthly budget left; None means unlimited. A model fits
+    only if one call's reservation does: reserve() counts request bytes as tokens, about
+    three per estimated token, at the dearest input rate.
     Step 3: after a failed run, keep only models priced above the one that failed."""
     floor = _price(MODELS[failed_model]) if failed_model in MODELS else None
     return [
@@ -49,7 +52,7 @@ def _candidates(needed_tokens: int, remaining_nanos: int, failed_model: str | No
         if entry.auto
         and not failures.cooling(entry.id)
         and needed_tokens <= entry.context_window * 95 // 100
-        and model_cost(model_rates(entry.id), needed_tokens, 8192) <= remaining_nanos
+        and (remaining_nanos is None or call_bound(entry.id, needed_tokens * 3, 8192) <= remaining_nanos)
         and (floor is None or _price(entry) > floor)
     ]
 
@@ -60,7 +63,7 @@ def _card(entry: ModelEntry) -> dict[str, str]:
 
 
 async def pick_model(
-    prompt: str, *, model_choice: str, needed_tokens: int, remaining_nanos: int, failed_model: str | None
+    prompt: str, *, model_choice: str, needed_tokens: int, remaining_nanos: int | None, failed_model: str | None
 ) -> Pick:
     if model_choice != "auto":
         # Spec 4.2: the user's choice is used for every call; Jev is not asked.

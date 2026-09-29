@@ -57,6 +57,18 @@ def _worst_input(tier):
     return {**tier, "input": max(tier["input"], tier["cached"], tier["write"])}
 
 
+def call_bound(model, inputs, output_limit):
+    """The most one call can cost: every input token at its dearest rate, long tier included.
+
+    What reserve_model_request holds, and what the router must fit in the budget left.
+    """
+    rates = model_rates(model)
+    worst = _worst_input(rates)
+    if "long" in rates:
+        worst["long"] = _worst_input(rates["long"])
+    return model_cost(worst, inputs, output_limit)
+
+
 def request_bound(request):
     """The billed model, its output ceiling and the stream flag, per wire format."""
     path = request.url.path.rstrip("/")
@@ -125,10 +137,7 @@ async def reserve_model_request(request):
         # Bound the transmitted body, not just a tokenizer estimate. This includes
         # tool definitions, Unicode, and image payloads (intentionally conservative).
         inputs = len(request.content) + 2000
-        worst = _worst_input(rates)
-        if "long" in rates:
-            worst["long"] = _worst_input(rates["long"])
-        amount = model_cost(worst, inputs, output_limit)
+        amount = call_bound(model, inputs, output_limit)
         entry = await reserve(
             scope["user_id"],
             "model",
@@ -163,9 +172,10 @@ async def settle_model_response(response):
             return
         scope = spend_scope.get()
         assert scope is not None, "a reservation exists only inside a spend scope"
-        # Only explicit rejections are released. Timeouts, server errors and transport
-        # failures can hide billable work; retain those reservations for reconciliation.
-        if response.status_code in {400, 401, 403, 404, 413, 422, 429}:
+        # Only explicit rejections and provider errors are released: a 5xx returns no
+        # completion to bill. Timeouts and transport failures never reach this hook and can
+        # hide billable work, so their reservations stay charged.
+        if response.status_code in {400, 401, 403, 404, 413, 422, 429} or response.status_code >= 500:
             await settle(entry.id, 0, {"outcome": "rejected"})
             _add_run_cost(scope, -entry.reserved_nanos)
             return

@@ -11,10 +11,12 @@ import { Check, Mail } from "lucide-react";
 import { SiGithub, SiGoogle } from "react-icons/si";
 
 import { useProfile } from "@/hooks/profile/useProfile";
+import { formatUsd } from "@/lib/auth/budget";
 
 export default function ProfilePage() {
     const { user, options, busy, error, message, setAttempt, signOut, save, connect } =
         useProfile();
+    const budget = user?.cost_allowance;
     return (
         <>
             <ChatNavbar isAuthenticated={!!user} userData={user} onSignOut={signOut} />
@@ -46,32 +48,34 @@ export default function ProfilePage() {
                         <div data-loaded-in="">
                             <ProfileIdentityCard user={user} busy={busy} onSave={save} />
                             <div className="mt-9 grid gap-8 md:grid-cols-2 md:gap-12 [&_h2]:mb-1.5 [&_h2]:text-[17px] [&_h2]:font-medium [&_section>p]:text-sm [&_section>p]:leading-relaxed [&_section>p]:text-muted-foreground">
-                                <section aria-labelledby="credits-title">
-                                    <h2 id="credits-title">Build credits</h2>
-                                    <p className="mt-4 text-3xl! font-medium text-foreground!">
-                                        {user.credits_unlimited ? (
-                                            "Unlimited"
-                                        ) : (
-                                            <>
-                                                {user.tokens_remaining}
-                                                <span className="text-muted-foreground">
-                                                    {" / "}
-                                                    {user.credits_limit}
-                                                </span>
-                                            </>
-                                        )}
-                                    </p>
-                                    <p className="mt-2">
-                                        {user.credits_unlimited
-                                            ? "No credit limit applies to this account."
-                                            : "One credit covers one build. Follow-up answers within a build are free."}
-                                    </p>
-                                    {!user.credits_unlimited && (
-                                        <p className="mt-4 text-sm text-muted-foreground">
-                                            Resets {formatReset(user.tokens_reset_at)}
+                                {budget && (
+                                    <section aria-labelledby="budget-title">
+                                        <h2 id="budget-title">Monthly build budget</h2>
+                                        <p className="mt-4 text-3xl! font-medium text-foreground!">
+                                            {budget.unlimited ? (
+                                                "Unlimited"
+                                            ) : (
+                                                <>
+                                                    {formatUsd(budget.remaining_usd)}
+                                                    <span className="text-muted-foreground">
+                                                        {" / "}
+                                                        {formatUsd(budget.limit_usd)}
+                                                    </span>
+                                                </>
+                                            )}
                                         </p>
-                                    )}
-                                </section>
+                                        <p className="mt-2">
+                                            {budget.unlimited
+                                                ? "No budget limit applies to this account."
+                                                : "Covers the AI that builds your projects. Previews do not count against it."}
+                                        </p>
+                                        {!budget.unlimited && (
+                                            <p className="mt-4 text-sm text-muted-foreground">
+                                                Resets {formatReset(budget.resets_at)}
+                                            </p>
+                                        )}
+                                    </section>
+                                )}
                                 <section aria-labelledby="signin-title">
                                     <h2 id="signin-title">Sign-in methods</h2>
                                     <p>Keep your ideas within reach.</p>
@@ -145,7 +149,7 @@ export default function ProfilePage() {
     );
 }
 
-/** Credits reset on the first of the month, UTC. */
+/** The budget resets on the first of the month, UTC. */
 function formatReset(resetAt?: string | null) {
     const next = new Date(resetAt ?? "");
     return Number.isNaN(next.getTime())

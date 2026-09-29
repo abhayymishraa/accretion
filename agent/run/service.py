@@ -19,7 +19,7 @@ from agent.storage.config import storage_settings
 from db.base import AsyncSessionLocal
 from db.models import Chat, Message, Run, RunEvent, SandboxRuntime, User
 
-from ..budget.budget import BudgetLimitError, dollar_nanos, require_allowance
+from ..budget.budget import BudgetLimitError, BudgetSpentError, remaining_nanos, require_allowance
 from ..budget.model_budget import spend_scope
 from ..context.context import ContextError, ProjectContext
 from ..context.transcript import size_chars as transcript_size_chars
@@ -265,7 +265,7 @@ class Service:
         if (not prompt and response is None) or len(prompt) > 12000:
             raise HTTPException(422, "Describe a change in 1–12000 characters")
         async with self.admission:
-            # Resolve retries before capacity/credit checks: no duplicate run or charge.
+            # Resolve retries before capacity/budget checks: no duplicate run or charge.
             if response is not None:
                 async with AsyncSessionLocal.begin() as db:
                     parent, fingerprint = await decision_source(db, user_id, *response)
@@ -288,7 +288,7 @@ class Service:
                         return {"chat_id": parent.chat_id, "run_id": None, "status": "cancelled"}
                     chat_id = parent.chat_id
             if self.stopping or len(self.active) + len(self.opening) >= run_settings.MAX_CONCURRENT_RUNS:
-                raise HTTPException(429, "The builder is busy. Try again shortly; no credit was used.")
+                raise HTTPException(429, "The builder is busy. Try again shortly.")
             workflow, metrics = {"mode": mode}, {}
             async with AsyncSessionLocal.begin() as db:
                 user = await db.scalar(select(User).where(User.id == user_id).with_for_update())
@@ -310,7 +310,7 @@ class Service:
                 except BudgetLimitError as exc:
                     raise HTTPException(429, str(exc)) from None
                 if not storage_settings.configured:
-                    raise HTTPException(503, "Project storage is not configured; no credit was used.")
+                    raise HTTPException(503, "Project storage is not configured.")
                 if chat_id:
                     chat = await db.scalar(
                         select(Chat).where(Chat.id == chat_id, Chat.user_id == user_id).with_for_update()
@@ -318,7 +318,7 @@ class Service:
                     if not chat:
                         raise HTTPException(404, "Project not found")
                     if chat_id in self.opening or any(r.chat_id == chat_id for r in self.active.values()):
-                        raise HTTPException(409, "This project already has a running request; no credit was used.")
+                        raise HTTPException(409, "This project already has a running request.")
                     pending = await db.scalar(
                         select(Run.id).where(Run.chat_id == chat_id, Run.status == "awaiting_input").limit(1)
                     )
@@ -328,17 +328,6 @@ class Service:
                     chat_id = str(uuid.uuid4())
                     db.add(Chat(id=chat_id, user_id=user_id, title=prompt[:100], kit=sandbox_settings.DEFAULT_KIT))
                     await db.flush()
-                if parent is None:
-                    if not user.use_token():
-                        raise HTTPException(
-                            403,
-                            f"You have used all {user.credits_limit} credits "
-                            f"for this month. They reset on {user.tokens_reset_at:%-d %B} UTC. "
-                            "Saved projects and previews remain available.",
-                        )
-                    # Recorded only once the credit is actually taken, so a refund
-                    # cannot return one that was never spent.
-                    metrics["credit_spent"] = True
                 run_id = str(uuid.uuid4())
                 db.add(
                     Run(
@@ -355,7 +344,6 @@ class Service:
                     resolve_decision(parent, fingerprint, response[1], run_id)
                 message_id = str(uuid.uuid4())
                 db.add(Message(id=message_id, chat_id=chat_id, role="user", content=prompt))
-                credits = user.tokens_remaining
             live = LiveRun(
                 run_id,
                 chat_id,
@@ -374,18 +362,7 @@ class Service:
                 "chat_id": chat_id,
                 "run_id": run_id,
                 "status": "running",
-                "tokens_remaining": credits,
             }
-
-    async def refund_credit(self, live):
-        if not live.metrics.get("credit_spent") or live.metrics.get("credit_refunded"):
-            return
-        async with AsyncSessionLocal.begin() as db:
-            user = await db.get(User, live.user_id, with_for_update=True)
-            if user:
-                user.refund_token()
-        live.metrics["credit_refunded"] = True
-        logger.warning("Refunded a credit after an infrastructure fault run_id=%s", live.id)
 
     def publish(self, chat_id, event):
         for queue in list(self.subscribers.get(chat_id, set())):
@@ -645,13 +622,16 @@ class Service:
                 )
             return routing_providers.chat_model(sticky)
         previous = await last_outcome(live.chat_id, exclude=live.id)
+        async with AsyncSessionLocal() as db:
+            user = await db.get(User, live.user_id)
+            # An account deleted mid-run has nothing left; reserve() then refuses the call.
+            remaining = await remaining_nanos(db, user) if user else 0
         pick = await routing_router.pick_model(
             live.prompt,
             model_choice=live.model_choice,
             # About 3 characters per token, plus the system prompt, tools and the new request.
             needed_tokens=await transcript_size_chars(live.chat_id) // 3 + 20_000,
-            remaining_nanos=dollar_nanos(run_settings.RUN_MAX_COST_USD, "RUN_MAX_COST_USD")
-            - live.metrics.get("cost_nanos", 0),
+            remaining_nanos=remaining,
             failed_model=previous.get("model") if previous.get("failed") else None,
         )
         live.metrics["model"], live.metrics["router"] = pick.model_id, pick.log
@@ -659,7 +639,7 @@ class Service:
 
     async def execute(self, live):
         # The hooks add each reservation and settlement to live.metrics["cost_nanos"],
-        # which the loop checks against RUN_MAX_COST_USD. Same dict, not a copy.
+        # the run's reported spend. Same dict, not a copy.
         scope_token = spend_scope.set(
             {"user_id": live.user_id, "run_id": live.id, "limit_error": None, "metrics": live.metrics}
         )
@@ -755,6 +735,11 @@ class Service:
             status = "stopped"
             reason = f"{str(exc).rstrip('.')}. Your work so far is saved. Send another message to continue from here."
             live.metrics["error_type"] = type(exc).__name__
+        except BudgetSpentError as exc:
+            # Same stopping point as a run limit, but continuing waits for the monthly reset.
+            status = "stopped"
+            reason = f"{exc} Your work so far is saved."
+            live.metrics["error_type"] = type(exc).__name__
         except (VerificationError, ContextError, PreviewError, BudgetLimitError) as exc:
             reason = str(exc)
             live.metrics["error_type"] = type(exc).__name__
@@ -776,9 +761,6 @@ class Service:
             )
             live.metrics["error_type"] = type(exc).__name__
             diagnose_sandbox = True
-            # The provider never gave this run a machine, so the credit buys nothing.
-            # Deliberately not done for RunLimitError: that run spent real compute.
-            await self.refund_credit(live)
             logger.error(
                 "Sandbox operation failed run_id=%s error_type=%s stage=%s",
                 live.id,

@@ -4,17 +4,12 @@ The ceilings are runaway backstops, not work limits: compaction keeps a long
 run affordable, so a low turn count would end healthy work early.
 """
 
-from pydantic import Field
-
 from config import BaseConfig
 
 
 class RunConfig(BaseConfig):
     RUN_MAX_TURNS: int = 500
     RUN_MAX_TOOL_CALLS: int = 1000
-    # Dollars across every model call in a run and its continuations, including
-    # compaction. A string, never a float; converted to nanos where it is checked.
-    RUN_MAX_COST_USD: str = Field(default="1.00", pattern=r"^\d+(\.\d+)?$")
     RUN_TIMEOUT_SECONDS: int = 600
 
     # The same everywhere: E2B's own ceiling (Hobby: 20 running sandboxes; paused ones do not

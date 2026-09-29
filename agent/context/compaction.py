@@ -26,6 +26,7 @@ from typing import Any
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
+from ..budget.budget import BudgetLimitError
 from ..budget.usage import invoke_with_usage, prompt_cache_key, record_usage
 from ..routing.providers import cache_options, limit_output
 from .config import context_settings
@@ -406,6 +407,9 @@ async def summarize(model, messages, instruction, *, previous=None, metrics=None
             ),
             timeout=SUMMARY_TIMEOUT,
         )
+    except BudgetLimitError:
+        # Out of budget is not a failed summary: stop before the lossy projection replaces the transcript.
+        raise
     except Exception:
         logger.warning("Compaction summary failed; falling back to the lossy projection")
         return None

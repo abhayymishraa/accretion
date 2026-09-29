@@ -27,7 +27,6 @@ from auth.exceptions import (
 )
 from auth.models import AuthIdentity, AuthToken
 from db.models import User
-from plans import month_window
 
 from .schemas import (
     CostAllowance,
@@ -43,6 +42,7 @@ from .schemas import (
     VerificationRequested,
 )
 from .utils import (
+    canonical_email,
     create_access_token,
     create_refresh_token,
     decode_token,
@@ -55,9 +55,9 @@ from .verification import consume_token, email_configured, send_verification
 async def register_user(user: UserRegister, request_ip: str, db: AsyncSession) -> RegisterResponse:
     if not email_configured():
         raise VerificationNotConfigured
-    email = str(user.email).lower()
+    email = canonical_email(str(user.email))
     # Throwaway addresses pass verification, so the blocklist is the only thing
-    # standing between a scripted signup and a free monthly credit grant. Parent
+    # standing between a scripted signup and a free monthly build budget. Parent
     # domains are checked too: mailinator and friends hand out every subdomain.
     labels = email.rsplit("@", 1)[-1].split(".")
     if any(".".join(labels[i:]) in blocklist for i in range(len(labels) - 1)):
@@ -86,7 +86,7 @@ async def register_user(user: UserRegister, request_ip: str, db: AsyncSession) -
 async def login_user(user_data: UserLogin, db: AsyncSession) -> Token:
     """Authenticate user and return jwt"""
 
-    result = await db.execute(select(User).where(func.lower(User.email) == str(user_data.email).lower()))
+    result = await db.execute(select(User).where(func.lower(User.email) == canonical_email(str(user_data.email))))
 
     user = result.scalar_one_or_none()
 
@@ -130,12 +130,6 @@ async def refresh_token(token_data: RefreshTokenRequest, db: AsyncSession) -> To
 
 async def get_me(current_user: User, db: AsyncSession) -> UserResponse:
     response = UserResponse.model_validate(current_user)
-    # Reflect the available allowance without starting a new window on a profile read.
-    if not response.credits_unlimited and (
-        response.tokens_reset_at is None or response.tokens_reset_at <= datetime.now(UTC)
-    ):
-        response.tokens_remaining = current_user.credits_limit
-        response.tokens_reset_at = month_window(datetime.now(UTC))[1]
     response.providers = list(
         await db.scalars(select(AuthIdentity.provider).where(AuthIdentity.user_id == current_user.id))
     )
@@ -159,7 +153,7 @@ async def update_me(
 async def request_verification(data: EmailRequest, request_ip: str, db: AsyncSession) -> VerificationRequested:
     if not email_configured():
         raise VerificationNotConfigured
-    user = await db.scalar(select(User).where(func.lower(User.email) == str(data.email).lower()))
+    user = await db.scalar(select(User).where(func.lower(User.email) == canonical_email(str(data.email))))
     if user and not user.email_verified:
         await send_verification(db, user, request_ip)
         await db.commit()

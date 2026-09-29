@@ -1,5 +1,6 @@
 "use client";
 
+import { authService } from "@/services/service.auth";
 import { runService } from "@/services/service.runs";
 
 import { usePreviewLifecycle } from "@/hooks/preview/usePreviewLifecycle";
@@ -65,6 +66,23 @@ export function useChatWorkspace(chatId: string) {
         }
     }, [updatedUser, storedUser]);
     const modelChoice = useModelChoice(userData?.default_model_choice);
+    // The budget balance changes as a build spends, so reload it on open and after each build.
+    useEffect(() => {
+        if (isBuilding) return;
+        let disposed = false;
+        authService
+            .getCurrentUser()
+            .then((user) => {
+                if (disposed) return;
+                localStorage.setItem("user_data", JSON.stringify(user));
+                setUserData(user);
+            })
+            // Display only: on failure the last known balance stays up.
+            .catch(() => {});
+        return () => {
+            disposed = true;
+        };
+    }, [isBuilding]);
     const preview = usePreviewLifecycle({
         projectId: chatId,
         revisionId,
@@ -173,7 +191,6 @@ export function useChatWorkspace(chatId: string) {
             if (userData) {
                 const updated = {
                     ...userData,
-                    tokens_remaining: data.tokens_remaining,
                     default_model_choice: modelChoice.choice,
                 };
                 localStorage.setItem("user_data", JSON.stringify(updated));

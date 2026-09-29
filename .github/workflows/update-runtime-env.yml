@@ -1,23 +1,14 @@
 name: Update runtime env
 
-# Manual only. Patches an allowlisted set of cost ceilings, public origins and kit templates in
+# Manual only. Patches an allowlisted set of the monthly budget, public origins and kit templates in
 # the Oracle runtime file, then reruns the backend deploy so the next release
 # picks them up.
 on:
   workflow_dispatch:
     inputs:
-      RUN_MAX_COST_USD:
-        description: Dollars across all model calls in one run, compaction included
-        default: "1.00"
-      FREE_DAILY_COST_USD:
-        description: Per-user daily circuit breaker, USD
-        default: "8.00"
-      FREE_MONTHLY_COST_USD:
-        description: Per-user monthly circuit breaker, USD
-        default: "8.00"
-      FREE_TIER_MONTHLY_BUDGET_USD:
-        description: Monthly spend across every metered account, USD. 0 disables
-        default: "50.00"
+      MONTHLY_BUDGET_USD:
+        description: Model spend per user per UTC month, USD. Sandbox time does not count
+        default: "4.00"
       MAX_CONCURRENT_RUNS:
         description: Builds running at once across the whole service
         default: "18"
@@ -59,10 +50,7 @@ jobs:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
           DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
-          NEW_RUN_MAX_COST_USD: ${{ inputs.RUN_MAX_COST_USD }}
-          NEW_FREE_DAILY_COST_USD: ${{ inputs.FREE_DAILY_COST_USD }}
-          NEW_FREE_MONTHLY_COST_USD: ${{ inputs.FREE_MONTHLY_COST_USD }}
-          NEW_FREE_TIER_MONTHLY_BUDGET_USD: ${{ inputs.FREE_TIER_MONTHLY_BUDGET_USD }}
+          NEW_MONTHLY_BUDGET_USD: ${{ inputs.MONTHLY_BUDGET_USD }}
           NEW_MAX_CONCURRENT_RUNS: ${{ inputs.MAX_CONCURRENT_RUNS }}
           NEW_MAX_LIVE_SANDBOXES: ${{ inputs.MAX_LIVE_SANDBOXES }}
           NEW_FRONTEND_URL: ${{ inputs.FRONTEND_URL }}
@@ -77,7 +65,7 @@ jobs:
           : "${DEPLOY_KNOWN_HOSTS:?Missing DEPLOY_KNOWN_HOSTS}"
 
           # Reject anything that is not a plain non-negative number.
-          for key in RUN_MAX_COST_USD FREE_DAILY_COST_USD FREE_MONTHLY_COST_USD FREE_TIER_MONTHLY_BUDGET_USD MAX_CONCURRENT_RUNS MAX_LIVE_SANDBOXES; do
+          for key in MONTHLY_BUDGET_USD MAX_CONCURRENT_RUNS MAX_LIVE_SANDBOXES; do
             var="NEW_${key}"
             [[ "${!var}" =~ ^[0-9]+(\.[0-9]+)?$ ]] || { echo "Invalid value for $key"; exit 1; }
           done
@@ -104,10 +92,7 @@ jobs:
           # Values travel as environment variables, never on the command line.
           ssh "${ssh_args[@]}" \
             "ubuntu@$DEPLOY_HOST" \
-            NEW_RUN_MAX_COST_USD="$NEW_RUN_MAX_COST_USD" \
-            NEW_FREE_DAILY_COST_USD="$NEW_FREE_DAILY_COST_USD" \
-            NEW_FREE_MONTHLY_COST_USD="$NEW_FREE_MONTHLY_COST_USD" \
-            NEW_FREE_TIER_MONTHLY_BUDGET_USD="$NEW_FREE_TIER_MONTHLY_BUDGET_USD" \
+            NEW_MONTHLY_BUDGET_USD="$NEW_MONTHLY_BUDGET_USD" \
             NEW_MAX_CONCURRENT_RUNS="$NEW_MAX_CONCURRENT_RUNS" \
             NEW_MAX_LIVE_SANDBOXES="$NEW_MAX_LIVE_SANDBOXES" \
             NEW_FRONTEND_URL="$NEW_FRONTEND_URL" \
@@ -135,7 +120,7 @@ jobs:
           trap 'rm -f "$tmp"' EXIT
           sudo cat "$file" | awk '
             BEGIN {
-              split("RUN_MAX_COST_USD FREE_DAILY_COST_USD FREE_MONTHLY_COST_USD FREE_TIER_MONTHLY_BUDGET_USD MAX_CONCURRENT_RUNS MAX_LIVE_SANDBOXES FRONTEND_URL PUBLIC_API_URL ALLOWED_ORIGINS E2B_TEMPLATE DEFAULT_KIT", a, " ")
+              split("MONTHLY_BUDGET_USD MAX_CONCURRENT_RUNS MAX_LIVE_SANDBOXES FRONTEND_URL PUBLIC_API_URL ALLOWED_ORIGINS E2B_TEMPLATE DEFAULT_KIT", a, " ")
               for (i in a) want[a[i]] = ENVIRON["NEW_" a[i]]
             }
             {
@@ -183,7 +168,7 @@ jobs:
           fi
 
           # Report key names and whether they changed. Never print other lines.
-          for k in RUN_MAX_COST_USD FREE_DAILY_COST_USD FREE_MONTHLY_COST_USD FREE_TIER_MONTHLY_BUDGET_USD MAX_CONCURRENT_RUNS MAX_LIVE_SANDBOXES FRONTEND_URL PUBLIC_API_URL ALLOWED_ORIGINS E2B_TEMPLATE DEFAULT_KIT; do
+          for k in MONTHLY_BUDGET_USD MAX_CONCURRENT_RUNS MAX_LIVE_SANDBOXES FRONTEND_URL PUBLIC_API_URL ALLOWED_ORIGINS E2B_TEMPLATE DEFAULT_KIT; do
             before=$(sudo grep -E "^${k}=" "$backup" | head -1 | cut -d= -f2- || true)
             after=$(sudo grep -E "^${k}=" "$file" | head -1 | cut -d= -f2- || true)
             printf '  %-32s %s -> %s\n' "$k" "${before:-<unset>}" "$after"

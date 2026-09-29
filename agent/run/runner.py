@@ -15,7 +15,6 @@ from langchain_core.tools import tool
 from langchain_core.utils.function_calling import convert_to_openai_tool
 from pydantic import Field
 
-from ..budget.budget import dollar_nanos
 from ..budget.usage import invoke_with_usage, prompt_cache_key, record_usage
 from ..context.compaction import backoff_growth, compact, context_limit, hard_limit
 from ..context.context import CONTEXT_RULES, choose_files
@@ -202,10 +201,10 @@ async def run_editor(
         tools[history_tool.name] = history_tool
     # Runaway backstops, not work limits. OpenHands allows 500 iterations and
     # relies on stuck detection plus a cost ceiling to stop a run; a turn count
-    # low enough to interrupt healthy work is the wrong instrument.
+    # low enough to interrupt healthy work is the wrong instrument. Spend is bounded
+    # by the user's monthly budget, enforced on every model call (agent/budget).
     max_turns = run_settings.RUN_MAX_TURNS
     max_calls = run_settings.RUN_MAX_TOOL_CALLS
-    cost_cap = dollar_nanos(run_settings.RUN_MAX_COST_USD, "RUN_MAX_COST_USD")
     window = entry_for(model).context_window
     window_limit, ceiling = context_limit(window), hard_limit(window)
     retry_above = 0
@@ -435,18 +434,14 @@ async def run_editor(
             if repairs:
                 await emit("stage", message="Repairing verification errors")
             await checkpoint()
-            # Checked once per turn, before anything that can spend. The hooks record
-            # every reservation as it is made, so a run overshoots by at most one turn.
-            # Spec 5: the first time a cap is hit the model gets one grace turn to finish.
-            over_cost = metrics.get("cost_nanos", 0) >= cost_cap
-            over_time = deadline is not None and time.monotonic() > deadline - GRACE_SECONDS
-            if over_cost or over_time:
-                metrics["cost_budget"] = {"limit_nanos": cost_cap, "spent_nanos": metrics.get("cost_nanos", 0)}
+            # Checked once per turn, before anything that can spend.
+            # Spec 5: the first time the deadline nears the model gets one grace turn to finish.
+            if deadline is not None and time.monotonic() > deadline - GRACE_SECONDS:
                 nudge(
                     "grace",
-                    "Budget almost used. Stop exploring: finish the smallest working version of the change "
+                    "Time almost used. Stop exploring: finish the smallest working version of the change "
                     "now, then reply without calling tools.",
-                    "Cost budget reached" if over_cost else "Time budget reached",
+                    "Time budget reached",
                 )
                 flush_notes()
             drain_inbox()

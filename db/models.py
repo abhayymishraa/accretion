@@ -13,7 +13,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from plans import DEFAULT_PLAN, month_window, plan_credits
+from plans import DEFAULT_PLAN
 
 from .base import Base
 
@@ -30,13 +30,10 @@ class User(Base):
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
-    # Credits are the only limit a user sees. One credit per root run; follow-ups
-    # inside a run are free. The grant and the reset month come from plans.py.
+    # The monthly model budget (agent/budget) applies unless the plan is unlimited.
     plan: Mapped[str] = mapped_column(String(32), nullable=False, default=DEFAULT_PLAN, server_default=DEFAULT_PLAN)
     # The user's last pick, pre-filling the picker in the prompt box (spec 4.2, dyad's selectedModel).
     default_model_choice: Mapped[str] = mapped_column(String(128), default="auto", server_default="auto")
-    tokens_remaining: Mapped[int] = mapped_column(Integer, default=plan_credits(DEFAULT_PLAN))
-    tokens_reset_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, default=None)
 
     # A User can have many Chats.
     # back_populates="user" links back to the user field in the Chat model.
@@ -44,37 +41,9 @@ class User(Base):
     chats: Mapped[list["Chat"]] = relationship("Chat", back_populates="user", cascade="all, delete-orphan")
 
     @property
-    def credits_unlimited(self) -> bool:
-        return plan_credits(self.plan) is None
-
-    @property
-    def credits_limit(self) -> int:
-        return plan_credits(self.plan) or 0
-
-    def refund_token(self) -> None:
-        """Return a credit for a run that never got service.
-
-        Only for infrastructure faults. A run that spent its budget consumed real
-        compute, so refunding that would make an impossible request free to retry.
-        """
-        if not self.credits_unlimited and self.tokens_remaining < self.credits_limit:
-            self.tokens_remaining += 1
-
-    def use_token(self) -> bool:
-        """Spend one credit. False when this month's credits are gone."""
-        if self.credits_unlimited:
-            return True
-        now = datetime.now(UTC)
-        # Grant this month's credits on first use. The reset instant is the month
-        # boundary itself, not `now` plus a duration, so it cannot drift away from
-        # the cost windows in agent/budget.py.
-        if self.tokens_reset_at is None or now >= self.tokens_reset_at:
-            self.tokens_remaining = self.credits_limit
-            self.tokens_reset_at = month_window(now)[1]
-        if self.tokens_remaining > 0:
-            self.tokens_remaining -= 1
-            return True
-        return False
+    def unlimited(self) -> bool:
+        # The one plan the monthly budget does not apply to.
+        return self.plan == "unlimited"
 
 
 class Chat(Base):

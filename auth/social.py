@@ -28,6 +28,7 @@ from .dependencies import CurrentUser
 from .schemas import Token, TokenRequest
 from .utils import (
     SECRET_KEY,
+    canonical_email,
     create_access_token,
     create_refresh_token,
     get_password_hash,
@@ -137,7 +138,7 @@ async def verified_identity(provider: str, client, token) -> tuple[str, str, str
             raise ValueError("verified_email_required")
         return (
             str(info["sub"]),
-            info["email"].lower(),
+            canonical_email(info["email"]),
             str(info.get("name") or "Accretion member")[:100],
         )
     response = await client.get("user", token=token)
@@ -153,7 +154,7 @@ async def verified_identity(provider: str, client, token) -> tuple[str, str, str
         raise ValueError("verified_email_required")
     return (
         str(info["id"]),
-        email.lower(),
+        canonical_email(email),
         str(info.get("name") or info.get("login") or "Accretion member")[:100],
     )
 
@@ -192,7 +193,7 @@ async def resolve_identity(
         db.add(AuthIdentity(provider=provider, subject=subject, user_id=user.id))
     if not user:
         raise ValueError("account_conflict")
-    if user.email.lower() == email:
+    if canonical_email(user.email) == email:
         user.email_verified = True
     await db.flush()
     return user

@@ -17,6 +17,19 @@ REFRESH_TOKEN_EXPIRE_DAYS = 7
 # Use pbkdf2_sha256 to avoid bcrypt backend issues and 72-byte password limits
 pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 
+_GMAIL_DOMAINS = {"gmail.com", "googlemail.com"}
+
+
+def canonical_email(email: str) -> str:
+    """One account per inbox: Gmail ignores dots and +tags, so each alias would otherwise get its own budget.
+
+    Stored and looked up in this form; mail sent to it still reaches the same Gmail inbox.
+    """
+    local, _, domain = email.strip().lower().rpartition("@")
+    if domain in _GMAIL_DOMAINS:
+        return local.split("+", 1)[0].replace(".", "") + "@gmail.com"
+    return f"{local}@{domain}"
+
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verify a password"""

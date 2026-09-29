@@ -56,4 +56,3 @@ class RunAdmission(CustomModel):
     chat_id: str
     run_id: str | None = None
     status: str
-    tokens_remaining: int | None = None

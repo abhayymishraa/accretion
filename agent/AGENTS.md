@@ -94,8 +94,9 @@ split.
 - Costs are integers in billionths of USD. Never use a binary float for money.
 - Reserve before the work, settle after it. Every HTTP attempt is reserved,
   including SDK-internal retries and compaction calls.
-- The USD ceilings in `budget.py` are internal circuit breakers, not a
-  user-facing allowance. Credits are the only number the product shows. See
+- One limit: `MONTHLY_BUDGET_USD`, each user's model spend per UTC month, and
+  the number the product shows. Sandbox time is reserved and settled for
+  accounting but never counts against it. Unlimited plans are exempt; see
   [`plans.py`](../plans.py).
 
 ### Durability

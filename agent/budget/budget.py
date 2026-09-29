@@ -1,15 +1,12 @@
 """Atomic cost admission. Integers are billionths of USD, never binary floats.
 
-These ceilings are internal circuit breakers against runaway compute, not a
-second allowance. Credits (plans.py) are the limit a user sees, and these are
-sized so they do not bind before credits do. Reaching one is an incident, so
-the messages say so rather than blaming the user's credits.
+One limit: each user's monthly model budget, MONTHLY_BUDGET_USD. Sandbox time is
+reserved and settled here too, for accounting, but never counts against it.
 
 Uncertain requests retain their reservation as a conservative charge. Entries
-crossing a UTC reset count in both windows; a reset cannot free in-flight money.
+crossing a UTC month reset count in both months; a reset cannot free in-flight money.
 """
 
-import logging
 import uuid
 from datetime import UTC, datetime, timedelta
 from decimal import ROUND_CEILING, Decimal
@@ -19,17 +16,19 @@ from sqlalchemy import func, select
 from agent.budget.models import SpendEntry
 from db.base import AsyncSessionLocal
 from db.models import User
-from plans import METERED_PLANS, month_window
+from plans import month_window
 
 from .config import budget_settings
-
-logger = logging.getLogger("webbuilder.runs")
 
 NANOS = 1_000_000_000
 
 
 class BudgetLimitError(Exception):
     pass
+
+
+class BudgetSpentError(BudgetLimitError):
+    """The monthly budget cannot cover the next call: a stopping point, not a fault."""
 
 
 def dollar_nanos(amount, name):
@@ -40,91 +39,60 @@ def dollar_nanos(amount, name):
     return int((value * NANOS).to_integral_value(rounding=ROUND_CEILING))
 
 
-def windows(now):
-    # Shares month_window with the credit reset so the two clocks cannot drift.
-    day = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    month, next_month = month_window(now)
-    return (
-        (
-            "daily",
-            day,
-            day + timedelta(days=1),
-            dollar_nanos(budget_settings.FREE_DAILY_COST_USD, "FREE_DAILY_COST_USD"),
-        ),
-        (
-            "monthly",
-            month,
-            next_month,
-            dollar_nanos(budget_settings.FREE_MONTHLY_COST_USD, "FREE_MONTHLY_COST_USD"),
-        ),
+def _limit():
+    return dollar_nanos(budget_settings.MONTHLY_BUDGET_USD, "MONTHLY_BUDGET_USD")
+
+
+def _spent_error(end, left=0):
+    # With money left, the next step alone needs more than that; saying "used" would contradict the balance shown.
+    spent = (
+        f"This step needs more than the ${left / NANOS:.2f} left in this month's build budget."
+        if left
+        else "You have used this month's build budget."
+    )
+    return BudgetSpentError(
+        f"{spent} It resets on {end:%-d %B} UTC. Saved projects and previews remain available."
     )
 
 
-async def used_in_window(db, user_id, start, end, exclude=None):
-    query = select(func.coalesce(func.sum(SpendEntry.amount_nanos), 0)).where(
-        SpendEntry.user_id == user_id, SpendEntry.starts_at < end, SpendEntry.ends_at >= start
-    )
-    if exclude:
-        query = query.where(SpendEntry.id != exclude)
-    return await db.scalar(query)
-
-
-async def free_tier_used(db, start, end):
+async def used_in_month(db, user_id, start, end):
+    """Model spend only: sandbox entries are recorded but not charged to the user."""
     return await db.scalar(
-        select(func.coalesce(func.sum(SpendEntry.amount_nanos), 0))
-        .join(User, User.id == SpendEntry.user_id)
-        .where(SpendEntry.starts_at < end, SpendEntry.ends_at >= start, User.plan.in_(METERED_PLANS))
+        select(func.coalesce(func.sum(SpendEntry.amount_nanos), 0)).where(
+            SpendEntry.user_id == user_id,
+            SpendEntry.kind == "model",
+            SpendEntry.starts_at < end,
+            SpendEntry.ends_at >= start,
+        )
     )
 
 
-async def allowance(db, user, now=None):
-    now = now or datetime.now(UTC)
-    result = {"unlimited": user.credits_unlimited, "currency": "USD", "reset_timezone": "UTC"}
-    for name, start, end, limit in windows(now):
-        used = await used_in_window(db, user.id, start, end)
-        result[name] = {
-            "limit_usd": limit / NANOS,
-            "used_or_reserved_usd": used / NANOS,
-            "remaining_usd": max(0, limit - used) / NANOS,
-            "resets_at": end.isoformat(),
-        }
-    return result
+async def remaining_nanos(db, user, month=None):
+    """What is left of `month`'s budget (default: this one), or None when the plan is unlimited."""
+    if user.unlimited:
+        return None
+    start, end = month or month_window(datetime.now(UTC))
+    return max(0, _limit() - await used_in_month(db, user.id, start, end))
+
+
+async def allowance(db, user):
+    # One clock read, so the balance and its reset date always describe the same month.
+    month = month_window(datetime.now(UTC))
+    remaining = await remaining_nanos(db, user, month)
+    limit = _limit()
+    return {
+        "unlimited": remaining is None,
+        "limit_usd": limit / NANOS,
+        "remaining_usd": (limit if remaining is None else remaining) / NANOS,
+        "resets_at": month[1].isoformat(),
+    }
 
 
 async def require_allowance(db, user):
-    # Caller holds the user row lock. Actual operations reserve their entire bound.
-    if user.credits_unlimited:
-        return
-    now = datetime.now(UTC)
-    # Per-user limits cannot bound total spend; the user count is unbounded. Checked
-    # ahead of them so only new work is refused, never a run already in flight. 0 disables.
-    budget = dollar_nanos(budget_settings.FREE_TIER_MONTHLY_BUDGET_USD, "FREE_TIER_MONTHLY_BUDGET_USD")
-    if budget:
-        month_start, month_end = month_window(now)
-        used = float(await free_tier_used(db, month_start, month_end))
-        # Warn before the ceiling bites: reaching it refuses every free account at
-        # once, so the operator needs a chance to raise it first.
-        if used >= budget * 0.8:
-            level = logger.error if used >= budget else logger.warning
-            level(
-                "Free tier at %d%% of its monthly ceiling: %.2f of %.2f USD",
-                used * 100 // budget,
-                used / NANOS,
-                budget / NANOS,
-            )
-        if used >= budget:
-            raise BudgetLimitError(
-                "Free capacity for this month is used up across all accounts. This is a "
-                "service-wide ceiling, not your credits, and none were spent. It clears at "
-                f"{month_end:%Y-%m-%d %H:%M} UTC."
-            )
-    for name, start, end, limit in windows(now):
-        if await used_in_window(db, user.id, start, end) >= limit:
-            raise BudgetLimitError(
-                f"A {name} compute safety limit was reached, so new work is paused. This is not "
-                f"your credits: none were spent. It clears at {end:%Y-%m-%d %H:%M} UTC, saved "
-                "files remain available, and support can raise it."
-            )
+    # Caller holds the user row lock. Each model call also reserves its own bound in reserve().
+    month = month_window(datetime.now(UTC))
+    if await remaining_nanos(db, user, month) == 0:
+        raise _spent_error(month[1])
 
 
 def runtime_amount(entry, end):
@@ -148,21 +116,13 @@ async def reserve(user_id, kind, amount, duration, details, run_id=None, replace
         if old and (old.user_id != user_id or old.kind != "sandbox" or old.state != "reserved"):
             raise ValueError("Invalid sandbox spend reservation")
         old_amount = runtime_amount(old, now) if old else 0
-        if not user.credits_unlimited:
-            # Charge a crossing reservation to every window it can occupy, including
-            # tomorrow/next month. Durations are bounded below one day by callers.
-            periods = {period for instant in (now, end) for period in windows(instant)}
-            for name, start, finish, limit in sorted(periods, key=lambda p: p[1]):
-                used = await used_in_window(db, user_id, start, finish, replace_id)
-                if old and old.starts_at < finish and min(now, old.ends_at) >= start:
-                    used += old_amount
-                if used + amount > limit:
-                    raise BudgetLimitError(
-                        f"A {name} compute safety limit would be exceeded by this operation, so it "
-                        "was not started. This is not your credits. Open previews hold compute "
-                        f"until they stop. Clears: {finish:%Y-%m-%d %H:%M} UTC. Saved files remain "
-                        "available."
-                    )
+        if kind == "model" and not user.unlimited:
+            # Charge a reservation crossing a month reset to both months. Durations are
+            # bounded below one day by callers, so at most two.
+            for start, finish in sorted({month_window(now), month_window(end)}):
+                used = await used_in_month(db, user_id, start, finish)
+                if used + amount > _limit():
+                    raise _spent_error(finish, max(0, _limit() - used))
         if old:
             old.amount_nanos, old.state = old_amount, "settled"
             old.ends_at = max(old.starts_at, min(now, old.ends_at))

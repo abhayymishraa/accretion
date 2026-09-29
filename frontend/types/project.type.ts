@@ -2,7 +2,6 @@ export interface ChatResponse {
     status: "running";
     run_id: string;
     chat_id: string;
-    tokens_remaining: number;
 }
 
 export interface Project {

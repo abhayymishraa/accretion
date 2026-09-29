@@ -8,7 +8,7 @@ export const runService = {
         modelChoice = "auto",
     ) {
         return (
-            await apiClient.post<{ run_id: string; tokens_remaining: number }>(
+            await apiClient.post<{ run_id: string }>(
                 `/projects/${chatId}/runs`,
                 { prompt, mode, model_choice: modelChoice },
             )
