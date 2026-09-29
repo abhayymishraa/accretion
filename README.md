@@ -16,7 +16,7 @@ reconnect work on a run independently of its WebSocket.
 | Backend | FastAPI, one container on a VM behind Caddy |
 | Database | PostgreSQL |
 | Sandbox | E2B, Vite on port 5173 |
-| Model | `gpt-5.6-luna`, set with `OPENAI_MODEL` |
+| Model | Any entry in `agent/routing/models.toml`, set with `DEFAULT_MODEL` |
 
 ## Quickstart
 

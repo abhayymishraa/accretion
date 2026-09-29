@@ -56,43 +56,25 @@ Startup marks unfinished runs `interrupted`; it never replays mutations automati
 Restarting the API interrupts active generations. This setup does not provide
 zero-downtime failover, and adding workers would violate admission/ownership assumptions.
 
-## Upgrade the generated-app template
+## Upgrade the sandbox template
 
-Follow the [SDK build and promotion commands](../README.md#e2b-template).
-Build a fresh version label, promote its exact `name:build-UUID` to staging,
-and smoke-check a disposable sandbox with approval before production promotion.
-Check the starter production build, desktop/mobile browser rendering, and a
-source restore followed by the existing Vite restart. Template HTTP readiness
-alone does not establish that these paths work.
-
-Set the repository's `E2B_TEMPLATE_ID` secret to the returned exact `build_ref`.
-The backend deploy workflow validates the reference and writes it to the VM's
-private runtime file before migrating and restarting the API. Retain the old
-value for rollback. Do not configure a moving `:production` tag or bare name for
-new releases: saved revisions must retain a reproducible build reference.
-Tag promotion does not change the VM environment or deploy the backend.
-Deploy accompanying agent guidance with the backend when needed.
-
-Saved revisions retain their recorded template references; this does not migrate
-them. Legacy IDs such as `dwel3q1jkunk4chqfw7h` still work. For rollback, restore
-the previous backend environment reference and optionally reassign the production
-tag to that exact prior build. Adding the SDK release command does not establish
-a new built, smoke-checked, or deployed template.
+Build it as described in [sandbox/README.md](../sandbox/README.md#release): `make template-build`
+tags the new build with its date and moves `production` to it. The backend follows
+`E2B_TEMPLATE` (`accretion:production`), and every new project records the exact build it
+started on, so a tag move never changes an existing project. `deploy.sh` refuses to deploy
+without `E2B_TEMPLATE` in `name:tag` form. Roll back by moving the tag to an earlier dated build.
 
 ## Roll out the orchestration change
 
 The 12 September implementation has been checked locally with real OpenAI/E2B,
 but that does not establish deployment of this revision.
 
-1. Set `E2B_TEMPLATE_ID=xjklh0xbjh3wpgu0w306` in the VM's private runtime file.
-   This `webbuilder-react-verified` template includes the browser checker dependencies.
-   Keep the old value with the previous release configuration for rollback.
-2. Allow current generations to finish, then release backend and frontend together.
+1. Allow current generations to finish, then release backend and frontend together.
    The workflow creates the additive `runs` table before API startup. The new first-frame
    WebSocket authentication and HTTP follow-up protocol require both sides to be updated;
    old browser tabs must reload. Independently completing Vercel/GitHub deploys can leave
    a short incompatible interval. Use a maintenance window for this first transition.
-3. Confirm readiness, login, snapshot recovery and Stop. Generation checks use paid
+2. Confirm readiness, login, snapshot recovery and Stop. Generation checks use paid
    providers; the routine health check does not generate an application.
 
 For rollback, restore both frontend and backend revisions. Leave the additive `runs`
