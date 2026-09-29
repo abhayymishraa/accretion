@@ -293,6 +293,15 @@
 [data-error-box="shown"] {
     display: block;
 }
+/* A panel a button reveals. Not the hidden attribute: preflight makes that
+   display:none !important, which a transition cannot override, so it could only
+   animate open. Same shape as the error box, plus height. */
+[data-disclosure] {
+    display: none;
+}
+[data-disclosure="open"] {
+    display: block;
+}
 
 @media (prefers-reduced-motion: no-preference) {
     [data-error-box] {
@@ -311,6 +320,25 @@
         @starting-style {
             opacity: 0;
             transform: translateY(-6px);
+        }
+    }
+
+    [data-disclosure] {
+        overflow: clip;
+        block-size: 0;
+        opacity: 0;
+        transition:
+            block-size 260ms var(--ease-out),
+            opacity 180ms var(--ease-out),
+            display 260ms allow-discrete;
+    }
+    [data-disclosure="open"] {
+        block-size: auto;
+        opacity: 1;
+
+        @starting-style {
+            block-size: 0;
+            opacity: 0;
         }
     }
 

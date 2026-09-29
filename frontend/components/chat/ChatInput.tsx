@@ -214,7 +214,7 @@ export function ChatInput({
                             <Button
                                 type="button"
                                 variant="utility"
-                                className="gap-1.5 border border-border bg-surface-1 px-3 text-[12.5px] text-foreground"
+                                className="gap-1.5 border border-border bg-surface-1 px-3 text-[12.5px] text-foreground starting:scale-[0.97] starting:opacity-0 motion-reduce:starting:scale-100 [transition:background-color_130ms_ease,color_130ms_ease,opacity_120ms_var(--ease-out),scale_120ms_var(--ease-out)]"
                                 onClick={onCancel}
                                 disabled={!canCancel}
                                 aria-label="Stop the current run"
@@ -226,7 +226,7 @@ export function ChatInput({
                             <Button
                                 type="submit"
                                 variant="send"
-                                className="rounded-full disabled:bg-surface-3 disabled:text-muted-foreground/50"
+                                className="rounded-full disabled:bg-surface-3 disabled:text-muted-foreground/50 starting:scale-[0.97] starting:opacity-0 motion-reduce:starting:scale-100 [transition:background-color_140ms_ease,border-color_140ms_ease,opacity_120ms_var(--ease-out),transform_140ms_var(--ease-out),scale_120ms_var(--ease-out)]"
                                 disabled={!canCompose || !input.trim()}
                                 aria-label="Send message"
                             >

@@ -5,6 +5,7 @@ import { Brand } from "@/components/layout/Brand";
 import { ChatNavbar } from "@/components/layout/ChatNavbar";
 import { WorkspaceSidebar } from "@/components/layout/WorkspaceSidebar";
 import { Button } from "@/components/ui/button";
+import { ErrorBox } from "@/components/ui/ErrorBox";
 import { ArrowRight, ArrowUpRight } from "lucide-react";
 import Link from "next/link";
 
@@ -93,14 +94,9 @@ export default function ChatPage() {
                                     modelChoice={modelChoice}
                                     onModelChoiceChange={setModelChoice}
                                 />
-                                {error && (
-                                    <p
-                                        className="relative mt-4 rounded-[10px] border border-destructive/40 bg-destructive/10 px-4 py-3 text-left text-sm leading-relaxed text-destructive"
-                                        role="alert"
-                                    >
-                                        {error}
-                                    </p>
-                                )}
+                                <div className="relative text-left [&>[data-error-box]]:mt-4">
+                                    <ErrorBox message={error} />
+                                </div>
                                 <p
                                     id="project-brief-note"
                                     className="relative mt-5 text-xs leading-relaxed text-muted-foreground"

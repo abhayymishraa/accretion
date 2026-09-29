@@ -82,18 +82,26 @@ export function ChatInputBox({
                     aria-label={submitLabel}
                     title={submitLabel}
                 >
-                    {isLoading ? (
+                    {/* Both icons share one cell so the swap cross-fades instead of cutting. */}
+                    <span className="grid [&>svg]:[grid-area:1/1] [&>svg]:transition-[opacity,scale] [&>svg]:duration-150 [&>svg]:ease-[var(--ease-out)] motion-reduce:[&>svg]:scale-100">
+                        <ArrowUp
+                            size={19}
+                            aria-hidden="true"
+                            className={isLoading ? "scale-80 opacity-0" : undefined}
+                        />
                         <Loader2
                             size={19}
-                            className="animate-spin motion-reduce:animate-none"
                             aria-hidden="true"
+                            className={
+                                isLoading
+                                    ? "animate-spin motion-reduce:animate-none"
+                                    : "scale-80 opacity-0"
+                            }
                         />
-                    ) : (
-                        <ArrowUp size={19} aria-hidden="true" />
-                    )}
+                    </span>
                 </Button>
             </div>
-            <div id="project-brief-examples" hidden={!showExamples}>
+            <div id="project-brief-examples" data-disclosure={showExamples ? "open" : ""}>
                 <div className="mt-3 grid gap-1 border-t border-hairline pt-3 sm:grid-cols-3">
                     {starterBriefs.map((starter) => (
                         <Button

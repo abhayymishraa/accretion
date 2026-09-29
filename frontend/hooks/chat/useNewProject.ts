@@ -102,7 +102,10 @@ export function useNewProject() {
         } catch (err) {
             console.error("Error creating chat:", err);
             modelChoice.rejected(err);
-            setError("Failed to create chat. Please try again.");
+            // The API client puts the server's reason in the message; a spent budget says when it resets.
+            setError(
+                err instanceof Error ? err.message : "Failed to create chat. Please try again.",
+            );
             setIsLoading(false);
         }
     };

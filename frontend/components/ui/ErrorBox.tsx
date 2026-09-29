@@ -2,9 +2,10 @@
 
 import { useState } from "react";
 
-// Shared by auth and profile. Lives here rather than in either feature because
+// Shared by auth, profile and chat. Lives here rather than in any feature because
 // components/ui is this repo's home for controls more than one feature needs.
-export function ErrorBox({ message }: { message: string }) {
+// `children` is an action offered with the error, such as Retry.
+export function ErrorBox({ message, children }: { message: string; children?: React.ReactNode }) {
     const [held, setHeld] = useState(message);
     if (message && message !== held) setHeld(message);
 
@@ -17,11 +18,12 @@ export function ErrorBox({ message }: { message: string }) {
     return (
         <p
             data-error-box={message ? "shown" : ""}
-            className="rounded-[10px] border border-destructive/40 bg-destructive/8 px-4 py-3 text-[13px] leading-[1.5] text-destructive"
+            className="rounded-[10px] border border-destructive/40 bg-destructive/8 px-4 py-3 text-[13px] leading-[1.5] wrap-anywhere text-destructive"
             role="alert"
             aria-live="polite"
         >
             {held}
+            {children && <> {children}</>}
         </p>
     );
 }

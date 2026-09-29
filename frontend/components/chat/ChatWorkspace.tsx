@@ -1,6 +1,7 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
+import { ErrorBox } from "@/components/ui/ErrorBox";
 
 import { ChatIdHeader } from "@/components/chat/ChatIdHeader";
 import { ChatInput } from "@/components/chat/ChatInput";
@@ -130,21 +131,15 @@ export default function ChatWorkspace({ chatId }: { chatId: string }) {
                                         {loadingOlder ? "Loading older messages…" : "Show earlier"}
                                     </Button>
                                 )}
-                                {error && (
-                                    <p
-                                        className="flex flex-wrap items-center gap-2 rounded-[10px] border border-destructive/40 bg-destructive/10 px-4 py-3 text-[13px] leading-relaxed text-destructive"
-                                        role="alert"
+                                <ErrorBox message={error ?? ""}>
+                                    <Button
+                                        variant="utility"
+                                        className="text-destructive"
+                                        onClick={refreshHistory}
                                     >
-                                        {error}
-                                        <Button
-                                            variant="utility"
-                                            className="text-destructive"
-                                            onClick={refreshHistory}
-                                        >
-                                            Retry
-                                        </Button>
-                                    </p>
-                                )}
+                                        Retry
+                                    </Button>
+                                </ErrorBox>
                                 {!messages.length && !isLoading && !error && (
                                     <div className="ember-chat-intro pt-2 pb-4">
                                         <span className="inline-flex size-9 items-center justify-center rounded-[10px] bg-accent text-accent-foreground">

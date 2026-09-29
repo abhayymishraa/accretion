@@ -4,6 +4,7 @@ import { Check } from "lucide-react";
 import { useId, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { ErrorBox } from "@/components/ui/ErrorBox";
 import { Input } from "@/components/ui/input";
 import { useWorkflowDecision } from "@/hooks/chat/useWorkflowDecision";
 import type { Message } from "@/types/chat.type";
@@ -201,11 +202,9 @@ function WorkflowDecisionCard({ message, onChanged, canRespond }: WorkflowCardPr
                             </div>
                         </form>
                     )}
-                    {error && (
-                        <p role="alert" className="mt-3 wrap-anywhere text-destructive">
-                            {error}
-                        </p>
-                    )}
+                    <div className="[&>[data-error-box]]:mt-3">
+                        <ErrorBox message={error ?? ""} />
+                    </div>
                 </div>
             )}
         </section>
