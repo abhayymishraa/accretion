@@ -17,6 +17,8 @@ COPY main.py request_timing.py plans.py config.py exceptions.py models.py ./
 COPY alembic.ini ./
 COPY alembic/ ./alembic/
 COPY agent/ ./agent/
+# Only each kit's stack.json (.dockerignore); kit code lives in the E2B templates.
+COPY sandbox/kits/ ./sandbox/kits/
 COPY auth/ ./auth/
 COPY db/ ./db/
 COPY health/ ./health/

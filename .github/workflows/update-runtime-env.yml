@@ -1,14 +1,14 @@
 name: Update runtime env
 
-# Manual only. Patches an allowlisted set of cost ceilings and public origins in
+# Manual only. Patches an allowlisted set of cost ceilings, public origins and kit templates in
 # the Oracle runtime file, then reruns the backend deploy so the next release
 # picks them up.
 on:
   workflow_dispatch:
     inputs:
-      RUN_MAX_TOKENS:
-        description: Total tokens across all model calls in one run
-        default: "1000000"
+      RUN_MAX_COST_USD:
+        description: Dollars across all model calls in one run, compaction included
+        default: "1.00"
       FREE_DAILY_COST_USD:
         description: Per-user daily circuit breaker, USD
         default: "8.00"
@@ -33,6 +33,14 @@ on:
       ALLOWED_ORIGINS:
         description: Comma-separated CORS origins
         default: "https://accretion.abhayymishraa.com"
+      E2B_TEMPLATE:
+        description: The sandbox template as name:tag; make template-build moves the tag
+        default: "accretion:production"
+      DEFAULT_KIT:
+        description: Kit a new project starts from
+        type: choice
+        options: [vite-fastapi-postgres, next-postgres, vite-express-mongo]
+        default: vite-fastapi-postgres
       redeploy:
         description: Rerun deploy-backend.yml afterwards
         type: boolean
@@ -51,7 +59,7 @@ jobs:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
           DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
-          NEW_RUN_MAX_TOKENS: ${{ inputs.RUN_MAX_TOKENS }}
+          NEW_RUN_MAX_COST_USD: ${{ inputs.RUN_MAX_COST_USD }}
           NEW_FREE_DAILY_COST_USD: ${{ inputs.FREE_DAILY_COST_USD }}
           NEW_FREE_MONTHLY_COST_USD: ${{ inputs.FREE_MONTHLY_COST_USD }}
           NEW_FREE_TIER_MONTHLY_BUDGET_USD: ${{ inputs.FREE_TIER_MONTHLY_BUDGET_USD }}
@@ -60,6 +68,8 @@ jobs:
           NEW_FRONTEND_URL: ${{ inputs.FRONTEND_URL }}
           NEW_PUBLIC_API_URL: ${{ inputs.PUBLIC_API_URL }}
           NEW_ALLOWED_ORIGINS: ${{ inputs.ALLOWED_ORIGINS }}
+          NEW_E2B_TEMPLATE: ${{ inputs.E2B_TEMPLATE }}
+          NEW_DEFAULT_KIT: ${{ inputs.DEFAULT_KIT }}
         run: |
           set -euo pipefail
           : "${DEPLOY_HOST:?Missing DEPLOY_HOST}"
@@ -67,10 +77,12 @@ jobs:
           : "${DEPLOY_KNOWN_HOSTS:?Missing DEPLOY_KNOWN_HOSTS}"
 
           # Reject anything that is not a plain non-negative number.
-          for key in RUN_MAX_TOKENS FREE_DAILY_COST_USD FREE_MONTHLY_COST_USD FREE_TIER_MONTHLY_BUDGET_USD MAX_CONCURRENT_RUNS MAX_LIVE_SANDBOXES; do
+          for key in RUN_MAX_COST_USD FREE_DAILY_COST_USD FREE_MONTHLY_COST_USD FREE_TIER_MONTHLY_BUDGET_USD MAX_CONCURRENT_RUNS MAX_LIVE_SANDBOXES; do
             var="NEW_${key}"
             [[ "${!var}" =~ ^[0-9]+(\.[0-9]+)?$ ]] || { echo "Invalid value for $key"; exit 1; }
           done
+
+          [[ "$NEW_E2B_TEMPLATE" =~ ^[a-z0-9][a-z0-9_-]*:[A-Za-z0-9._-]+$ ]] || { echo "Invalid E2B_TEMPLATE; use name:tag"; exit 1; }
 
           # Origins only: https, a host, optional port. No path, no credentials.
           # ALLOWED_ORIGINS may list several. Values land in runtime.env verbatim.
@@ -92,7 +104,7 @@ jobs:
           # Values travel as environment variables, never on the command line.
           ssh "${ssh_args[@]}" \
             "ubuntu@$DEPLOY_HOST" \
-            NEW_RUN_MAX_TOKENS="$NEW_RUN_MAX_TOKENS" \
+            NEW_RUN_MAX_COST_USD="$NEW_RUN_MAX_COST_USD" \
             NEW_FREE_DAILY_COST_USD="$NEW_FREE_DAILY_COST_USD" \
             NEW_FREE_MONTHLY_COST_USD="$NEW_FREE_MONTHLY_COST_USD" \
             NEW_FREE_TIER_MONTHLY_BUDGET_USD="$NEW_FREE_TIER_MONTHLY_BUDGET_USD" \
@@ -101,6 +113,8 @@ jobs:
             NEW_FRONTEND_URL="$NEW_FRONTEND_URL" \
             NEW_PUBLIC_API_URL="$NEW_PUBLIC_API_URL" \
             NEW_ALLOWED_ORIGINS="$NEW_ALLOWED_ORIGINS" \
+            NEW_E2B_TEMPLATE="$NEW_E2B_TEMPLATE" \
+            NEW_DEFAULT_KIT="$NEW_DEFAULT_KIT" \
             'bash -s' <<'REMOTE'
           set -euo pipefail
           file=/opt/webbuilder/runtime.env
@@ -121,7 +135,7 @@ jobs:
           trap 'rm -f "$tmp"' EXIT
           sudo cat "$file" | awk '
             BEGIN {
-              split("RUN_MAX_TOKENS FREE_DAILY_COST_USD FREE_MONTHLY_COST_USD FREE_TIER_MONTHLY_BUDGET_USD MAX_CONCURRENT_RUNS MAX_LIVE_SANDBOXES FRONTEND_URL PUBLIC_API_URL ALLOWED_ORIGINS", a, " ")
+              split("RUN_MAX_COST_USD FREE_DAILY_COST_USD FREE_MONTHLY_COST_USD FREE_TIER_MONTHLY_BUDGET_USD MAX_CONCURRENT_RUNS MAX_LIVE_SANDBOXES FRONTEND_URL PUBLIC_API_URL ALLOWED_ORIGINS E2B_TEMPLATE DEFAULT_KIT", a, " ")
               for (i in a) want[a[i]] = ENVIRON["NEW_" a[i]]
             }
             {
@@ -169,7 +183,7 @@ jobs:
           fi
 
           # Report key names and whether they changed. Never print other lines.
-          for k in RUN_MAX_TOKENS FREE_DAILY_COST_USD FREE_MONTHLY_COST_USD FREE_TIER_MONTHLY_BUDGET_USD MAX_CONCURRENT_RUNS MAX_LIVE_SANDBOXES FRONTEND_URL PUBLIC_API_URL ALLOWED_ORIGINS; do
+          for k in RUN_MAX_COST_USD FREE_DAILY_COST_USD FREE_MONTHLY_COST_USD FREE_TIER_MONTHLY_BUDGET_USD MAX_CONCURRENT_RUNS MAX_LIVE_SANDBOXES FRONTEND_URL PUBLIC_API_URL ALLOWED_ORIGINS E2B_TEMPLATE DEFAULT_KIT; do
             before=$(sudo grep -E "^${k}=" "$backup" | head -1 | cut -d= -f2- || true)
             after=$(sudo grep -E "^${k}=" "$file" | head -1 | cut -d= -f2- || true)
             printf '  %-32s %s -> %s\n' "$k" "${before:-<unset>}" "$after"

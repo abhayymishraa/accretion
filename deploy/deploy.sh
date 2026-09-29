@@ -4,16 +4,11 @@ umask 077
 
 sha=${1:?Provide the commit SHA}
 domain=${2:?Provide the backend domain}
-template_ref=${3-}
 # Optional second hostname, served alongside the primary during a migration.
-domain_alt=${4-}
+domain_alt=${3-}
 [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || exit 2
 [[ "$domain" =~ ^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$ ]] || exit 2
 [[ -z "$domain_alt" || "$domain_alt" =~ ^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$ ]] || exit 2
-if [[ -n "$template_ref" ]] && [[ ! "$template_ref" =~ ^[a-z0-9][a-z0-9_-]*(/[a-z0-9][a-z0-9_-]*)?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; then
-    echo 'Invalid E2B template reference; use template-name:<exact-build-UUID>'
-    exit 2
-fi
 [[ $(id -u) == 0 ]] || { echo 'Run with sudo'; exit 2; }
 
 artifact_dir=$(cd "$(dirname "$0")/.." && pwd)
@@ -25,9 +20,14 @@ chown 10001:10001 "$root/projects"
 exec 9>"$root/deploy.lock"
 flock -w 300 9
 [[ -s "$root/runtime.env" ]] || { echo 'Missing runtime.env'; exit 1; }
-for key in DATABASE_URL OPENAI_API_KEY E2B_API_KEY E2B_TEMPLATE_ID STORAGE_BUCKET; do
+# The app itself rejects an unknown DEFAULT_MODEL or a missing provider key at boot,
+# which fails the health check below.
+for key in DATABASE_URL DEFAULT_MODEL E2B_API_KEY STORAGE_BUCKET; do
     grep -qE "^${key}=.+$" "$root/runtime.env" || { echo "Missing $key"; exit 1; }
 done
+# The template as name:tag (for example accretion:production); `make template-build` moves the tag.
+grep -qE "^E2B_TEMPLATE=[a-z0-9][a-z0-9_-]*:[A-Za-z0-9._-]+$" "$root/runtime.env" \
+    || { echo "Missing or invalid E2B_TEMPLATE; use template-name:tag"; exit 1; }
 grep -qE '^STORAGE_PROVIDER=gcs$' "$root/runtime.env" || { echo 'Production requires STORAGE_PROVIDER=gcs'; exit 1; }
 grep -qE '^GOOGLE_APPLICATION_CREDENTIALS=/run/secrets/gcs.json$' "$root/runtime.env" || { echo 'Set GOOGLE_APPLICATION_CREDENTIALS to the mounted credential path'; exit 1; }
 [[ -s "$root/secrets/gcs.json" ]] || { echo 'Missing private GCS credentials file'; exit 1; }
@@ -37,8 +37,6 @@ grep -qE '^SECRET_KEY=.{32,}$' "$root/runtime.env" || { echo 'SECRET_KEY must co
 previous=$(readlink -f "$root/current" 2>/dev/null || true)
 [[ -f "$previous/compose.yaml" ]] || previous=
 [[ "$previous" != "$release" ]] || { echo 'This release is already deployed'; exit 0; }
-previous_template_ref=$(sed -n 's/^E2B_TEMPLATE_ID=//p' "$root/runtime.env")
-runtime_changed=false
 
 compose() {
     local directory=$1
@@ -56,17 +54,6 @@ rollback() {
         docker inspect --format 'API health diagnostics: {{json .State.Health}}' "$(compose "$release" ps -q api)" || true
         echo 'API container logs:'
         compose "$release" logs --tail 50 --no-color api || true
-    fi
-    if [[ "$runtime_changed" == true ]]; then
-        runtime_tmp=$(mktemp "$root/runtime.env.XXXXXX")
-        awk -v value="$previous_template_ref" '
-            /^E2B_TEMPLATE_ID=/ { print "E2B_TEMPLATE_ID=" value; found=1; next }
-            { print }
-            END { if (!found) print "E2B_TEMPLATE_ID=" value }
-        ' "$root/runtime.env" > "$runtime_tmp"
-        chown --reference="$root/runtime.env" "$runtime_tmp"
-        chmod --reference="$root/runtime.env" "$runtime_tmp"
-        mv -f "$runtime_tmp" "$root/runtime.env"
     fi
     if [[ -n "$previous" ]]; then
         compose "$previous" up -d --remove-orphans || true
@@ -89,18 +76,6 @@ compose "$release" config --quiet
 compose "$release" pull proxy
 trap rollback ERR
 trap 'false' INT TERM
-if [[ -n "$template_ref" ]] && [[ "$template_ref" != "$previous_template_ref" ]]; then
-    runtime_tmp=$(mktemp "$root/runtime.env.XXXXXX")
-    awk -v value="$template_ref" '
-        /^E2B_TEMPLATE_ID=/ { print "E2B_TEMPLATE_ID=" value; found=1; next }
-        { print }
-        END { if (!found) print "E2B_TEMPLATE_ID=" value }
-    ' "$root/runtime.env" > "$runtime_tmp"
-    chown --reference="$root/runtime.env" "$runtime_tmp"
-    chmod --reference="$root/runtime.env" "$runtime_tmp"
-    mv -f "$runtime_tmp" "$root/runtime.env"
-    runtime_changed=true
-fi
 # Drain the old writer before migrating legacy event arrays into ordered rows.
 if [[ -n "$previous" ]]; then compose "$previous" stop api; fi
 docker run --rm --env-file "$root/runtime.env" "$image" alembic upgrade head

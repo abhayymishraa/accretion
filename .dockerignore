@@ -24,6 +24,7 @@
 !agent/
 !agent/*.py
 !agent/*.cjs
+!sandbox/kits/*/stack.json
 !agent/skills/
 !agent/skills/find-skills/
 !agent/skills/find-skills/SKILL.md
