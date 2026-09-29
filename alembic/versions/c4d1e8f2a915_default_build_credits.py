@@ -22,8 +22,7 @@ depends_on: str | Sequence[str] | None = None
 # users.tokens_remaining or users.tokens_reset_at. They stay one release so a failed
 # deploy can roll back to code that still reads them: deploy.sh restarts the previous
 # release without a downgrade. tokens_remaining is NOT NULL with no default, so the
-# new code's inserts need one. Drop both columns in a later release; until then
-# autogenerate proposes that drop, which is expected.
+# new code's inserts need one. d8a3f6b1c207 drops both columns.
 
 
 def _has(inspector, column: str) -> bool:
