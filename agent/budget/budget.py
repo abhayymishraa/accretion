@@ -50,9 +50,7 @@ def _spent_error(end, left=0):
         if left
         else "You have used this month's build budget."
     )
-    return BudgetSpentError(
-        f"{spent} It resets on {end:%-d %B} UTC. Saved projects and previews remain available."
-    )
+    return BudgetSpentError(f"{spent} It resets on {end:%-d %B} UTC. Saved projects and previews remain available.")
 
 
 async def used_in_month(db, user_id, start, end):
