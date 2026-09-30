@@ -42,11 +42,35 @@ async def check_browser(workspace, *, preflight=False, viewport=None, path='/', 
     if checks:
         args += ['--checks', json.dumps(checks)]
     command = 'PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers ' + shlex.join(['node', '-e', script, '--', *args])
+    if checks:
+        command = _with_database_restored(command)
     # JSON observation: a tail cut would break parsing.
     result: dict[str, Any] = await workspace.command(
         command, timeout_seconds=90 if checks else 45, max_output=MAX_STREAM_OUTPUT
     )
     return result
+
+
+# An acceptance plan may create or change rows through the app's own API; replays after the final
+# edit must not leave test data in the user's project. The project's own stack.json dump/restore
+# snapshot the database around the check, and db/ is set aside first so a saved dump file is untouched.
+_STACK_STEP = 'node -e \'process.stdout.write(require("./.accretion/stack.json").{step} || "")\''
+
+
+def _with_database_restored(command: str) -> str:
+    """Restore only from a dump that succeeded: a failed dump must never overwrite the user's data.
+
+    Their stdout is discarded because the check's JSON must be the only thing on it (psql prints
+    query results while restoring); stderr still reports a failed dump or restore.
+    """
+    dump, restore = _STACK_STEP.format(step='dump'), _STACK_STEP.format(step='restore')
+    return (
+        'set -a; [ -f .env ] && . ./.env; set +a; saved=$(mktemp -d); cp -a db "$saved/" 2>/dev/null; '
+        f'mkdir -p db; dumped=0; if eval "$({dump})" >/dev/null; then dumped=1; fi; {command}; status=$?; '
+        f'if [ "$dumped" = 1 ]; then eval "$({restore})" >/dev/null; fi; '
+        'rm -rf db; if [ -d "$saved/db" ]; then mv "$saved/db" db; else mkdir -p db; fi; rm -rf "$saved"; '
+        'exit $status'
+    )
 
 
 async def ensure_preview_current(workspace) -> None:

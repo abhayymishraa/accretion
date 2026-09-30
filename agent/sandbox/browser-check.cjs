@@ -31,12 +31,15 @@ const { chromium } = require('/opt/webbuilder-checks/node_modules/playwright');
       const page = await context.newPage();
       page.setDefaultTimeout(5000);
       if (inspecting || plan) {
-        // Keep navigation local, including redirects. Assets can still load from CDNs.
+        // Keep navigation local, including redirects. Assets can still load from CDNs. A plan may
+        // write to the app's own origin (its API sits behind the preview's proxy): the host snapshots
+        // the project database before the plan and restores it after. Writes anywhere else stay blocked.
         await context.route('**/*', route => {
           const request = route.request();
-          if ((request.isNavigationRequest() && new URL(request.url()).origin !== origin) ||
-              (plan && !['GET', 'HEAD', 'OPTIONS'].includes(request.method()))) {
-            if (plan) addError('Blocked a network write or external navigation; only local UI flows can be verified');
+          const local = new URL(request.url()).origin === origin;
+          if ((request.isNavigationRequest() && !local) ||
+              (plan && !local && !['GET', 'HEAD', 'OPTIONS'].includes(request.method()))) {
+            if (plan) addError('Blocked an external network write or navigation; only this app can be exercised');
             return route.abort();
           }
           return route.continue();

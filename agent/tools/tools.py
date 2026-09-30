@@ -202,8 +202,9 @@ class WorkspaceTools:
                 "Inspect the page or exercise its main workflow with up to eight CSS-selector"
                 " steps ending in an expect_* assertion. Supply a meaningful sequence for"
                 " desktop and mobile before finishing; the host replays the latest sequence"
-                " for each after the final edit. Fresh isolated browser state each call. Only"
-                " local UI interactions: network writes and external navigation are blocked."
+                " for each after the final edit. Fresh isolated browser state each call. Steps may"
+                " create or change data through this app's own API; the database is restored after"
+                " each check. Writes to other sites and external navigation are blocked."
                 " Optional screenshot returns one viewport image, at most twice per run. Does"
                 " not replace final build checks."
             )
