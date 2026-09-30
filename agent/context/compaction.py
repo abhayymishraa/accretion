@@ -430,6 +430,8 @@ async def fold(model, messages, cut, turn_start, split, *, previous=None, metric
     """
     if split:
         history_span, prefix_span = messages[1:turn_start], messages[turn_start:cut]
+    if call["name"] == "edit_file":
+        return "written", [args["path"]] if args.get("path") else []
     else:
         history_span, prefix_span = messages[1:cut], []
 

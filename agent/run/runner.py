@@ -406,6 +406,7 @@ async def run_editor(
             "read_files": "Inspecting existing files",
             "read_skill": "Loading relevant guidance",
             "write_files": "Editing project files",
+            "edit_file": "Editing project files",
             "execute_command": "Running a workspace command",
             "inspect_preview": "Checking the requested interactions",
         }.get(call["name"])

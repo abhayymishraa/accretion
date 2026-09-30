@@ -4,6 +4,7 @@ const labels: Record<string, string> = {
     read_skill: "Read skill",
     read_files: "Read files",
     write_files: "Edit files",
+    edit_file: "Edit file",
     execute_command: "Run command",
     inspect_preview: "Inspect preview",
     run_command: "Run command",

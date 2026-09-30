@@ -27,7 +27,9 @@ MIGRATE = re.compile(
     r"\balembic\s+(?:upgrade|downgrade|stamp)\b|\bnpm\s+run\s+migrate\b|\bdrizzle-kit\s+(?:migrate|push)\b"
     r"|\b(?:tsx|node)\s+(?:\S*/)?(?:db/migrate|src/db)\.ts\b|\bmongosh\b|\bpsql\b"
 )
-MAX_FILE_BYTES = 200_000
+# About 25k tokens, Claude Code's Read limit. Bounds reads, writes and edits alike, so a file the model
+# can write it can also read back and edit; lockfile-sized reads are refused rather than resent every turn.
+MAX_FILE_BYTES = 100_000
 
 
 class FileWriteError(Exception):
@@ -83,8 +85,41 @@ class WorkspaceTools:
             self.cache[path] = content
         return self.cache[path]
 
+    async def write(self, changes: dict[str, str]) -> None:
+        """Upload files as one batch; every edit goes through here so revision and cache stay in step."""
+        self.cache.clear()
+        self.revision += 1
+        try:
+            # E2B owns batching, compression and version fallback. Uploads are
+            # not atomic: an error must stop the run before any checkpoint.
+            await self.sandbox.files.write_files(
+                [{"path": f"{ROOT}/{path}", "data": content} for path, content in changes.items()],
+                gzip=True,
+                request_timeout=20,
+            )
+        except Exception:
+            raise FileWriteError("File upload did not complete; sandbox cleanup is required") from None
+        self.cache.update(changes)
+
     async def command(self, command: str, timeout_seconds: int = 60, max_output: int = MAX_OUTPUT) -> dict[str, Any]:
         return await run_command(self.sandbox, command, cwd=ROOT, timeout=timeout_seconds, max_output=max_output)
+
+    async def edit(self, path: str, old_string: str, new_string: str, replace_all: bool) -> dict[str, Any]:
+        """Exact-text replacement for edit_file; kept here so the tool list stays declarative."""
+        path = project_path(path)
+        if not old_string or old_string == new_string:
+            raise ValueError("old_string must be non-empty and differ from new_string")
+        content = await self.read(path)
+        count = content.count(old_string)
+        if count == 0:
+            raise ValueError("old_string was not found; read the file and copy the text exactly")
+        if count > 1 and not replace_all:
+            raise ValueError(f"old_string matches {count} places; include more surrounding text or set replace_all")
+        updated = content.replace(old_string, new_string, -1 if replace_all else 1)
+        if len(updated.encode()) > MAX_FILE_BYTES:
+            raise ValueError("File exceeds the source-size limit")
+        await self.write({path: updated})
+        return {"ok": True, "changed_files": [path], "replacements": count if replace_all else 1}
 
     def definitions(self):
         @tool
@@ -107,20 +142,20 @@ class WorkspaceTools:
                 raise ValueError("A batch must not write the same path twice")
             if sum(len(f.content.encode()) for f in files) > 500_000:
                 raise ValueError("Batch is too large")
-            self.cache.clear()
-            self.revision += 1
-            try:
-                # E2B owns batching, compression and version fallback. Uploads are
-                # not atomic: an error must stop the run before any checkpoint.
-                await self.sandbox.files.write_files(
-                    [{"path": f"{ROOT}/{path}", "data": item.content} for path, item in zip(paths, files, strict=True)],
-                    gzip=True,
-                    request_timeout=20,
-                )
-            except Exception:
-                raise FileWriteError("File upload did not complete; sandbox cleanup is required") from None
-            self.cache.update({path: item.content for path, item in zip(paths, files, strict=True)})
+            await self.write({path: item.content for path, item in zip(paths, files, strict=True)})
             return {"ok": True, "changed_files": paths}
+
+        # Every surveyed harness edits in place (Claude Code Edit, Codex apply_patch, OpenCode edit):
+        # a rewrite pays for the whole file as output, then resends it on every later turn.
+        @tool(
+            description=(
+                "Replace exact text in one existing file. Prefer this to write_files for changes to part of"
+                " a file. old_string must match exactly once, whitespace included; add surrounding lines to"
+                " make it unique, or set replace_all to change every match."
+            )
+        )
+        async def edit_file(path: str, old_string: str, new_string: str, replace_all: bool = False) -> dict[str, Any]:
+            return await self.edit(path, old_string, new_string, replace_all)
 
         @tool(
             description=(
@@ -170,7 +205,7 @@ class WorkspaceTools:
 
             return await inspect(self, viewport=viewport, path=path, screenshot=screenshot, steps=steps)
 
-        return [read_files, write_files, execute_command, inspect_preview]
+        return [read_files, write_files, edit_file, execute_command, inspect_preview]
 
 
 # Skips what checkpoints skip (agent/sandbox/archive.py EXCLUDED) and shares their limit.

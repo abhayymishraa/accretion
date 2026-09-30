@@ -45,6 +45,8 @@ def public_tool_details(name, *, args=None, result=None):
             paths = args.get("paths", [])
         elif name == "write_files":
             paths = [item.get("path") for item in changes if isinstance(item, dict)]
+        elif name == "edit_file":
+            paths = [args.get("path")]
         paths = [path for path in paths if isinstance(path, str)] if isinstance(paths, list) else []
         if paths:
             fields.update(paths=paths, file_count=len(paths))
@@ -54,7 +56,7 @@ def public_tool_details(name, *, args=None, result=None):
         if name == "read_files" and isinstance(result.get("files"), (dict, list)):
             paths = [path for path in result["files"] if isinstance(path, str)]
             fields.update(files=paths, file_count=len(paths))
-        elif name == "write_files" and isinstance(result.get("changed_files"), list):
+        elif name in {"write_files", "edit_file"} and isinstance(result.get("changed_files"), list):
             paths = [path for path in result["changed_files"] if isinstance(path, str)]
             fields.update(changed_files=paths, file_count=len(paths))
         elif name == "search_project_history":
