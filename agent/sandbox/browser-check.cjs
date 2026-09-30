@@ -156,6 +156,15 @@ const { chromium } = require('/opt/webbuilder-checks/node_modules/playwright');
         clearTimeout(deadline);
         pages.push(observation);
         await context.close();
+        // Every viewport starts from the host's snapshot: a desktop plan that marks a habit done
+        // must not leave mobile looking for a button that desktop already changed.
+        if (plan && process.env.ACCRETION_DB_RESTORE) {
+          try {
+            require('child_process').execSync(process.env.ACCRETION_DB_RESTORE, { stdio: 'ignore', shell: '/bin/bash' });
+          } catch {
+            addError('Could not reset the project database between viewports');
+          }
+        }
       }
     }
     if (inspecting && !pages.length) addError('Unknown viewport');

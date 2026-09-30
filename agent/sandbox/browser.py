@@ -61,12 +61,14 @@ def _with_database_restored(command: str) -> str:
     """Restore only from a dump that succeeded: a failed dump must never overwrite the user's data.
 
     Their stdout is discarded because the check's JSON must be the only thing on it (psql prints
-    query results while restoring); stderr still reports a failed dump or restore.
+    query results while restoring); stderr still reports a failed dump or restore. The check also
+    restores after each viewport (ACCRETION_DB_RESTORE): desktop's saves must not change what mobile sees.
     """
     dump, restore = _STACK_STEP.format(step='dump'), _STACK_STEP.format(step='restore')
     return (
         'set -a; [ -f .env ] && . ./.env; set +a; saved=$(mktemp -d); cp -a db "$saved/" 2>/dev/null; '
-        f'mkdir -p db; dumped=0; if eval "$({dump})" >/dev/null; then dumped=1; fi; {command}; status=$?; '
+        f'mkdir -p db; dumped=0; if eval "$({dump})" >/dev/null; then dumped=1; '
+        f'export ACCRETION_DB_RESTORE="$({restore})"; fi; {command}; status=$?; '
         f'if [ "$dumped" = 1 ]; then eval "$({restore})" >/dev/null; fi; '
         'rm -rf db; if [ -d "$saved/db" ]; then mv "$saved/db" db; else mkdir -p db; fi; rm -rf "$saved"; '
         'exit $status'
