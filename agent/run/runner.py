@@ -484,7 +484,17 @@ async def run_editor(
                 flush_notes()
             drain_inbox()
             estimated_input, estimator = estimate_input_tokens(model, messages, tool_schema)
-            if estimated_input >= MASK_TRIGGER_TOKENS:
+            # The provider's own count of the last editing call, not our estimate: the estimate reads
+            # about twice the real size (Gemini's signed replay data), which cleared history too early.
+            reported = next(
+                (
+                    call.get("input_tokens") or 0
+                    for call in reversed(metrics.get("model_calls", []))
+                    if call.get("phase") == "editor"
+                ),
+                0,
+            )
+            if reported >= MASK_TRIGGER_TOKENS:
                 masked, cleared = mask_stale(messages, skills=skills)
                 if cleared:
                     messages = masked
