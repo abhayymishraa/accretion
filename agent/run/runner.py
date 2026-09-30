@@ -16,7 +16,7 @@ from langchain_core.utils.function_calling import convert_to_openai_tool
 from pydantic import Field
 
 from ..budget.usage import invoke_with_usage, prompt_cache_key, record_usage
-from ..context.compaction import backoff_growth, compact, context_limit, hard_limit
+from ..context.compaction import MASK_TRIGGER_TOKENS, backoff_growth, compact, context_limit, hard_limit, mask_stale
 from ..context.context import CONTEXT_RULES, choose_files
 from ..context.transcript import append as append_transcript
 from ..context.transcript import load as load_transcript
@@ -463,6 +463,15 @@ async def run_editor(
                 flush_notes()
             drain_inbox()
             estimated_input, estimator = estimate_input_tokens(model, messages, tool_schema)
+            if estimated_input >= MASK_TRIGGER_TOKENS:
+                masked, cleared = mask_stale(messages, skills=skills)
+                if cleared:
+                    messages = masked
+                    metrics["masked_chars"] = metrics.get("masked_chars", 0) + cleared
+                    if chat_id:
+                        # Rewritten like compaction, so the next run starts from the masked history.
+                        stored = await replace_transcript(chat_id, without_preview_images(messages)[1:])
+                    estimated_input, estimator = estimate_input_tokens(model, messages, tool_schema)
             # Bound the conversation against the model's window, not a byte count. One
             # batched pass at this single threshold; pruning every turn would never
             # hold a prefix-cache hit.

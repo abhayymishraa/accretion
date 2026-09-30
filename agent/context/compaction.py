@@ -46,6 +46,16 @@ PRUNED = "\n[... {dropped} characters pruned; re-read the source if you need the
 SUPERSEDED = "[superseded by a later read of this file]"
 SKILL_PRUNED = '[body pruned to reclaim context; call read_skill("{name}") again if you still need it]'
 
+# Stale tool traffic is cleared during the loop, long before compaction. Anthropic's context editing
+# starts at 100k input tokens; JetBrains' masking keeps the last 10 turns whole (arXiv 2508.21433,
+# half the cost of an unmasked agent); OpenCode and Anthropic's clear_at_least only cut when about
+# 20k tokens go. Every clearing costs one uncached resend, so it has to remove a lot at once.
+MASK_TRIGGER_TOKENS = 100_000
+MASK_KEEP_TURNS = 10
+MASK_MINIMUM_CHARS = 85_000
+CLEARED = "[{name} result cleared to save context; run it again if you still need it]"
+WRITE_CLEARED = "[{chars} characters cleared; read the file for its current content]"
+
 # Pi keeps 20k tokens of tail verbatim; ~4.24 chars per token measured on our own text.
 KEEP_RECENT_CHARS = 85_000
 # Cline and Pi both cut tool results to 2000 chars before summarizing.
@@ -141,6 +151,8 @@ ATTACHED_FILE_CHARS = 21_200
 ATTACHED_TOTAL_CHARS = 212_000
 
 _BACKTICKS = re.compile(r"`+")
+# agent/sandbox/commands.py saves long output to a file and names it in the result.
+_SAVED_OUTPUT = re.compile(r"full output: (/tmp/tool-output/\S+\.log)")
 
 
 def context_limit(window):
@@ -269,11 +281,96 @@ def prune_skill_bodies(messages, origins, skills=None):
         if payload and payload.get("instructions"):
             name = payload.get("name")
             message = _rewrite(message, {**payload, "instructions": SKILL_PRUNED.format(name=name)})
-            if skills is not None:
-                skills.loaded.discard(name)
-                skills.loaded -= {key for key in skills.loaded if isinstance(key, tuple) and key[0] == name}
+            _forget_skill(skills, name)
         rewritten.append(message)
     return rewritten
+
+
+def _forget_skill(skills, name):
+    """RuntimeSkills.load returns a body only the first time; forget it so the pointer's re-read works."""
+    if skills is not None:
+        skills.loaded.discard(name)
+        skills.loaded -= {key for key in skills.loaded if isinstance(key, tuple) and key[0] == name}
+
+
+def _cleared_result(message, name):
+    """A stub keeping the status fields, so the model still knows whether the call worked."""
+    payload = _payload(message) or {}
+    kept = {key: payload[key] for key in ("ok", "exit_code", "error") if key in payload}
+    # Reversible where it already can be (DTOC, arXiv 2609.26121): the saved file outlives the stub.
+    saved = _SAVED_OUTPUT.findall(message.content)
+    if saved:
+        kept["saved_output"] = saved
+    return message.model_copy(update={"content": json.dumps({**kept, "cleared": CLEARED.format(name=name)})})
+
+
+def _cleared_args(message):
+    """File bodies inside old write_files/edit_file calls, replaced by their size.
+
+    A body that is already a stub stays byte-identical, so clearing again never changes old history.
+    """
+
+    def stub(text):
+        return (
+            text
+            if text.endswith("cleared; read the file for its current content]")
+            else WRITE_CLEARED.format(chars=len(text))
+        )
+
+    calls = []
+    for call in message.tool_calls:
+        args = dict(call["args"])
+        if call["name"] == "write_files":
+            args["files"] = [
+                {**f, "content": stub(f.get("content") or "")} if isinstance(f, dict) else f
+                for f in args.get("files") or []
+            ]
+        elif call["name"] == "edit_file":
+            for key in ("old_string", "new_string"):
+                if isinstance(args.get(key), str):
+                    args[key] = stub(args[key])
+        calls.append({**call, "args": args})
+    return message.model_copy(update={"tool_calls": calls})
+
+
+def _chars(message):
+    """What a message costs to resend: its content plus any tool-call arguments."""
+    return len(str(message.content)) + len(json.dumps([c["args"] for c in getattr(message, "tool_calls", None) or []]))
+
+
+def mask_stale(messages, *, skills=None, keep_turns=MASK_KEEP_TURNS, minimum=MASK_MINIMUM_CHARS):
+    """Clear tool traffic older than the last `keep_turns` turns, in one batch or not at all.
+
+    Returns the messages and the characters removed; nothing changes unless at least `minimum`
+    would go, so the prompt cache is rebuilt rarely. Results become status stubs, file bodies in
+    old write/edit calls become their size, and skill bodies become a pointer to read_skill.
+    A cleared message is never cleared again, and no tool call loses its result.
+    """
+    turns = [index for index, message in enumerate(messages) if isinstance(message, AIMessage)]
+    if len(turns) <= keep_turns:
+        return messages, 0
+    boundary = turns[-keep_turns]
+    origins = tool_origins(messages)
+    old = messages[:boundary]
+    skill_names = {(_payload(m) or {}).get("name") for m in old if _is_tool_result(m, origins, "read_skill")}
+    rewritten = prune_skill_bodies(old, origins)
+    for index, message in enumerate(rewritten):
+        name = origins.get(getattr(message, "tool_call_id", None))
+        # Write/edit results are a few bytes and "run it again" would mean redo the edit: kept as is.
+        fresh = isinstance(message.content, str) and "cleared" not in (_payload(message) or {})
+        if name not in {None, "read_skill", "write_files", "edit_file"} and fresh and len(message.content) > 400:
+            rewritten[index] = _cleared_result(message, name)
+        elif isinstance(message, AIMessage) and any(
+            call["name"] in {"write_files", "edit_file"} for call in message.tool_calls or []
+        ):
+            rewritten[index] = _cleared_args(message)
+    removed = sum(map(_chars, old)) - sum(map(_chars, rewritten))
+    if removed < minimum:
+        return messages, 0
+    # Forgotten only once the batch is committed; prune_skill_bodies above ran without `skills` for that.
+    for name in skill_names - {None}:
+        _forget_skill(skills, name)
+    return rewritten + messages[boundary:], removed
 
 
 def find_cut_point(messages, keep_recent=KEEP_RECENT_CHARS, start=1):
@@ -333,6 +430,8 @@ def _touched(call):
         return "read", args.get("paths") or []
     if call["name"] == "write_files":
         return "written", [f.get("path") for f in args.get("files") or [] if f.get("path")]
+    if call["name"] == "edit_file":
+        return "written", [args["path"]] if args.get("path") else []
     return None, []
 
 
@@ -430,8 +529,6 @@ async def fold(model, messages, cut, turn_start, split, *, previous=None, metric
     """
     if split:
         history_span, prefix_span = messages[1:turn_start], messages[turn_start:cut]
-    if call["name"] == "edit_file":
-        return "written", [args["path"]] if args.get("path") else []
     else:
         history_span, prefix_span = messages[1:cut], []
 
