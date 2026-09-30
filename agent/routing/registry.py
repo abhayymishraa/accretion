@@ -11,6 +11,11 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from agent import PACKAGE_ROOT
 
+# Output ceiling for every model call, thinking included. A single file write measured ~7k tokens
+# on Gemini 3.8 Flash, and 8k cut writes off mid-call, so 16k is the smallest step with headroom.
+# It is also the brake on runaway thinking; raise it only with evidence that real output needs it.
+MAX_OUTPUT_TOKENS = 16_384
+
 Dollars = Annotated[str, Field(pattern=r"^\d+(\.\d+)?$")]
 
 

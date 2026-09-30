@@ -25,9 +25,8 @@ from ..budget.usage import capture_provider_usage
 from ..sandbox.config import sandbox_settings
 from . import failures
 from .config import routing_settings
-from .registry import MODELS, ModelEntry
+from .registry import MAX_OUTPUT_TOKENS, MODELS, ModelEntry
 
-_OUTPUT_TOKENS = 8192
 _TIMEOUT_SECONDS = 90
 _KEYS = {"openai": "OPENAI_API_KEY", "gemini": "GEMINI_API_KEY", "openrouter": "OPENROUTER_API_KEY"}
 
@@ -63,7 +62,7 @@ def chat_model(model_id: str) -> BaseChatModel:
             model=model_id,
             api_key=key,
             reasoning_effort="low",
-            max_output_tokens=_OUTPUT_TOKENS,
+            max_output_tokens=MAX_OUTPUT_TOKENS,
             timeout=_TIMEOUT_SECONDS,
             max_retries=2,
         )
@@ -82,7 +81,7 @@ def chat_model(model_id: str) -> BaseChatModel:
     common: dict[str, Any] = {
         "model": model_id,
         "api_key": key,
-        "max_tokens": _OUTPUT_TOKENS,
+        "max_tokens": MAX_OUTPUT_TOKENS,
         "timeout": _TIMEOUT_SECONDS,
         "max_retries": 1,
         "http_async_client": httpx.AsyncClient(event_hooks=_hooks()),
@@ -128,9 +127,13 @@ def limit_output(model: BaseChatModel, max_tokens: int, *, reasoning: bool = Tru
 
 
 def output_truncated(metadata: dict[str, Any]) -> bool:
-    """The reply hit its output ceiling. Each wire names that stop differently."""
+    """The reply hit its output ceiling. Each wire names that stop differently.
+
+    Gemini reports a tool call cut off at the ceiling as MALFORMED_FUNCTION_CALL, with no call
+    returned: measured on a write_files that stopped at the cap.
+    """
     return (
-        metadata.get("finish_reason") in ("length", "MAX_TOKENS")
+        metadata.get("finish_reason") in ("length", "MAX_TOKENS", "MALFORMED_FUNCTION_CALL")
         or (metadata.get("incomplete_details") or {}).get("reason") == "max_output_tokens"
     )
 

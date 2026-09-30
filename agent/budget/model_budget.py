@@ -12,7 +12,7 @@ from contextvars import ContextVar
 from datetime import UTC, datetime
 from typing import Any
 
-from ..routing.registry import JEV_COST, JEV_MODEL, MODELS
+from ..routing.registry import JEV_COST, JEV_MODEL, MAX_OUTPUT_TOKENS, MODELS
 from .budget import BudgetLimitError, dollar_nanos, reserve, settle
 
 spend_scope: ContextVar[dict[str, Any] | None] = ContextVar("spend_scope", default=None)
@@ -132,7 +132,7 @@ async def reserve_model_request(request):
     try:
         model, output_limit, stream = request_bound(request)
         rates = model_rates(model)
-        if type(output_limit) is not int or not 1 <= output_limit <= 8192 or stream:
+        if type(output_limit) is not int or not 1 <= output_limit <= MAX_OUTPUT_TOKENS or stream:
             raise BudgetLimitError("Model request needs a supported bounded output limit.")
         # Bound the transmitted body, not just a tokenizer estimate. This includes
         # tool definitions, Unicode, and image payloads (intentionally conservative).

@@ -15,22 +15,36 @@ async def capture_provider_usage(response):
     holder = _provider_usage.get()
     if holder is None:
         return
-    if not response.is_success or response.request.url.path.rstrip("/") != "/v1/responses":
+    path = response.request.url.path.rstrip("/")
+    if not response.is_success or not (path == "/v1/responses" or path.endswith(":generateContent")):
         return
     if "application/json" not in response.headers.get("content-type", ""):
         return
     await response.aread()
     try:
-        usage = response.json().get("usage")
-    except (ValueError, AttributeError):
+        body = response.json()
+    except ValueError:
         return
+    if path.endswith(":generateContent"):
+        # LangChain drops Gemini's thinking count; it decides whether an output cap is real work or runaway.
+        thoughts = (body.get("usageMetadata") or {}).get("thoughtsTokenCount") if isinstance(body, dict) else None
+        if isinstance(thoughts, int):
+            holder["reasoning_tokens"] = thoughts
+        return
+    usage = body.get("usage") if isinstance(body, dict) else None
     if isinstance(usage, dict):
         # Never retain raw response content, headers, IDs, or credentials.
         # LangChain may create child tasks: mutate this call's holder so usage reaches its caller.
         holder.update(
             {
                 key: usage[key]
-                for key in ("input_tokens", "output_tokens", "total_tokens", "input_tokens_details")
+                for key in (
+                    "input_tokens",
+                    "output_tokens",
+                    "total_tokens",
+                    "input_tokens_details",
+                    "output_tokens_details",
+                )
                 if key in usage
             }
         )
@@ -88,6 +102,10 @@ def record_usage(metrics, response, *, phase, estimated_input=None):
             "cache_write_tokens": written,
             "uncached_input_tokens": uncached,
             "estimated_input_tokens": estimated_input,
+            "finish_reason": response.response_metadata.get("finish_reason"),
+            "reasoning_tokens": raw.get(
+                "reasoning_tokens", (raw.get("output_tokens_details") or {}).get("reasoning_tokens")
+            ),
         }
     )
     # Missing provider fields stay unknown, not zero. These totals cover the reported calls only.

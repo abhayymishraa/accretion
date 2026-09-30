@@ -304,6 +304,10 @@ def _cleared_result(message, name):
     return message.model_copy(update={"content": json.dumps({**kept, "cleared": CLEARED.format(name=name)})})
 
 
+# edit_file is the single-edit form older chats still hold.
+_WRITES = frozenset({"write_files", "edit_file", "edit_files"})
+
+
 def _cleared_args(message):
     """File bodies inside old write_files/edit_file calls, replaced by their size.
 
@@ -329,6 +333,13 @@ def _cleared_args(message):
             for key in ("old_string", "new_string"):
                 if isinstance(args.get(key), str):
                     args[key] = stub(args[key])
+        elif call["name"] == "edit_files":
+            args["edits"] = [
+                {**e, **{k: stub(e[k]) for k in ("old_string", "new_string") if isinstance(e.get(k), str)}}
+                if isinstance(e, dict)
+                else e
+                for e in args.get("edits") or []
+            ]
         calls.append({**call, "args": args})
     return message.model_copy(update={"tool_calls": calls})
 
@@ -358,11 +369,9 @@ def mask_stale(messages, *, skills=None, keep_turns=MASK_KEEP_TURNS, minimum=MAS
         name = origins.get(getattr(message, "tool_call_id", None))
         # Write/edit results are a few bytes and "run it again" would mean redo the edit: kept as is.
         fresh = isinstance(message.content, str) and "cleared" not in (_payload(message) or {})
-        if name not in {None, "read_skill", "write_files", "edit_file"} and fresh and len(message.content) > 400:
+        if name not in {None, "read_skill", *_WRITES} and fresh and len(message.content) > 400:
             rewritten[index] = _cleared_result(message, name)
-        elif isinstance(message, AIMessage) and any(
-            call["name"] in {"write_files", "edit_file"} for call in message.tool_calls or []
-        ):
+        elif isinstance(message, AIMessage) and any(call["name"] in _WRITES for call in message.tool_calls or []):
             rewritten[index] = _cleared_args(message)
     removed = sum(map(_chars, old)) - sum(map(_chars, rewritten))
     if removed < minimum:
@@ -432,6 +441,8 @@ def _touched(call):
         return "written", [f.get("path") for f in args.get("files") or [] if f.get("path")]
     if call["name"] == "edit_file":
         return "written", [args["path"]] if args.get("path") else []
+    if call["name"] == "edit_files":
+        return "written", [e["path"] for e in args.get("edits") or [] if isinstance(e, dict) and e.get("path")]
     return None, []
 
 

@@ -12,7 +12,7 @@ from ..budget.model_budget import call_bound, model_rates
 from . import failures, jev
 from .config import routing_settings
 from .providers import usable_models
-from .registry import MODELS, ModelEntry
+from .registry import MAX_OUTPUT_TOKENS, MODELS, ModelEntry
 
 # Front door (spec 4): logged only in #3.
 _KINDS = {
@@ -52,7 +52,7 @@ def _candidates(needed_tokens: int, remaining_nanos: int | None, failed_model: s
         if entry.auto
         and not failures.cooling(entry.id)
         and needed_tokens <= entry.context_window * 95 // 100
-        and (remaining_nanos is None or call_bound(entry.id, needed_tokens * 3, 8192) <= remaining_nanos)
+        and (remaining_nanos is None or call_bound(entry.id, needed_tokens * 3, MAX_OUTPUT_TOKENS) <= remaining_nanos)
         and (floor is None or _price(entry) > floor)
     ]
 

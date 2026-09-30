@@ -23,6 +23,7 @@ import { ToolResult } from "./ToolResult";
 const icons: Record<string, typeof CubeIcon> = {
     write_files: Pencil1Icon,
     edit_file: Pencil1Icon,
+    edit_files: Pencil1Icon,
     read_files: FileTextIcon,
     list_files: FileTextIcon,
     run_command: CodeIcon,

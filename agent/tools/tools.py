@@ -56,6 +56,13 @@ class FileChange(BaseModel):
     content: str = Field(max_length=MAX_FILE_BYTES)
 
 
+class FileEdit(BaseModel):
+    path: str
+    old_string: str
+    new_string: str
+    replace_all: bool = False
+
+
 class WorkspaceTools:
     def __init__(self, sandbox):
         self.sandbox = sandbox
@@ -108,22 +115,26 @@ class WorkspaceTools:
     async def command(self, command: str, timeout_seconds: int = 60, max_output: int = MAX_OUTPUT) -> dict[str, Any]:
         return await run_command(self.sandbox, command, cwd=ROOT, timeout=timeout_seconds, max_output=max_output)
 
-    async def edit(self, path: str, old_string: str, new_string: str, replace_all: bool) -> dict[str, Any]:
-        """Exact-text replacement for edit_file; kept here so the tool list stays declarative."""
-        path = project_path(path)
-        if not old_string or old_string == new_string:
-            raise ValueError("old_string must be non-empty and differ from new_string")
-        content = await self.read(path)
-        count = content.count(old_string)
-        if count == 0:
-            raise ValueError("old_string was not found; read the file and copy the text exactly")
-        if count > 1 and not replace_all:
-            raise ValueError(f"old_string matches {count} places; include more surrounding text or set replace_all")
-        updated = content.replace(old_string, new_string, -1 if replace_all else 1)
-        if len(updated.encode()) > MAX_FILE_BYTES:
-            raise ValueError("File exceeds the source-size limit")
-        await self.write({path: updated})
-        return {"ok": True, "changed_files": [path], "replacements": count if replace_all else 1}
+    async def edit(self, edits: list[FileEdit]) -> dict[str, Any]:
+        """Apply exact-text edits in order, several to one file allowed; all validate before any is written."""
+        updated: dict[str, str] = {}
+        for number, item in enumerate(edits, 1):
+            path = project_path(item.path)
+            if not item.old_string or item.old_string == item.new_string:
+                raise ValueError(f"Edit {number}: old_string must be non-empty and differ from new_string")
+            content = updated[path] if path in updated else await self.read(path)
+            count = content.count(item.old_string)
+            if count == 0:
+                raise ValueError(f"Edit {number} ({path}): old_string was not found; copy the text exactly")
+            if count > 1 and not item.replace_all:
+                raise ValueError(
+                    f"Edit {number} ({path}): old_string matches {count} places; add context or set replace_all"
+                )
+            updated[path] = content.replace(item.old_string, item.new_string, -1 if item.replace_all else 1)
+            if len(updated[path].encode()) > MAX_FILE_BYTES:
+                raise ValueError(f"Edit {number} ({path}): file exceeds the source-size limit")
+        await self.write(updated)
+        return {"ok": True, "changed_files": list(updated), "edits": len(edits)}
 
     def definitions(self):
         @tool
@@ -153,13 +164,14 @@ class WorkspaceTools:
         # a rewrite pays for the whole file as output, then resends it on every later turn.
         @tool(
             description=(
-                "Replace exact text in one existing file. Prefer this to write_files for changes to part of"
-                " a file. old_string must match exactly once, whitespace included; add surrounding lines to"
-                " make it unique, or set replace_all to change every match."
+                "Replace exact text in existing files, several edits and files per call, applied in order."
+                " Prefer this to write_files for changes to part of a file. Each old_string must match"
+                " exactly once, whitespace included; add surrounding lines to make it unique, or set"
+                " replace_all. Nothing is written unless every edit applies."
             )
         )
-        async def edit_file(path: str, old_string: str, new_string: str, replace_all: bool = False) -> dict[str, Any]:
-            return await self.edit(path, old_string, new_string, replace_all)
+        async def edit_files(edits: Annotated[list[FileEdit], Field(min_length=1, max_length=20)]) -> dict[str, Any]:
+            return await self.edit(edits)
 
         @tool(
             description=(
@@ -219,7 +231,7 @@ class WorkspaceTools:
 
             return await inspect(self, viewport=viewport, path=path, screenshot=screenshot, steps=steps)
 
-        return [read_files, write_files, edit_file, execute_command, inspect_preview]
+        return [read_files, write_files, edit_files, execute_command, inspect_preview]
 
 
 # Skips what checkpoints skip (agent/sandbox/archive.py EXCLUDED) and shares their limit.

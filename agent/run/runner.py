@@ -53,6 +53,10 @@ class VerificationError(Exception):
     pass
 
 
+# Cut-off replies recovered per run before it stops; each one is discarded output paid in full.
+MAX_CUT_OFF_REPLIES = 2
+
+
 class SandboxSetupError(VerificationError):
     pass
 
@@ -428,6 +432,7 @@ async def run_editor(
             "read_skill": "Loading relevant guidance",
             "write_files": "Editing project files",
             "edit_file": "Editing project files",
+            "edit_files": "Editing project files",
             "execute_command": "Running a workspace command",
             "inspect_preview": "Checking the requested interactions",
         }.get(call["name"])
@@ -538,8 +543,19 @@ async def run_editor(
             messages = without_preview_images(messages)
             record_usage(metrics, response, phase="editor", estimated_input=estimated_input)
             if output_truncated(response.response_metadata):
-                metrics["token_budget"] = {"stage": "model_output", "used": metrics.get("total_tokens", 0)}
-                raise RunLimitError("Model output budget reached; request a smaller change")
+                # Discarded, never appended: a cut-off reply's calls are incomplete. Twice per run the
+                # model is told to split the work, instead of the run ending on the first oversized reply.
+                metrics["cut_off_replies"] = metrics.get("cut_off_replies", 0) + 1
+                if metrics["cut_off_replies"] > MAX_CUT_OFF_REPLIES:
+                    metrics["token_budget"] = {"stage": "model_output", "used": metrics.get("total_tokens", 0)}
+                    raise RunLimitError("Model output budget reached; request a smaller change")
+                messages.append(
+                    HumanMessage(
+                        content="Your last reply hit the output limit before its tool call finished, so nothing"
+                        " ran. Split the work into smaller calls: fewer or shorter files per write_files."
+                    )
+                )
+                continue
             calls = response.tool_calls
             # Checked before the reply joins the transcript, so a stop never leaves calls without results.
             if metrics.get("tool_calls", 0) + len(calls) > max_calls:
