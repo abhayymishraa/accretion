@@ -34,6 +34,11 @@ class MessageItem(CustomModel):
     event_type: str | None = None
     tool_calls: list[Any] | dict[str, Any] | None = None
     created_at: UtcDatetime
+    # Set on run items only (agent/context/history.py); without them the client draws no run card.
+    run_status: str | None = None
+    finished_at: UtcDatetime | None = None
+    workflow: dict[str, Any] | None = None
+    details_pending: bool | None = None
 
 
 class MessagePage(CustomModel):
