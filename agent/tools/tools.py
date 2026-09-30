@@ -25,8 +25,12 @@ _SEARCH = re.compile(r"\b(?:grep|egrep|pgrep)\b(?:\s+(?:\"[^\"]*\"|'[^']*'|[^\s|
 # Spec 6 migration gate: the host applies migrations, after checking they keep saved data.
 MIGRATE = re.compile(
     r"\balembic\s+(?:upgrade|downgrade|stamp)\b|\bnpm\s+run\s+migrate\b|\bdrizzle-kit\s+(?:migrate|push)\b"
-    r"|\b(?:tsx|node)\s+(?:\S*/)?(?:db/migrate|src/db)\.ts\b|\bmongosh\b|\bpsql\b"
+    r"|\b(?:tsx|node)\s+(?:\S*/)?(?:db/migrate|src/db)\.ts\b|\bmongosh\b|\bpsql\b|\b(?:create|drop)_all\b"
 )
+# An install run where no package.json exists creates a stray project there (a second copy of React,
+# for one). Only the no-directory form is checked: `cd <dir> &&` and `--prefix` name a directory.
+_NPM_INSTALL = re.compile(r"\bnpm\s+(?:i|install|add)\b")
+_NAMES_DIR = re.compile(r"\bcd\s+\S|--prefix\b")
 # About 25k tokens, Claude Code's Read limit. Bounds reads, writes and edits alike, so a file the model
 # can write it can also read back and edit; lockfile-sized reads are refused rather than resent every turn.
 MAX_FILE_BYTES = 100_000
@@ -171,6 +175,15 @@ class WorkspaceTools:
                 raise ValueError("Relative imports are not npm packages")
             if DEV_SERVER.search(_SEARCH.sub("", command)):
                 raise ValueError("The project's services are already running; do not start another server")
+            if (
+                _NPM_INSTALL.search(command)
+                and not _NAMES_DIR.search(command)
+                and not await self.sandbox.files.exists(f"{ROOT}/package.json")
+            ):
+                raise ValueError(
+                    "The project root has no package.json, so npm would create a stray project here. Run it"
+                    " in the folder that owns the package (workspace.packages): cd <folder> && npm install ..."
+                )
             if MIGRATE.search(command):
                 raise ValueError(
                     "Do not migrate or edit the database directly: write the migration file and finish."

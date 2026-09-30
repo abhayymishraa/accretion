@@ -70,6 +70,26 @@ def _last_sent_agents_md(messages):
     return None
 
 
+_MANIFESTS = ("package.json", "requirements.txt", "pyproject.toml")
+
+
+def workspace_map(stack, paths):
+    """Where each part of this project lives, from its own stack.json and manifests, never a kit's name."""
+    packages: dict[str, list[str]] = {}
+    for path in paths:
+        folder, _, name = path.rpartition("/")
+        if name in _MANIFESTS:
+            packages.setdefault(folder or ".", []).append(name)
+    return {
+        "commands_run_from": "the project root",
+        "packages": packages,
+        "services": [{"name": s["name"], "folder": s["cwd"], "port": s["port"]} for s in stack["services"]],
+        "install": stack["install"],
+        "typecheck": stack["typecheck"],
+        "build": stack["build"],
+    }
+
+
 def without_preview_images(messages):
     """Keep observations' text, but do not resend screenshots on later turns."""
     text_messages = []
@@ -273,6 +293,7 @@ async def run_editor(
                     **({"agents_md": agents_md} if agents_md and agents_md != _last_sent_agents_md(prior) else {}),
                     "request": prompt,
                     "request_context": request_context,
+                    "workspace": workspace_map(stack, paths),
                     "files": initial,
                     "paths": paths,
                 },
