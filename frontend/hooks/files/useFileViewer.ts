@@ -1,6 +1,7 @@
 "use client";
 
 import { fileService } from "@/services/service.files";
+import type { OpenedFile } from "@/hooks/chat/useWorkspaceLayout";
 
 import { getSessionId } from "@/lib/auth/session";
 import { cacheFile, getCachedFile } from "@/lib/files/contentCache";
@@ -11,6 +12,7 @@ interface FileViewerProps {
     files: string[];
     projectId: string;
     revisionId?: string | null;
+    openedFile?: OpenedFile | null;
 }
 
 function downloadBlob(blob: Blob, filename: string) {
@@ -24,8 +26,15 @@ function downloadBlob(blob: Blob, filename: string) {
     document.body.removeChild(a);
 }
 
-export function useFileViewer({ files, projectId, revisionId }: FileViewerProps) {
+export function useFileViewer({ files, projectId, revisionId, openedFile }: FileViewerProps) {
     const [selectedFile, setSelectedFile] = useState<string | null>(null);
+    // A file opened from the run timeline. Adjusted during render, not in an effect, so the
+    // viewer never paints the previous file first; null start lets a freshly mounted viewer apply it.
+    const [handled, setHandled] = useState<OpenedFile | null>(null);
+    if (openedFile && openedFile !== handled) {
+        setHandled(openedFile);
+        if (files.includes(openedFile.path)) setSelectedFile(openedFile.path);
+    }
     const [fileContent, setFileContent] = useState<string>("");
     const [isLoadingFile, setIsLoadingFile] = useState(false);
     const [isDownloading, setIsDownloading] = useState(false);

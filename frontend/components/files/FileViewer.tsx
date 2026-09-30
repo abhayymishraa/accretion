@@ -2,10 +2,13 @@
 
 import { FileIcon } from "./FileIcon";
 
+import { ErrorBox } from "@/components/ui/ErrorBox";
+import { IconSwap } from "@/components/ui/IconSwap";
 import { Tree } from "@/components/ui/file-tree";
 import Editor from "@monaco-editor/react";
 import { Download, FileCode, FolderArchive, Loader2 } from "lucide-react";
 
+import type { OpenedFile } from "@/hooks/chat/useWorkspaceLayout";
 import { useFileViewer } from "@/hooks/files/useFileViewer";
 import { buildFileTree, getLanguageFromPath } from "@/lib/files/tree";
 import { FileTreeNode } from "./FileTreeNode";
@@ -13,9 +16,10 @@ interface FileViewerProps {
     files: string[];
     projectId: string;
     revisionId?: string | null;
+    openedFile?: OpenedFile | null;
 }
 
-export function FileViewer({ files, projectId, revisionId }: FileViewerProps) {
+export function FileViewer({ files, projectId, revisionId, openedFile }: FileViewerProps) {
     const {
         selectedFile,
         setSelectedFile,
@@ -26,7 +30,7 @@ export function FileViewer({ files, projectId, revisionId }: FileViewerProps) {
         binary,
         handleDownloadFile,
         handleDownloadAll,
-    } = useFileViewer({ files, projectId, revisionId });
+    } = useFileViewer({ files, projectId, revisionId, openedFile });
     const fileTree = buildFileTree(files);
     if (files.length === 0) {
         return (
@@ -51,11 +55,19 @@ export function FileViewer({ files, projectId, revisionId }: FileViewerProps) {
                             className="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-[6px] bg-accent px-2 text-[11.5px] text-accent-foreground [transition:opacity_130ms_ease] disabled:opacity-50 pointer-fine:hover:opacity-85"
                             title="Download all files as ZIP"
                         >
-                            {isDownloading ? (
-                                <Loader2 className="w-3 h-3 animate-spin" />
-                            ) : (
-                                <FolderArchive className="w-3 h-3" />
-                            )}
+                            <IconSwap
+                                swapped={isDownloading}
+                                from={<FolderArchive className="w-3 h-3" />}
+                                to={
+                                    <Loader2
+                                        className={
+                                            isDownloading
+                                                ? "w-3 h-3 animate-spin motion-reduce:animate-none"
+                                                : "w-3 h-3"
+                                        }
+                                    />
+                                }
+                            />
                             ZIP
                         </button>
                     </div>
@@ -64,11 +76,9 @@ export function FileViewer({ files, projectId, revisionId }: FileViewerProps) {
                     </p>
                 </div>
 
-                {downloadError && (
-                    <p role="alert" className="px-3 py-2 text-xs text-destructive">
-                        {downloadError}
-                    </p>
-                )}
+                <div className="px-3 [&>[data-error-box]]:my-2">
+                    <ErrorBox message={downloadError} />
+                </div>
                 <Tree
                     selectedId={selectedFile}
                     onSelectFile={setSelectedFile}

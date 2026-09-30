@@ -36,6 +36,7 @@ export interface ActivityItem {
     message?: string;
     ok?: boolean;
     checks?: unknown;
+    compacted?: boolean;
 }
 export interface Message {
     id: string;
@@ -72,6 +73,7 @@ export interface RunEvent {
     duration_ms?: number;
     url?: string | null;
     checks?: unknown;
+    compacted?: boolean;
     workflow?: WorkflowProposal | null;
 }
 export interface RunSnapshot {

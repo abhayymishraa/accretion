@@ -1,5 +1,9 @@
 import { FileViewer } from "@/components/files/FileViewer";
+import { EFFECTS } from "@/config/effects";
+import dynamic from "next/dynamic";
+import type { OpenedFile } from "@/hooks/chat/useWorkspaceLayout";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { ErrorBox } from "@/components/ui/ErrorBox";
 import type { PreviewPhase } from "@/types/preview.type";
 import {
     ExternalLink,
@@ -26,7 +30,11 @@ interface PreviewPanelProps {
     phase: PreviewPhase;
     previewError: string | null;
     onRetry: () => void;
+    openedFile: OpenedFile | null;
 }
+// Loaded only when switched on: img-fx brings three.js with it.
+const PreviewReveal = dynamic(() => import("@/components/effects/PreviewReveal"), { ssr: false });
+
 type TabType = "preview" | "files";
 
 export function PreviewPanel({
@@ -42,6 +50,7 @@ export function PreviewPanel({
     phase,
     previewError,
     onRetry,
+    openedFile,
 }: PreviewPanelProps) {
     const [viewport, setViewport] = useState("desktop");
     const [refresh, setRefresh] = useState(0);
@@ -164,19 +173,28 @@ export function PreviewPanel({
             </div>
             {visible && (activeTab === "preview" || retainPreview) && (
                 <div
-                    className="ember-preview-stage flex min-h-0 flex-1 justify-center overflow-auto p-4 [&_iframe]:h-full [&_iframe]:w-full [&_iframe]:min-h-70 [&_iframe]:rounded-[10px] [&_iframe]:border [&_iframe]:border-border [&_iframe]:bg-white [&>.ember-empty]:w-full [&>.ember-empty]:justify-center max-md:p-2"
+                    className="ember-preview-stage flex min-h-0 flex-1 justify-center overflow-auto p-4 [&_iframe]:h-full [&_iframe]:w-full [&_iframe]:opacity-0 [&_iframe]:[transition:opacity_200ms_var(--ease-out)] motion-reduce:[&_iframe]:[transition-duration:120ms] [&_iframe[data-loaded]]:opacity-100 [&_iframe]:min-h-70 [&_iframe]:rounded-[10px] [&_iframe]:border [&_iframe]:border-border [&_iframe]:bg-white [&>.ember-empty]:w-full [&>.ember-empty]:justify-center max-md:p-2"
                     style={activeTab === "files" ? { display: "none" } : undefined}
                 >
                     {appUrl && phase === "active" && !building ? (
                         <iframe
                             key={`${projectId}-${refresh}`}
+                            // Shown once the app has painted, so dark theme never flashes the frame's
+                            // white background; a refresh re-mounts it and fades in again.
+                            onLoad={(event) => {
+                                event.currentTarget.dataset.loaded = "";
+                            }}
                             src={appUrl}
                             title="App preview"
                             sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-modals"
                         />
                     ) : (
                         <div className="ember-empty flex flex-col items-center gap-3 rounded-[14px] border border-dashed border-border px-6 py-16 text-center text-muted-foreground [&_h2]:text-[19px] [&_h2]:font-medium [&_h2]:tracking-[-0.01em] [&_h2]:text-foreground [&_p]:max-w-[42ch] [&_p]:text-[13.5px] [&_p]:leading-relaxed">
-                            <Eye size={26} className="text-muted-foreground/60" />
+                            {EFFECTS.previewImageReveal && building ? (
+                                <PreviewReveal images={[]} />
+                            ) : (
+                                <Eye size={26} className="text-muted-foreground/60" />
+                            )}
                             <h2>{emptyTitle}</h2>
                             <p role={preparing || building ? "status" : undefined}>
                                 {emptyDescription}
@@ -186,7 +204,9 @@ export function PreviewPanel({
                                     {previewError ? "Retry" : "Resume preview"}
                                 </Button>
                             )}
-                            {previewError && !building && <p role="alert">{previewError}</p>}
+                            <div className="[&>[data-error-box]]:text-left">
+                                <ErrorBox message={!building && previewError ? previewError : ""} />
+                            </div>
                         </div>
                     )}
                 </div>
@@ -198,6 +218,7 @@ export function PreviewPanel({
                         files={files}
                         projectId={projectId}
                         revisionId={revisionId}
+                        openedFile={openedFile}
                     />
                 </div>
             )}

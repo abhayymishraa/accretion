@@ -2,8 +2,7 @@ import type { ActivityItem, ToolCall } from "@/types/chat.type";
 
 export type TimelineEntry =
     | { kind: "stage"; order: number; item: ActivityItem }
-    | { kind: "tool"; order: number; item: ToolCall }
-    | { kind: "group"; order: number; name: string; items: ToolCall[] };
+    | { kind: "tool"; order: number; item: ToolCall };
 
 /**
  * Event ids are `<runId>:<n>` (agent/service.py). The counter defines order, so
@@ -33,36 +32,4 @@ export function timelineEntries(activity: ActivityItem[], calls: ToolCall[]): Ti
     ];
     // Sort is stable, so equal orders keep insertion order.
     return entries.sort((a, b) => a.order - b.order);
-}
-
-/**
- * Collapse consecutive calls of the same tool into one row. Only successful
- * runs group: a failure or an in-flight call always keeps its own row, because
- * hiding either one inside a collapsed group is how a problem goes unnoticed.
- */
-export function groupTimeline(entries: TimelineEntry[]): TimelineEntry[] {
-    const grouped: TimelineEntry[] = [];
-    for (const entry of entries) {
-        const previous = grouped.at(-1);
-        const groupable = entry.kind === "tool" && entry.item.status === "success";
-        if (!groupable) {
-            grouped.push(entry);
-            continue;
-        }
-        if (previous?.kind === "group" && previous.name === entry.item.name) {
-            previous.items.push(entry.item);
-            continue;
-        }
-        if (previous?.kind === "tool" && previous.item.name === entry.item.name) {
-            grouped[grouped.length - 1] = {
-                kind: "group",
-                order: previous.order,
-                name: entry.item.name,
-                items: [previous.item, entry.item],
-            };
-            continue;
-        }
-        grouped.push(entry);
-    }
-    return grouped;
 }

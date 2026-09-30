@@ -46,6 +46,8 @@ export function useChatWorkspace(chatId: string) {
         setPreviewTab,
         workspaceVisible,
         containerRef,
+        openedFile,
+        openFile,
     } = useWorkspaceLayout();
     // The session client and socket own authentication; this is display data only. It is
     // read as an external store so the server and the first client render agree.
@@ -248,6 +250,8 @@ export function useChatWorkspace(chatId: string) {
         projectFiles,
         previewTab,
         setPreviewTab,
+        openedFile,
+        openFile,
         workspaceVisible,
         preview,
         handleConversationScroll,

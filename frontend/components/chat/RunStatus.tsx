@@ -4,23 +4,6 @@
 // See ../ember/BEAUTIFUL-UI-LICENSE. All progress comes from recorded run events.
 import { useEffect, useState } from "react";
 
-export function PixelLoader() {
-    return (
-        <span
-            className="transcript-pixels grid size-3 shrink-0 grid-cols-3 gap-px"
-            aria-hidden="true"
-        >
-            {Array.from({ length: 9 }, (_, i) => (
-                <i
-                    key={i}
-                    className="bg-primary opacity-25 motion-safe:animate-pulse motion-reduce:opacity-70"
-                    style={{ animationDelay: `${i * 90}ms`, animationDuration: "1.4s" }}
-                />
-            ))}
-        </span>
-    );
-}
-
 export function Elapsed({
     start,
     end,

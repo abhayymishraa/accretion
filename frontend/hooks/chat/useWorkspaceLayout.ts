@@ -1,6 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+
+// A new object per click, so the viewer selects the file again even when the path repeats.
+export type OpenedFile = { path: string };
 
 export function useWorkspaceLayout() {
     const containerRef = useRef<HTMLElement>(null);
@@ -9,6 +12,7 @@ export function useWorkspaceLayout() {
     const [showPreview, setShowPreview] = useState(true);
     const [mobilePane, setMobilePane] = useState("chat");
     const [previewTab, setPreviewTab] = useState<"preview" | "files">("preview");
+    const [openedFile, setOpenedFile] = useState<OpenedFile | null>(null);
     const [desktopPreview, setDesktopPreview] = useState<boolean | null>(null);
     const workspaceVisible =
         showPreview && desktopPreview !== null && (desktopPreview || mobilePane === "preview");
@@ -52,7 +56,16 @@ export function useWorkspaceLayout() {
         }
     }, [isDragging]);
 
+    const openFile = useCallback((path: string) => {
+        setShowPreview(true);
+        setPreviewTab("files");
+        setMobilePane("preview");
+        setOpenedFile({ path });
+    }, []);
+
     return {
+        openedFile,
+        openFile,
         previewWidth,
         setPreviewWidth,
         isDragging,

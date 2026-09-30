@@ -65,6 +65,7 @@ export function applyRunEvent(messages: Message[], event: RunEvent): Message[] {
             message: event.message,
             ok: event.ok,
             checks: event.checks,
+            compacted: event.compacted,
         });
     } else if (event.message && event.e !== "approach") {
         message.content = event.message;

@@ -7,7 +7,6 @@ const labels: Record<string, string> = {
     edit_file: "Edit file",
     edit_files: "Edit files",
     execute_command: "Run command",
-    inspect_preview: "Inspect preview",
     run_command: "Run command",
     search_project_history: "Search project history",
     list_files: "List files",
@@ -72,8 +71,6 @@ export function presentTool(tool: ToolCall) {
         summary = text("resource") || skillName;
     } else if (record?.message_ids !== undefined) {
         summary = `${references.length} matching ${references.length === 1 ? "message" : "messages"}`;
-    } else if (tool.name === "inspect_preview" && record?.checked === true) {
-        summary = `${strings(record.viewports).join(" and ")} preview inspected`;
     } else if (exitCode !== undefined) {
         summary = `Exited with code ${exitCode}`;
     } else if (tool.status === "running") {
@@ -86,6 +83,9 @@ export function presentTool(tool: ToolCall) {
         targetFiles,
         truncatedFields,
         command: text("command"),
+        pageSummary: text("page_summary"),
+        pageProblems: strings(record?.page_problems),
+        browserRestarted: text("browser_restarted"),
         inputOmitted: record?.input_omitted === true,
         title: skillName ? `Read skill · ${skillName}` : toolLabel(tool.name),
         summary,
