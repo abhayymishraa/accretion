@@ -57,6 +57,19 @@ class SandboxSetupError(VerificationError):
     pass
 
 
+def _last_sent_agents_md(messages):
+    """The AGENTS.md most recently sent in this chat, or None once compaction has folded it away."""
+    for message in reversed(messages):
+        if isinstance(message, HumanMessage) and isinstance(message.content, str):
+            try:
+                body = json.loads(message.content)
+            except ValueError:
+                continue
+            if isinstance(body, dict) and "agents_md" in body:
+                return body["agents_md"]
+    return None
+
+
 def without_preview_images(messages):
     """Keep observations' text, but do not resend screenshots on later turns."""
     text_messages = []
@@ -228,7 +241,7 @@ async def run_editor(
     if not stack_text:
         raise SandboxSetupError("Project has no .accretion/stack.json. No editing model request was made.")
     stack = json.loads(stack_text)
-    agents_md = await read_project_file(workspace, "AGENTS.md") or ""
+    agents_md = (await read_project_file(workspace, "AGENTS.md") or "")[:20000]
     formatted_tools = [convert_to_openai_tool(t) for t in tools.values()]
     bound = bind_tools(model, formatted_tools)
     tool_schema = json.dumps(formatted_tools, ensure_ascii=False)
@@ -248,13 +261,16 @@ async def run_editor(
             + CONTEXT_RULES
             + skill_prompt
             + "\nInitial files may be excerpts. Read complete files before replacing them."
-            + (f"\n\n# This project (AGENTS.md)\n{agents_md[:20000]}" if agents_md else "")
         ),
         *prior,
         HumanMessage(
             content=json.dumps(
                 {
                     "project_context": context,
+                    # Not in the system prompt: the model updates AGENTS.md, and a changed first
+                    # message makes every later run resend the whole chat uncached (Claude Code
+                    # sends CLAUDE.md changes in the next message for the same reason).
+                    **({"agents_md": agents_md} if agents_md and agents_md != _last_sent_agents_md(prior) else {}),
                     "request": prompt,
                     "request_context": request_context,
                     "files": initial,
