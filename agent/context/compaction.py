@@ -54,6 +54,10 @@ MASK_TRIGGER_TOKENS = 100_000
 MASK_KEEP_TURNS = 10
 MASK_MINIMUM_CHARS = 85_000
 CLEARED = "[{name} result cleared to save context; run it again if you still need it]"
+# agent-browser snapshot lines carry element refs; only the newest snapshot describes the page now.
+# gemini-cli supersedes older snapshots before every turn; here it happens only inside a committed
+# masking batch, so the recent turns are rewritten no more often than the rest.
+PAGE_SNAPSHOT = "[ref=e"
 WRITE_CLEARED = "[{chars} characters cleared; read the file for its current content]"
 
 # Pi keeps 20k tokens of tail verbatim; ~4.24 chars per token measured on our own text.
@@ -350,7 +354,8 @@ def _chars(message):
 
 
 def mask_stale(messages, *, skills=None, keep_turns=MASK_KEEP_TURNS, minimum=MASK_MINIMUM_CHARS):
-    """Clear tool traffic older than the last `keep_turns` turns, in one batch or not at all.
+    """Clear tool traffic older than the last `keep_turns` turns, and page snapshots a later one
+    superseded, in one batch or not at all.
 
     Returns the messages and the characters removed; nothing changes unless at least `minimum`
     would go, so the prompt cache is rebuilt rarely. Results become status stubs, file bodies in
@@ -373,13 +378,24 @@ def mask_stale(messages, *, skills=None, keep_turns=MASK_KEEP_TURNS, minimum=MAS
             rewritten[index] = _cleared_result(message, name)
         elif isinstance(message, AIMessage) and any(call["name"] in _WRITES for call in message.tool_calls or []):
             rewritten[index] = _cleared_args(message)
-    removed = sum(map(_chars, old)) - sum(map(_chars, rewritten))
+    tail = messages[boundary:]
+    snapshots = [
+        index
+        for index, message in enumerate(tail)
+        if origins.get(getattr(message, "tool_call_id", None)) == "execute_command"
+        and isinstance(message.content, str)
+        and PAGE_SNAPSHOT in message.content
+    ]
+    kept = list(tail)
+    for index in snapshots[:-1]:
+        kept[index] = _cleared_result(tail[index], "execute_command")
+    removed = sum(map(_chars, old)) - sum(map(_chars, rewritten)) + sum(map(_chars, tail)) - sum(map(_chars, kept))
     if removed < minimum:
         return messages, 0
     # Forgotten only once the batch is committed; prune_skill_bodies above ran without `skills` for that.
     for name in skill_names - {None}:
         _forget_skill(skills, name)
-    return rewritten + messages[boundary:], removed
+    return rewritten + kept, removed
 
 
 def find_cut_point(messages, keep_recent=KEEP_RECENT_CHARS, start=1):

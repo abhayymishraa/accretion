@@ -17,3 +17,11 @@ async def control_preview(sandbox, action):
         'python3 -c ' + shlex.quote(script) + ' ' + action, timeout_seconds=150)
     if not result['ok']:
         raise PreviewError('Preview server could not ' + action + '. Saved project files are preserved.')
+
+
+async def ensure_preview_current(workspace) -> None:
+    """Restart the preview when files changed since it last started, so a check sees current code."""
+    if workspace.preview_revision != workspace.revision:
+        # Advance only after restart succeeds; failed restarts must remain retryable.
+        await control_preview(workspace.sandbox, 'restart')
+        workspace.preview_revision = workspace.revision

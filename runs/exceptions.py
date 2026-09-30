@@ -7,6 +7,10 @@ class RunNotFound(NotFound):
     DETAIL = "Run not found"
 
 
+class ScreenshotNotFound(NotFound):
+    DETAIL = "Screenshot not found"
+
+
 class RunNotRunning(Conflict):
     DETAIL = "This build has already finished. Send your message as a new request."
 

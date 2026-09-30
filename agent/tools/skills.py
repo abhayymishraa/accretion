@@ -31,6 +31,7 @@ SKILL_DIRECTORIES = {
     "impeccable": "impeccable",
     "emil-design-eng": "emil-design-eng",
     "vercel-react-best-practices": "react-best-practices",
+    "agent-browser": "agent-browser",
 }
 # Only these bundled reference directories are exposed, never project files or scripts.
 REFERENCE_DIRECTORIES = {

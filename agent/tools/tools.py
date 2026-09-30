@@ -1,14 +1,21 @@
 """Typed, source-preserving tools. Sandbox code never receives API credentials."""
 
+import asyncio
+import difflib
+import io
 import json
 import re
+import shlex
+from collections.abc import Awaitable, Callable
 from pathlib import PurePosixPath
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any
 
+import httpx
+from e2b import SandboxException
 from langchain_core.tools import tool
+from PIL import Image
 from pydantic import BaseModel, Field
 
-from ..sandbox.browser import PreviewStep
 from ..sandbox.commands import MAX_OUTPUT, run_command
 
 ROOT = "/home/user/react-app"
@@ -34,6 +41,86 @@ _NAMES_DIR = re.compile(r"\bcd\s+\S|--prefix\b")
 # About 25k tokens, Claude Code's Read limit. Bounds reads, writes and edits alike, so a file the model
 # can write it can also read back and edit; lockfile-sized reads are refused rather than resent every turn.
 MAX_FILE_BYTES = 100_000
+# What the chat shows of an edit, never what the model sees. Codex draws one line of context around each
+# change; the caps keep one tool event small enough to store and stream.
+_DIFF_CONTEXT = 1
+_DIFF_MAX_LINES = 240
+_DIFF_MAX_LINE_CHARS = 240
+
+
+def file_diffs(before: dict[str, str | None], after: dict[str, str]) -> list[dict[str, Any]]:
+    """Line diffs for the chat, one per file. A None `before` is a file whose old text was unreadable."""
+    budget = _DIFF_MAX_LINES
+    diffs = []
+    for path, new_text in after.items():
+        old_text = before.get(path)
+        old, new = (old_text or "").splitlines(), new_text.splitlines()
+        matcher = difflib.SequenceMatcher(None, old, new, autojunk=False)
+        opcodes = matcher.get_opcodes()
+        added = sum(j2 - j1 for tag, _, _, j1, j2 in opcodes if tag in {"replace", "insert"})
+        removed = sum(i2 - i1 for tag, i1, i2, _, _ in opcodes if tag in {"replace", "delete"})
+        hunks: list[list[list[Any]]] = []
+        truncated = old_text is None
+        for group in [] if truncated else matcher.get_grouped_opcodes(_DIFF_CONTEXT):
+            lines: list[list[Any]] = []
+            for tag, i1, i2, j1, j2 in group:
+                if tag == "equal":
+                    lines += [[" ", j1 + k + 1, new[j1 + k]] for k in range(j2 - j1)]
+                    continue
+                lines += [["-", i + 1, old[i]] for i in range(i1, i2)]
+                lines += [["+", j + 1, new[j]] for j in range(j1, j2)]
+            if len(lines) > budget:
+                truncated = True
+                break
+            budget -= len(lines)
+            hunks.append([[sign, number, text[:_DIFF_MAX_LINE_CHARS]] for sign, number, text in lines])
+        diffs.append(
+            {
+                "path": path,
+                "created": old_text == "",
+                "added": added,
+                "removed": removed,
+                "hunks": hunks,
+                "truncated": truncated,
+            }
+        )
+    return diffs
+
+
+# The model checks the running app with agent-browser (installed by sandbox/templates.py) through
+# execute_command. Before such a command the host brings the preview and database up to date; after
+# it, the screenshots the CLI reports saving go to the chat and, when the model reads images, to it.
+BROWSER = re.compile(r"\bagent-browser\b")
+# Subcommands that do not touch a page (docs, session management) skip the host's page preparation.
+_BROWSER_CALL = re.compile(r"\bagent-browser((?:\s+--?\S+)*)\s+([a-z][\w-]*)")
+_NOT_PAGE = frozenset({"skills", "close", "install", "session", "profiles", "help", "dashboard", "upgrade"})
+# Under the tool's 60s deadline, which is fatal to the run: a hung browser exits 124 instead.
+BROWSER_TIMEOUT = 50
+_PROJECT_ENV = "set -a; [ -f .env ] && . ./.env; set +a; "
+_SCREENSHOT = re.compile(r"Screenshot saved to (\S+)")
+MAX_SCREENSHOTS = 4
+MAX_SCREENSHOT_BYTES = 3_000_000
+_IMAGE_TYPES = {b"\x89PNG": "image/png", b"\xff\xd8\xff": "image/jpeg"}
+# What a vision model gets; the stored original the user sees is untouched. Anthropic's standard tier
+# reads up to 1568px on the long edge and bills by size, not bytes; chrome-devtools-mcp and browser-use
+# downscale to JPEG for the same reason (agent-browser's own JPEG default is quality 80).
+MODEL_IMAGE_EDGE = 1568
+MAX_MODEL_ASPECT = 2.5
+
+
+def shrink_for_model(data: bytes) -> tuple[bytes, bool]:
+    """A JPEG a model can read, and whether a very tall page was cut to its top."""
+    with Image.open(io.BytesIO(data)) as source:
+        image = source.convert("RGB")
+    # Fitting an 8000px-tall page into 1568px leaves text a few pixels high; keep the top instead. A phone
+    # viewport (390x844) is about 2.2 tall, so only full-page captures pass 2.5.
+    cropped = image.height > MAX_MODEL_ASPECT * image.width
+    if cropped:
+        image = image.crop((0, 0, image.width, int(MAX_MODEL_ASPECT * image.width)))
+    image.thumbnail((MODEL_IMAGE_EDGE, MODEL_IMAGE_EDGE), Image.Resampling.LANCZOS)
+    buffer = io.BytesIO()
+    image.save(buffer, "JPEG", quality=80, optimize=True)
+    return buffer.getvalue(), cropped
 
 
 class FileWriteError(Exception):
@@ -69,8 +156,11 @@ class WorkspaceTools:
         self.cache: dict[str, str] = {}
         self.revision = 0
         self.preview_revision = 0
-        self.screenshot_attempts = 0
-        self.preview_checks = {}
+        # Set by the runner: what must be true before agent-browser looks at the app.
+        self.before_browser: Callable[[], Awaitable[None]] | None = None
+        self.browser_timeouts = 0
+        # agent-browser's page-error log only grows (its --clear leaves it, 0.38.1): count what was reported.
+        self.page_errors_reported = 0
 
     async def read(self, path: str) -> str:
         path = project_path(path)
@@ -112,17 +202,88 @@ class WorkspaceTools:
             raise FileWriteError("File upload did not complete; sandbox cleanup is required") from None
         self.cache.update(changes)
 
+    async def screenshots(self, output: str) -> list[tuple[bytes, str]]:
+        """The images a browser command reported saving, as (bytes, media type); unreadable ones are skipped."""
+        images = []
+        for path in list(dict.fromkeys(_SCREENSHOT.findall(output)))[:MAX_SCREENSHOTS]:
+            path = path if path.startswith("/") else f"{ROOT}/{path}"
+            try:
+                info = await self.sandbox.files.get_info(path, request_timeout=10)
+                if info.size > MAX_SCREENSHOT_BYTES:
+                    continue
+                data = bytes(await self.sandbox.files.read(path, format="bytes", request_timeout=20))
+            except (SandboxException, httpx.HTTPError):
+                continue
+            media = next((kind for magic, kind in _IMAGE_TYPES.items() if data.startswith(magic)), None)
+            if media:
+                images.append((data, media))
+        return images
+
+    async def browse(self, command: str) -> dict[str, Any]:
+        """Run a command using agent-browser; add what the page reported and the screenshots it saved."""
+        drives_page = any(verb not in _NOT_PAGE for _, verb in _BROWSER_CALL.findall(command))
+        if drives_page and self.before_browser is not None:
+            await self.before_browser()
+        try:
+            result = await self.command(f"{_PROJECT_ENV}timeout -k 5 {BROWSER_TIMEOUT} bash -c {shlex.quote(command)}")
+        finally:
+            self.cache.clear()
+            self.revision += 1
+            # A browser command reads the app; it does not make the next one restart the preview.
+            self.preview_revision = self.revision
+        timed_out = result.get("exit_code") == 124
+        self.browser_timeouts = self.browser_timeouts + 1 if timed_out else 0
+        if timed_out:
+            result["error"] = f"agent-browser did not finish within {BROWSER_TIMEOUT}s"
+        if self.browser_timeouts >= 2:
+            # OpenHands resets its browser after repeated timeouts: a wedged session does not recover alone.
+            await self.command("agent-browser close --all", timeout_seconds=20)
+            self.browser_timeouts = 0
+            result["browser_restarted"] = "The browser stopped responding twice and was restarted. Open the page again."
+        elif drives_page and not timed_out:
+            result["page_check"] = await self.page_check()
+        # `_screenshots` is for the runner, which stores them; it never reaches the model as JSON.
+        result["_screenshots"] = await self.screenshots(result.get("stdout", ""))
+        return result
+
+    async def page_check(self) -> dict[str, Any]:
+        """What the page reported since the last check. Playwright MCP puts this on every reply, and
+        uncaught errors are what bolt's and dyad's fix loops run on; a page can look right and throw."""
+        result = await self.command("timeout 25 python3 -c " + shlex.quote(_PAGE_CHECK), timeout_seconds=30)
+        try:
+            found = json.loads(result["stdout"])
+        except ValueError:
+            return {"summary": "The page's errors could not be read"}
+        counts = found.pop("counts")
+        total = found.pop("page_errors_total")
+        # A shorter log means a new browser session, whose errors are all new.
+        new = total - self.page_errors_reported if total >= self.page_errors_reported else total
+        self.page_errors_reported = total
+        found["page_errors"] = found["page_errors"][-new:] if new else []
+        parts = [
+            (new, "new uncaught error"),
+            (counts["console_errors"], "console error"),
+            (counts["warnings"], "warning"),
+            (counts["failed_requests"], "failed request"),
+        ]
+        summary = ", ".join(f"{count} {label}{'' if count == 1 else 's'}" for count, label in parts)
+        return {"summary": summary, **{key: value for key, value in found.items() if value}}
+
     async def command(self, command: str, timeout_seconds: int = 60, max_output: int = MAX_OUTPUT) -> dict[str, Any]:
         return await run_command(self.sandbox, command, cwd=ROOT, timeout=timeout_seconds, max_output=max_output)
 
     async def edit(self, edits: list[FileEdit]) -> dict[str, Any]:
         """Apply exact-text edits in order, several to one file allowed; all validate before any is written."""
         updated: dict[str, str] = {}
+        originals: dict[str, str | None] = {}
         for number, item in enumerate(edits, 1):
             path = project_path(item.path)
             if not item.old_string or item.old_string == item.new_string:
                 raise ValueError(f"Edit {number}: old_string must be non-empty and differ from new_string")
-            content = updated[path] if path in updated else await self.read(path)
+            if path in updated:
+                content = updated[path]
+            else:
+                content = originals[path] = await self.read(path)
             count = content.count(item.old_string)
             if count == 0:
                 raise ValueError(f"Edit {number} ({path}): old_string was not found; copy the text exactly")
@@ -134,7 +295,18 @@ class WorkspaceTools:
             if len(updated[path].encode()) > MAX_FILE_BYTES:
                 raise ValueError(f"Edit {number} ({path}): file exceeds the source-size limit")
         await self.write(updated)
-        return {"ok": True, "changed_files": list(updated), "edits": len(edits)}
+        # `_diffs` is for the chat; the runner removes it before the result reaches the model.
+        diffs = await asyncio.to_thread(file_diffs, originals, updated)
+        return {"ok": True, "changed_files": list(updated), "edits": len(edits), "_diffs": diffs}
+
+    async def previous(self, path: str) -> str | None:
+        """Text a write is about to replace: "" for a new file, None when it cannot be read."""
+        if not await self.sandbox.files.exists(f"{ROOT}/{path}"):
+            return ""
+        try:
+            return await self.read(path)
+        except (ValueError, UnicodeDecodeError):
+            return None
 
     def definitions(self):
         @tool
@@ -157,8 +329,10 @@ class WorkspaceTools:
                 raise ValueError("A batch must not write the same path twice")
             if sum(len(f.content.encode()) for f in files) > 500_000:
                 raise ValueError("Batch is too large")
-            await self.write({path: item.content for path, item in zip(paths, files, strict=True)})
-            return {"ok": True, "changed_files": paths}
+            changes = {path: item.content for path, item in zip(paths, files, strict=True)}
+            before = dict(zip(paths, await asyncio.gather(*(self.previous(path) for path in paths)), strict=True))
+            await self.write(changes)
+            return {"ok": True, "changed_files": paths, "_diffs": await asyncio.to_thread(file_diffs, before, changes)}
 
         # Every surveyed harness edits in place (Claude Code Edit, Codex apply_patch, OpenCode edit):
         # a rewrite pays for the whole file as output, then resends it on every later turn.
@@ -175,9 +349,10 @@ class WorkspaceTools:
 
         @tool(
             description=(
-                "Run a bounded shell command in the project for concrete diagnostics or"
-                " requested skill discovery. The project's services are already running and reload"
-                " when files change: never start a dev server. Do not install relative paths as packages."
+                "Run a bounded shell command in the project: diagnostics, skill discovery, and checking the"
+                " running app in a browser with the agent-browser CLI. The project's services are already"
+                " running and reload when files change: never start a dev server. Do not install relative"
+                " paths as packages. Screenshots saved by agent-browser are shown to the user."
             )
         )
         async def execute_command(command: str) -> dict[str, Any]:
@@ -198,40 +373,20 @@ class WorkspaceTools:
                 )
             if MIGRATE.search(command):
                 raise ValueError(
-                    "Do not migrate or edit the database directly: write the migration file and finish."
-                    " The host applies new migrations when it checks your work."
+                    "Do not migrate or edit the database directly: write the migration file."
+                    " The host applies new migrations before each agent-browser command and when you finish."
                 )
+            if BROWSER.search(command):
+                return await self.browse(command)
             try:
                 # The kit's own instructions (alembic revision) need DATABASE_URL, as project._run provides.
-                return await self.command(f"set -a; [ -f .env ] && . ./.env; set +a; {command}")
+                return await self.command(_PROJECT_ENV + command)
             finally:
                 self.cache.clear()
                 # Shell can modify files even on failed commands.
                 self.revision += 1
 
-        @tool(
-            description=(
-                "Inspect the page or exercise its main workflow with up to eight CSS-selector"
-                " steps ending in an expect_* assertion. Supply a meaningful sequence for"
-                " desktop and mobile before finishing; the host replays the latest sequence"
-                " for each after the final edit. Fresh isolated browser state each call. Steps may"
-                " create or change data through this app's own API; the database is restored after"
-                " each check. Writes to other sites and external navigation are blocked."
-                " Optional screenshot returns one viewport image, at most twice per run. Does"
-                " not replace final build checks."
-            )
-        )
-        async def inspect_preview(
-            viewport: Literal["desktop", "mobile"] = "desktop",
-            path: str = "/",
-            screenshot: bool = False,
-            steps: Annotated[list[PreviewStep], Field(max_length=8)] = Field(default=[]),
-        ) -> dict[str, Any]:
-            from ..sandbox.browser import inspect_preview as inspect
-
-            return await inspect(self, viewport=viewport, path=path, screenshot=screenshot, steps=steps)
-
-        return [read_files, write_files, edit_files, execute_command, inspect_preview]
+        return [read_files, write_files, edit_files, execute_command]
 
 
 # Skips what checkpoints skip (agent/sandbox/archive.py EXCLUDED) and shares their limit.
@@ -252,3 +407,39 @@ async def list_files(sandbox) -> list[str]:
 
     result = await sandbox.commands.run("node -e " + shlex.quote(LIST_FILES_JS), cwd=ROOT, timeout=20)
     return [project_path(p) for p in json.loads(result.stdout)]
+
+
+# Runs in the sandbox after a page command. agent-browser 0.38.1 prints uncaught errors as empty
+# lines in its text output, so this reads --json. Console and request logs are cleared, so the next
+# check sees only new entries; the page-error log cannot be, so the host counts it (page_check).
+_PAGE_CHECK = r"""
+import json, subprocess
+def read(*command):
+    try:
+        out = subprocess.run(["agent-browser", *command, "--json"], capture_output=True, text=True, timeout=8)
+        return json.loads(out.stdout).get("data") or {}
+    except Exception:
+        return {}
+errors = [str(e.get("text", ""))[:500] for e in read("errors").get("errors", [])]
+messages = read("console").get("messages", [])
+failed = [
+    f"{r.get('method')} {r.get('url')} {r.get('status')}"[:300]
+    for r in read("network", "requests").get("requests", [])
+    if isinstance(r.get("status"), int) and r["status"] >= 400 and not str(r.get("url", "")).endswith("/favicon.ico")
+]
+for command in (["errors"], ["console"], ["network", "requests"]):
+    subprocess.run(["agent-browser", *command, "--clear"], capture_output=True, timeout=8)
+print(json.dumps({
+    "page_errors_total": len(errors),
+    "counts": {
+        "console_errors": sum(m.get("type") == "error" for m in messages),
+        "warnings": sum(m.get("type") == "warning" for m in messages),
+        "failed_requests": len(failed),
+    },
+    "page_errors": errors[-10:],
+    "console": [
+        f"[{m.get('type')}] {m.get('text', '')}"[:500] for m in messages if m.get("type") in ("error", "warning")
+    ][-20:],
+    "failed_requests": failed[-10:],
+}))
+"""

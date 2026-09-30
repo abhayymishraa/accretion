@@ -20,7 +20,6 @@ class SandboxConfig(BaseConfig):
     E2B_RUNTIME_GENERATION: str = "1"
 
     PAUSED_SANDBOX_RETENTION_DAYS: int = 7
-    PREVIEW_SCREENSHOTS_ENABLED: bool = True
 
 
 sandbox_settings = SandboxConfig()

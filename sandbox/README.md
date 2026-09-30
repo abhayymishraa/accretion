@@ -22,8 +22,10 @@ kit and both database servers (Postgres 18 and MongoDB 8.3). Neither database ru
 `accretion-db start postgres|mongo` starts the one a kit declares, so an unused server costs no
 RAM (E2B bills CPU and RAM, not disk).
 
-The base is `node:24.21.0-bookworm-slim` (Node 24 LTS), Python 3 with venv, the Playwright checks
-in `/opt/webbuilder-checks`. The base stays on
+The base is `node:24.21.0-bookworm-slim` (Node 24 LTS), Python 3 with venv, Chromium's headless
+shell (downloaded by the pinned Playwright package in `/opt/webbuilder-checks`) and the
+agent-browser CLI, configured in `~/.agent-browser/config.json` to drive that Chromium. The model
+checks apps with it through its command tool. The base stays on
 bookworm because MongoDB publishes server packages for bookworm only. Kits are copied to
 `/opt/accretion/kits/<id>` with dependencies installed; a new project copies its kit into
 `/home/user/react-app`.

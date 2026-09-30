@@ -9,7 +9,8 @@ from agent.routing import providers as routing_providers
 from agent.run.service import agent_service
 from agent.storage.persistence import archive_slots, read_object
 from agent.storage.storage import StorageError
-from db.models import Run, User
+from agent.tools import tools as agent_tools
+from db.models import Run, RunScreenshot, User
 from projects.schemas import RunAdmission
 from runs.constants import (
     DETAIL_RETENTION_DAYS,
@@ -17,7 +18,14 @@ from runs.constants import (
     MAX_RUN_LOG_BYTES,
     MAX_RUNS_PAGE,
 )
-from runs.exceptions import InvalidEventCursor, InvalidHistoryPage, RunLogExpired, RunLogUnavailable, RunNotRunning
+from runs.exceptions import (
+    InvalidEventCursor,
+    InvalidHistoryPage,
+    RunLogExpired,
+    RunLogUnavailable,
+    RunNotRunning,
+    ScreenshotNotFound,
+)
 from runs.schemas import ModelList, RunEventsPage, RunList
 
 
@@ -87,3 +95,11 @@ async def run_log(run: Run) -> bytes:
     if hashlib.sha256(data).hexdigest() != run.log_sha256:
         raise StorageError("Run log archive failed integrity checks")
     return data
+
+
+async def screenshot(db: AsyncSession, run: Run, screenshot_id: str) -> tuple[bytes, str]:
+    """A stored browser-check image of this run, with its media type."""
+    row = await db.get(RunScreenshot, screenshot_id)
+    if row is None or row.run_id != run.id:
+        raise ScreenshotNotFound
+    return await read_object(row.object_key, agent_tools.MAX_SCREENSHOT_BYTES), row.media_type

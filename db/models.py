@@ -117,6 +117,17 @@ class RunEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
 
+class RunScreenshot(Base):
+    """An image a run's browser check saved. The bytes live in private storage at `object_key`."""
+
+    __tablename__ = "run_screenshots"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    run_id: Mapped[str] = mapped_column(ForeignKey("runs.id", ondelete="CASCADE"), index=True)
+    object_key: Mapped[str] = mapped_column(String(512))
+    media_type: Mapped[str] = mapped_column(String(32))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+
+
 class ProjectRevision(Base):
     __tablename__ = "project_revisions"
     id: Mapped[str] = mapped_column(String(36), primary_key=True)

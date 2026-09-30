@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from agent.context.history import conversation_page
 from agent.run.service import agent_service
 from agent.storage.maintenance import attempt_cleanup, cleanup_project_storage
-from db.models import Chat, Message, ProjectRevision, Run, StorageDeletion, User
+from db.models import Chat, Message, ProjectRevision, Run, RunScreenshot, StorageDeletion, User
 from projects.constants import LIVE_RUN_STATUSES
 from projects.dependencies import owned_chat
 from projects.exceptions import ChatNotFound, NotChatOwner, ProjectBusy
@@ -77,6 +77,9 @@ async def delete_project(db: AsyncSession, project_id: str, user: User) -> Proje
             raise ProjectBusy
         keys = set(
             (await db.scalars(select(ProjectRevision.object_key).where(ProjectRevision.chat_id == project_id))).all()
+        )
+        keys.update(
+            (await db.scalars(select(RunScreenshot.object_key).join(Run).where(Run.chat_id == project_id))).all()
         )
         runs = (await db.execute(select(Run.id, Run.log_key).where(Run.chat_id == project_id))).all()
         for run_id, log_key in runs:

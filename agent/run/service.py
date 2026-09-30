@@ -17,7 +17,7 @@ from sqlalchemy import func, select, update
 from agent.sandbox.config import sandbox_settings
 from agent.storage.config import storage_settings
 from db.base import AsyncSessionLocal
-from db.models import Chat, Message, Run, RunEvent, SandboxRuntime, User
+from db.models import Chat, Message, Run, RunEvent, RunScreenshot, SandboxRuntime, User
 
 from ..budget.budget import BudgetLimitError, BudgetSpentError, remaining_nanos, require_allowance
 from ..budget.model_budget import spend_scope
@@ -28,7 +28,6 @@ from ..routing import jev
 from ..routing import providers as routing_providers
 from ..routing import router as routing_router
 from ..sandbox import migrations, project
-from ..sandbox.browser import check_browser
 from ..sandbox.commands import CommandStateError
 from ..sandbox.kits import KITS
 from ..sandbox.preview import PreviewError, control_preview
@@ -36,12 +35,13 @@ from ..sandbox.sandbox_runtime import SandboxRuntimes
 from ..storage.persistence import (
     archive_slots,
     latest_revision,
+    put_object,
     revision_bytes,
     sandbox_archive,
     save_revision,
 )
 from ..storage.storage import StorageError
-from ..tools.tools import ROOT, FileWriteError, WorkspaceTools
+from ..tools.tools import ROOT, FileWriteError
 from .config import run_settings
 from .decisions import decision_source, prepare_continuation, resolve_decision
 from .diagnostics import sandbox_diagnostics
@@ -448,8 +448,22 @@ class Service:
             cwd=ROOT,
             timeout=45,
         )
-        if not (await check_browser(WorkspaceTools(sandbox)))["ok"]:
-            raise PreviewError("Saved preview did not pass browser checks")
+
+    async def save_screenshot(self, live, data: bytes, media_type: str) -> str | None:
+        """Store an image a browser check saved; its id goes on the tool event the chat draws it from.
+
+        None when storage refuses it: the check still counts, the chat just shows no image.
+        """
+        screenshot_id = uuid.uuid4().hex
+        key = f"screenshots/{live.chat_id}/{live.id}/{screenshot_id}"
+        try:
+            await put_object(key, data, media_type, chat_id=live.chat_id)
+        except StorageError:
+            logger.warning("Screenshot not stored run_id=%s", live.id)
+            return None
+        async with AsyncSessionLocal.begin() as db:
+            db.add(RunScreenshot(id=screenshot_id, run_id=live.id, object_key=key, media_type=media_type))
+        return screenshot_id
 
     async def save_files(self, live):
         if not live.sandbox:
@@ -690,6 +704,7 @@ class Service:
                     if live.user_id is not None and live.message_id is not None
                     else None,
                     migrate=lambda: migrations.gate(live.sandbox, stack, allow_data_loss=approved_data_loss(live)),
+                    save_screenshot=lambda data, media_type: self.save_screenshot(live, data, media_type),
                 )
                 if "decision" in result:
                     current = await latest_revision(live.chat_id)
@@ -704,8 +719,7 @@ class Service:
                 await self.save_files(live)
                 status, reason = (
                     "succeeded",
-                    result["summary"]
-                    + "\n\nProduction build and the selected desktop/mobile acceptance checks passed.",
+                    result["summary"] + "\n\nProduction build passed.",
                 )
         except migrations.DestructiveMigration as exc:
             # Spec 6: a change that deletes saved data waits for the user's answer.

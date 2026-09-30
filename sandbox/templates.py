@@ -14,6 +14,7 @@ services answer) during the build, so a project always starts from a verified wo
 """
 
 import json
+import shlex
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -33,6 +34,15 @@ MONGO_SERIES = "8.3"
 # Spec 8: 2-4 GB; the default 512 MiB-1 GB cannot run a frontend, a backend and a database.
 CPU_COUNT = 2
 MEMORY_MB = 4096
+AGENT_BROWSER = "0.38.1"
+# Page output is untrusted, so the CLI marks it with nonce boundaries (contentBoundaries) and caps it
+# under the command tool's 12k output (maxOutput), leaving room for the rest of a chained command.
+AGENT_BROWSER_CONFIG = {
+    "executablePath": "/usr/local/bin/chrome-headless-shell",
+    "screenshotDir": "/tmp/agent-browser",
+    "contentBoundaries": True,
+    "maxOutput": 8000,
+}
 GATE_ENV = {
     "postgres": {"DATABASE_URL": "postgresql://app:gate@127.0.0.1:5432/app"},
     "mongo": {"MONGO_URL": "mongodb://127.0.0.1:27017/app"},
@@ -59,13 +69,26 @@ def build_template() -> Template:
             "apt-get update && apt-get install -y --no-install-recommends ca-certificates curl gnupg tree procps"
             " python3 python3-venv && rm -rf /var/lib/apt/lists/*"
         )
-        # browser: the Playwright checks outside the app.
+        # browser: Playwright's pinned package downloads Chromium's headless shell with its system
+        # libraries; agent-browser drives that same binary, so the image carries one browser.
         .set_envs({"PLAYWRIGHT_BROWSERS_PATH": "/opt/pw-browsers"})
         .copy(["checks/package.json", "checks/package-lock.json"], "/opt/webbuilder-checks/")
         .run_cmd(
             "cd /opt/webbuilder-checks && npm ci --no-audit --no-fund"
             " && npx playwright install --with-deps --only-shell chromium"
             " && chmod -R a+rX /opt/webbuilder-checks /opt/pw-browsers"
+        )
+        # The model verifies the app with agent-browser through its ordinary command tool. Its npm
+        # package ships the native CLI, so the skipped postinstall is not needed (checked 0.38.1).
+        # Template envs do not reach runtime commands, so the browser path lives in agent-browser's
+        # own user config, which every invocation reads (keys are camelCase; others are ignored).
+        .run_cmd(
+            f"npm install -g agent-browser@{AGENT_BROWSER} --no-audit --no-fund && agent-browser --version"
+            " && mkdir -p /home/user/.agent-browser && printf '%s' "
+            + shlex.quote(json.dumps(AGENT_BROWSER_CONFIG))
+            + ' > /home/user/.agent-browser/config.json && ln -s'
+            ' "$(ls /opt/pw-browsers/chromium_headless_shell-*/chrome-*/chrome-headless-shell)"'
+            f" {AGENT_BROWSER_CONFIG['executablePath']} && chown -R user:user /home/user/.agent-browser"
         )
         # Postgres from PGDG.
         .run_cmd(

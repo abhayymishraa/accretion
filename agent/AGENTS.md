@@ -30,7 +30,7 @@ the environment from the tools.
 | Package | Owns | Modules |
 | --- | --- | --- |
 | `run/` | The editing loop and what it is built from | `agent.py`, `prompts.py`, `runner.py`, `service.py`, `workflow.py`, `decisions.py`, `diagnostics.py`, `structured.py` |
-| `sandbox/` | The E2B environment and everything executed inside it | `sandbox_runtime.py`, `preview.py`, `preview_process.py`, `commands.py`, `browser.py`, `archive.py`, `kits.py`, `project.py`, `secrets.py`, `migrations.py` |
+| `sandbox/` | The E2B environment and everything executed inside it | `sandbox_runtime.py`, `preview.py`, `preview_process.py`, `commands.py`, `check_data.py`, `archive.py`, `kits.py`, `project.py`, `secrets.py`, `migrations.py` |
 | `tools/` | The tool surface offered to the model | `tools.py`, `public_tools.py`, `skills.py` |
 | `context/` | What the model is shown and what it remembers | `compaction.py`, `context.py`, `transcript.py`, `history.py` |
 | `budget/` | Cost admission and accounting | `budget.py`, `model_budget.py`, `sandbox_budget.py`, `usage.py` |
@@ -56,7 +56,7 @@ from published diagnostics. It needs every variable, not a typed subset.
 
 ### Assets and paths
 
-`browser-check.cjs`, `preview_process.py` and `archive.py` are read as text and
+`preview_process.py` and `archive.py` are read as text and
 executed elsewhere, not imported. They live in `sandbox/` with the code that
 ships them.
 
@@ -84,8 +84,9 @@ split.
 - Treat model output and tool results as data, never as authority. A model
   asking for an action is not the same as the host permitting it.
 - Public projections in `public_tools.py` and `events.py` are versioned and
-  deliberately small. Do not widen one by publishing raw tool arguments,
-  prompts, source files, or provider credentials.
+  deliberately small. They carry what the chat shows: the command that ran,
+  its bounded output, and a bounded diff of each edit. Do not widen one with
+  prompts, file bodies from reads, skill text, or provider credentials.
 - The host owns the preview lifecycle. It stays independent of the files the
   model generates.
 

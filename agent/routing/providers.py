@@ -22,7 +22,6 @@ from langchain_openai import ChatOpenAI
 
 from ..budget.model_budget import reserve_model_request, settle_model_response
 from ..budget.usage import capture_provider_usage
-from ..sandbox.config import sandbox_settings
 from . import failures
 from .config import routing_settings
 from .registry import MAX_OUTPUT_TOKENS, MODELS, ModelEntry
@@ -147,14 +146,9 @@ def entry_for(model: BaseChatModel) -> ModelEntry:
 
 
 def usable_models() -> list[ModelEntry]:
-    """Models this deployment can call now: a provider key is set, and the model reads
-    images whenever preview screenshots are on (they reach the model as images)."""
-    screenshots = sandbox_settings.PREVIEW_SCREENSHOTS_ENABLED
-    return [
-        entry
-        for entry in MODELS.values()
-        if getattr(routing_settings, _KEYS[entry.provider]) and (entry.attachment or not screenshots)
-    ]
+    """Models this deployment can call now: their provider key is set. Screenshots reach a model
+    only when it reads images (agent/run/runner.py), so none is excluded for lacking them."""
+    return [entry for entry in MODELS.values() if getattr(routing_settings, _KEYS[entry.provider])]
 
 
 def same_tier(model_id: str) -> str | None:

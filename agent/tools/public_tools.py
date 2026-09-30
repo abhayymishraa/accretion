@@ -1,11 +1,15 @@
-"""Small, versioned public projections; never publish arbitrary tool arguments/content."""
+"""Small, versioned public projections: what ran and what changed, never read bodies or skill text."""
 
 import json
 
 from ..events import redact
 
-MAX_PUBLIC_BYTES = 1600
-SAFE_COMMANDS = {"npm run build", "npm test", "npm run lint", "npm run typecheck", "pwd", "ls"}
+# Room for a readable slice of command output in the chat's shell block.
+MAX_PUBLIC_BYTES = 4000
+# Diffs are bounded where they are made (agent/tools/tools.py file_diffs) and again here, apart from the
+# other fields: squeezed together with stdout, halving would cut a diff mid-hunk.
+MAX_DIFF_BYTES = 24_000
+MAX_COMMAND_CHARS = 600
 
 
 def encode_public(details):
@@ -34,8 +38,13 @@ def _bounded(fields):
     return result
 
 
-def public_tool_details(name, *, args=None, result=None):
-    """Same projection feeds durable history, websocket updates and copy actions."""
+def public_tool_details(name, *, args=None, result=None, diffs=None, screenshots=None):
+    """Same projection feeds durable history, websocket updates and copy actions.
+
+    `diffs` is the user's own project text, shown back to them in the chat; the command is published so
+    the chat can show what ran. Both are redacted with the rest of the event (RunService.event).
+    `screenshots` are ids of stored images (RunService.save_screenshot) the chat shows after the command.
+    """
     fields = {"version": 1, "kind": name[:80]}
     args = args if isinstance(args, dict) else {}
     changes = args.get("files") if isinstance(args.get("files"), list) else []
@@ -74,7 +83,7 @@ def public_tool_details(name, *, args=None, result=None):
                     if isinstance(result.get(key), (str, int, bool))
                 }
             )
-        elif name in {"execute_command", "browser_preflight"}:
+        elif name == "execute_command":
             fields.update(
                 {
                     key: result[key]
@@ -90,72 +99,27 @@ def public_tool_details(name, *, args=None, result=None):
                     if isinstance(result.get(key), (str, int))
                 }
             )
-        elif name == "inspect_preview":
-            # Page text stays in model context; public history contains only bounded diagnostics.
-            fields.update(
-                {
-                    key: result[key]
-                    for key in ("revision", "checked", "final_verification")
-                    if isinstance(result.get(key), (int, bool))
-                }
-            )
-            fields["errors"] = [item[:500] for item in result.get("errors", []) if isinstance(item, str)][:10]
-            fields["viewports"] = [
-                page["viewport"]
-                for page in result.get("pages", [])
-                if isinstance(page, dict) and page.get("viewport") in {"desktop", "mobile"}
-            ]
-            fields["steps"] = [
-                {"action": step.get("action"), "ok": step.get("ok") is True}
-                for page in result.get("pages", [])
-                if isinstance(page, dict)
-                for step in page.get("steps", [])
-                if isinstance(step, dict)
-            ][:8]
-            screenshot = result.get("screenshot")
-            if isinstance(screenshot, dict):
-                fields["screenshot_captured"] = screenshot.get("captured") is True
+            check = result.get("page_check")
+            if isinstance(check, dict):
+                # Flat, so the byte bound above can shorten it like any other field.
+                fields["page_summary"] = str(check.get("summary", ""))
+                fields["page_problems"] = [
+                    str(item) for key in ("page_errors", "console", "failed_requests") for item in check.get(key, [])
+                ]
+            if isinstance(result.get("browser_restarted"), str):
+                fields["browser_restarted"] = result["browser_restarted"]
         if isinstance(result.get("error"), str):
             fields["error"] = result["error"]
         if isinstance(result.get("error_type"), str):
             fields["error_type"] = result["error_type"]
-    if name == "execute_command":
-        command = args.get("command")
-        if isinstance(command, str) and command.strip() in SAFE_COMMANDS:
-            fields["command"] = command.strip()
-        else:
-            fields["input_omitted"] = True
-    return _bounded(fields)
-
-
-def preflight_failure(result):
-    """Classify observed failures without claiming an unverified underlying cause."""
-    diagnostic = str(result.get("stderr", "")) + " " + str(result.get("error", ""))
-    lowered = diagnostic.lower()
-    if (
-        result.get("error_type") in {"TimeoutException", "TimeoutError", "ReadTimeout"}
-        or "context deadline exceeded" in lowered
-        or "timed out" in lowered
-        or "timeout" in lowered
-        and "exceeded" in lowered
-    ):
-        return (
-            "browser_check_timeout",
-            "The sandbox browser startup check timed out. No editing model request was made. "
-            "Browser startup needs investigation; this does not prove the template is missing dependencies.",
-        )
-    if (
-        "cannot find module '/opt/webbuilder-checks/node_modules/playwright'" in lowered
-        or "executable doesn't exist" in lowered
-    ):
-        return (
-            "browser_tools_missing",
-            "The sandbox is missing the required browser tooling. Check E2B_TEMPLATE points at a"
-            " template built by sandbox/templates.py. "
-            "No editing model request was made.",
-        )
-    return (
-        "browser_check_failed",
-        "The sandbox browser startup check failed. Inspect the recorded diagnostic before changing "
-        "the template. No editing model request was made.",
-    )
+    if name == "execute_command" and isinstance(args.get("command"), str):
+        fields["command"] = args["command"].strip()[:MAX_COMMAND_CHARS]
+    bounded = _bounded(fields)
+    if screenshots:
+        bounded["screenshots"] = list(screenshots)
+    if diffs:
+        kept = list(diffs)
+        while kept and len(encode_public(kept).encode()) > MAX_DIFF_BYTES:
+            kept = kept[:-1]
+        bounded["diffs"] = kept
+    return bounded

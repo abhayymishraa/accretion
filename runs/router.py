@@ -62,6 +62,13 @@ async def get_run_logs(run: OwnedRun):
     )
 
 
+@router.get("/runs/{run_id}/screenshots/{screenshot_id}")
+async def get_run_screenshot(run: OwnedRun, db: DbSession, screenshot_id: str):
+    data, media_type = await service.screenshot(db, run, screenshot_id)
+    # Stored once under a random id and never rewritten, so the browser may keep it.
+    return Response(data, media_type=media_type, headers={"Cache-Control": "private, max-age=31536000, immutable"})
+
+
 @router.websocket("/ws/{project_id}")
 async def ws_listener(websocket: WebSocket, project_id: str):
     await socket.listen(websocket, project_id)

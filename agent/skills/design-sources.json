@@ -466,5 +466,17 @@
       "frontend-design/LICENSE.txt": "f433b1a53f5b830a205fd2df78e2b34974656c7b",
       "frontend-design/SKILL.md": "a5333457c414d20d625f307df945842c0952ecc3"
     }
+  },
+  {
+    "repository": "vercel-labs/agent-browser",
+    "commit": "aff6125c023b810ea3f2e5deec5379e9a4270bdc",
+    "upstream_prefix": "skills/",
+    "directory": "agent-browser",
+    "files": {
+      "agent-browser/SKILL.md": "3a7520e64de2dfaa516b6721c001e84e06e3c06a187b82af029ae721540ebfac"
+    },
+    "upstream_git_blobs": {
+      "agent-browser/SKILL.md": "dc9bb54a22e9cd7ad9c982a0fe5ae2e204751b12"
+    }
   }
 ]

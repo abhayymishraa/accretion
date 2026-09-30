@@ -76,7 +76,6 @@ async def prepare_continuation(db, parent, action, text):
             "turns",
             "repairs",
             "elapsed_ms",
-            "preview_screenshot_attempts",
             "preview_screenshots",
             "cached_input_tokens",
             "cache_write_tokens",
