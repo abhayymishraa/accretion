@@ -1,6 +1,7 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
+import { IconSwap } from "@/components/ui/IconSwap";
 
 import type { Message, WorkflowProposal } from "@/types/chat.type";
 import { CheckIcon, CopyIcon } from "@radix-ui/react-icons";
@@ -96,7 +97,11 @@ export function MessageBubble({
                                     }
                                 }}
                             >
-                                {copyStatus === "Copied" ? <CheckIcon /> : <CopyIcon />}
+                                <IconSwap
+                                    swapped={copyStatus === "Copied"}
+                                    from={<CopyIcon />}
+                                    to={<CheckIcon />}
+                                />
                             </Button>
                             <span
                                 role="status"

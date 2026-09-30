@@ -69,6 +69,11 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     return <ThemeContext.Provider value={{ light, toggle }}>{children}</ThemeContext.Provider>;
 }
 
+/** For libraries that take the theme as a prop instead of reading `data-theme`. */
+export function useLightTheme() {
+    return useContext(ThemeContext).light;
+}
+
 export function ThemeToggle() {
     const { light, toggle } = useContext(ThemeContext);
     return (

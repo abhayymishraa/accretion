@@ -26,7 +26,7 @@ export default function ChatPage() {
         setModelChoice,
     } = useNewProject();
     return (
-        <div className="ember-chat-home flex h-dvh flex-col overflow-hidden [&>.ember-workspace-header]:shrink-0">
+        <div className="ember-chat-home relative flex h-dvh flex-col overflow-hidden [&>.ember-workspace-header]:shrink-0">
             <ChatNavbar
                 isAuthenticated={isAuthenticated}
                 userData={userData}

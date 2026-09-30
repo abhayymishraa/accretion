@@ -26,6 +26,9 @@ function WorkflowDecisionCard({ message, onChanged, canRespond }: WorkflowCardPr
     const [text, setText] = useState("");
     const [revising, setRevising] = useState(false);
     const { busy, error, respond } = useWorkflowDecision(onChanged);
+    // Held once a decision is offered, as ErrorBox holds its message: answering then animates the
+    // block closed instead of removing it in one frame.
+    const [offered, setOffered] = useState(false);
     const proposal = message.workflow;
     if (!proposal) return null;
 
@@ -33,6 +36,7 @@ function WorkflowDecisionCard({ message, onChanged, canRespond }: WorkflowCardPr
     const question = proposal.kind === "clarify";
     const pending = message.run_status === "awaiting_input" && !proposal.resolution;
     const waiting = canRespond && pending;
+    if (waiting && !offered) setOffered(true);
     const runId = message.id.replace(/^run:/, "");
     const options = proposal.options ?? [];
     const heading = question
@@ -99,111 +103,117 @@ function WorkflowDecisionCard({ message, onChanged, canRespond }: WorkflowCardPr
                     ))}
                 </ol>
             )}
-            {waiting && !plan && options.length > 0 && (
-                <div
-                    role="group"
-                    aria-label="Suggested answers"
-                    className="divide-y divide-hairline border-t border-hairline"
-                >
-                    {options.map((option, index) => (
-                        <Button
-                            variant="utility"
-                            aria-pressed={text === option}
-                            disabled={busy}
-                            key={`${index}:${option}`}
-                            onClick={() => setText(option)}
-                            className="min-h-12 w-full justify-start gap-3 rounded-none px-4 py-2.5 text-left text-sm whitespace-normal text-foreground aria-pressed:text-accent-foreground"
+            {offered && (
+                <div data-disclosure={waiting ? "open" : ""}>
+                    {!plan && options.length > 0 && (
+                        <div
+                            role="group"
+                            aria-label="Suggested answers"
+                            className="divide-y divide-hairline border-t border-hairline"
                         >
-                            <span
-                                aria-hidden="true"
-                                className="flex size-4 shrink-0 items-center justify-center rounded-full border border-input"
-                            >
-                                {text === option && <Check className="size-3" />}
-                            </span>
-                            <span className="min-w-0 wrap-anywhere">{option}</span>
-                        </Button>
-                    ))}
-                </div>
-            )}
-            {waiting && (
-                <div className="border-t border-hairline p-4">
-                    {plan && !revising ? (
-                        <div className="space-y-3">
-                            <p className="text-xs leading-relaxed text-muted-foreground">
-                                Review the plan. Building starts when you approve.
-                            </p>
-                            <div className="flex flex-wrap items-center gap-2">
+                            {options.map((option, index) => (
                                 <Button
                                     variant="utility"
+                                    aria-pressed={text === option}
                                     disabled={busy}
-                                    onClick={() => respond(runId, "dismiss")}
+                                    key={`${index}:${option}`}
+                                    onClick={() => setText(option)}
+                                    className="min-h-12 w-full justify-start gap-3 rounded-none px-4 py-2.5 text-left text-sm whitespace-normal text-foreground aria-pressed:text-accent-foreground"
                                 >
-                                    Dismiss
+                                    <span
+                                        aria-hidden="true"
+                                        className="flex size-4 shrink-0 items-center justify-center rounded-full border border-input"
+                                    >
+                                        {text === option && <Check className="size-3" />}
+                                    </span>
+                                    <span className="min-w-0 wrap-anywhere">{option}</span>
                                 </Button>
-                                <div className="ml-auto flex flex-wrap gap-2">
+                            ))}
+                        </div>
+                    )}
+                    <div className="border-t border-hairline p-4">
+                        {plan && !revising ? (
+                            <div className="space-y-3">
+                                <p className="text-xs leading-relaxed text-muted-foreground">
+                                    Review the plan. Building starts when you approve.
+                                </p>
+                                <div className="flex flex-wrap items-center gap-2">
                                     <Button
-                                        variant="secondary"
+                                        variant="utility"
                                         disabled={busy}
-                                        onClick={() => setRevising(true)}
+                                        onClick={() => respond(runId, "dismiss")}
                                     >
-                                        Revise plan
+                                        Dismiss
                                     </Button>
-                                    <Button
-                                        disabled={busy}
-                                        onClick={() => respond(runId, "approve")}
-                                    >
-                                        {busy ? "Saving…" : "Approve and build"}
-                                    </Button>
+                                    <div className="ml-auto flex flex-wrap gap-2">
+                                        <Button
+                                            variant="secondary"
+                                            disabled={busy}
+                                            onClick={() => setRevising(true)}
+                                        >
+                                            Revise plan
+                                        </Button>
+                                        <Button
+                                            disabled={busy}
+                                            onClick={() => respond(runId, "approve")}
+                                        >
+                                            {busy ? "Saving…" : "Approve and build"}
+                                        </Button>
+                                    </div>
                                 </div>
                             </div>
-                        </div>
-                    ) : (
-                        <form
-                            className="space-y-3"
-                            onSubmit={(event) => {
-                                event.preventDefault();
-                                if (text.trim())
-                                    void respond(runId, plan ? "revise" : "answer", text.trim());
-                            }}
-                        >
-                            <label
-                                className="block text-xs text-muted-foreground"
-                                htmlFor={fieldId}
+                        ) : (
+                            <form
+                                className="space-y-3"
+                                onSubmit={(event) => {
+                                    event.preventDefault();
+                                    if (text.trim())
+                                        void respond(
+                                            runId,
+                                            plan ? "revise" : "answer",
+                                            text.trim(),
+                                        );
+                                }}
                             >
-                                {plan
-                                    ? "What should change?"
-                                    : options.length > 0
-                                      ? "Or write something else"
-                                      : "Your answer"}
-                            </label>
-                            <Input
-                                id={fieldId}
-                                value={text}
-                                onChange={(event) => setText(event.target.value)}
-                                maxLength={4000}
-                                disabled={busy}
-                                placeholder={plan ? "Describe your changes…" : "Your answer"}
-                            />
-                            <div className="flex flex-wrap items-center justify-between gap-2">
-                                <Button
-                                    type="button"
-                                    variant="utility"
-                                    disabled={busy}
-                                    onClick={() => {
-                                        if (plan) setRevising(false);
-                                        else void respond(runId, "dismiss");
-                                    }}
+                                <label
+                                    className="block text-xs text-muted-foreground"
+                                    htmlFor={fieldId}
                                 >
-                                    {plan ? "Back to plan" : "Dismiss"}
-                                </Button>
-                                <Button type="submit" disabled={busy || !text.trim()}>
-                                    {busy ? "Saving…" : plan ? "Update plan" : "Continue"}
-                                </Button>
-                            </div>
-                        </form>
-                    )}
-                    <div className="[&>[data-error-box]]:mt-3">
-                        <ErrorBox message={error ?? ""} />
+                                    {plan
+                                        ? "What should change?"
+                                        : options.length > 0
+                                          ? "Or write something else"
+                                          : "Your answer"}
+                                </label>
+                                <Input
+                                    id={fieldId}
+                                    value={text}
+                                    onChange={(event) => setText(event.target.value)}
+                                    maxLength={4000}
+                                    disabled={busy}
+                                    placeholder={plan ? "Describe your changes…" : "Your answer"}
+                                />
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <Button
+                                        type="button"
+                                        variant="utility"
+                                        disabled={busy}
+                                        onClick={() => {
+                                            if (plan) setRevising(false);
+                                            else void respond(runId, "dismiss");
+                                        }}
+                                    >
+                                        {plan ? "Back to plan" : "Dismiss"}
+                                    </Button>
+                                    <Button type="submit" disabled={busy || !text.trim()}>
+                                        {busy ? "Saving…" : plan ? "Update plan" : "Continue"}
+                                    </Button>
+                                </div>
+                            </form>
+                        )}
+                        <div className="[&>[data-error-box]]:mt-3">
+                            <ErrorBox message={error ?? ""} />
+                        </div>
                     </div>
                 </div>
             )}

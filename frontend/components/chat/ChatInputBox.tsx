@@ -1,5 +1,6 @@
 import { ModelPicker } from "@/components/chat/ModelPicker";
 import { Button } from "@/components/ui/button";
+import { IconSwap } from "@/components/ui/IconSwap";
 import { Input } from "@/components/ui/input";
 import { MAX_PROJECT_DRAFT_LENGTH } from "@/lib/projects/draft";
 import { starterBriefs } from "@/lib/projects/starterBriefs";
@@ -83,22 +84,21 @@ export function ChatInputBox({
                     title={submitLabel}
                 >
                     {/* Both icons share one cell so the swap cross-fades instead of cutting. */}
-                    <span className="grid [&>svg]:[grid-area:1/1] [&>svg]:transition-[opacity,scale] [&>svg]:duration-150 [&>svg]:ease-[var(--ease-out)] motion-reduce:[&>svg]:scale-100">
-                        <ArrowUp
-                            size={19}
-                            aria-hidden="true"
-                            className={isLoading ? "scale-80 opacity-0" : undefined}
-                        />
-                        <Loader2
-                            size={19}
-                            aria-hidden="true"
-                            className={
-                                isLoading
-                                    ? "animate-spin motion-reduce:animate-none"
-                                    : "scale-80 opacity-0"
-                            }
-                        />
-                    </span>
+                    <IconSwap
+                        swapped={isLoading}
+                        from={<ArrowUp size={19} aria-hidden="true" />}
+                        to={
+                            <Loader2
+                                size={19}
+                                aria-hidden="true"
+                                className={
+                                    isLoading
+                                        ? "animate-spin motion-reduce:animate-none"
+                                        : undefined
+                                }
+                            />
+                        }
+                    />
                 </Button>
             </div>
             <div id="project-brief-examples" data-disclosure={showExamples ? "open" : ""}>
