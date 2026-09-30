@@ -3,7 +3,7 @@
   "name": "React + Express + Postgres",
   "database": "postgres",
   "services": [
-    {"name": "api", "cwd": "backend", "start": "node node_modules/tsx/dist/cli.mjs src/index.ts", "port": 4000, "ready": "/api/health"},
+    {"name": "api", "cwd": "backend", "start": "node node_modules/tsx/dist/cli.mjs watch src/index.ts", "port": 4000, "ready": "/api/health"},
     {"name": "web", "cwd": "frontend", "start": "node node_modules/vite/bin/vite.js --host 0.0.0.0 --port 5173 --strictPort", "port": 5173, "ready": "/"}
   ],
   "preview_port": 5173,

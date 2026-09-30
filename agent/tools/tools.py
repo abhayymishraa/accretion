@@ -17,8 +17,11 @@ ROOT = "/home/user/react-app"
 # Long-running processes the kits already run (sandbox/kits/*/stack.json services) or that never exit.
 DEV_SERVER = re.compile(
     r"npm\s+run\s+(?:dev|start)\b|\buvicorn\b|\bnext\s+(?:dev|start)\b|\bvite(?:\.js)?(?!\s+build)(?:\s|$)"
-    r"|\b(?:tsx|node)\b[^|;&]*\bsrc/index\.ts\b|\bmongod\b|\bpg_ctl\b|\bsystemctl\b|\btail\s+-f\b"
+    r"|\b(?:tsx|node)\b[^|;&]*\bsrc/index\.ts\b|\bmongod\b|\bpg_ctl\b|\bsystemctl\s+(?:start|restart)\b|\btail\s+-f\b"
 )
+# A search names a server without starting one: `ps aux | grep uvicorn` is diagnosis. Quoted
+# patterns are kept whole, so a `|` inside `grep -E "a|uvicorn"` does not end the segment.
+_SEARCH = re.compile(r"\b(?:grep|egrep|pgrep)\b(?:\s+(?:\"[^\"]*\"|'[^']*'|[^\s|;&]+))*")
 # Spec 6 migration gate: the host applies migrations, after checking they keep saved data.
 MIGRATE = re.compile(
     r"\balembic\s+(?:upgrade|downgrade|stamp)\b|\bnpm\s+run\s+migrate\b|\bdrizzle-kit\s+(?:migrate|push)\b"
@@ -122,8 +125,8 @@ class WorkspaceTools:
         @tool(
             description=(
                 "Run a bounded shell command in the project for concrete diagnostics or"
-                " requested skill discovery. The project's services are already running:"
-                " never start a dev server. Do not install relative paths as packages."
+                " requested skill discovery. The project's services are already running and reload"
+                " when files change: never start a dev server. Do not install relative paths as packages."
             )
         )
         async def execute_command(command: str) -> dict[str, Any]:
@@ -131,7 +134,7 @@ class WorkspaceTools:
                 raise ValueError("Command is too long")
             if re.search(r"npm\s+(?:i|install)\s+(?:\.{1,2})(?:\s|$)", command):
                 raise ValueError("Relative imports are not npm packages")
-            if DEV_SERVER.search(command):
+            if DEV_SERVER.search(_SEARCH.sub("", command)):
                 raise ValueError("The project's services are already running; do not start another server")
             if MIGRATE.search(command):
                 raise ValueError(
@@ -139,7 +142,8 @@ class WorkspaceTools:
                     " The host applies new migrations when it checks your work."
                 )
             try:
-                return await self.command(command)
+                # The kit's own instructions (alembic revision) need DATABASE_URL, as project._run provides.
+                return await self.command(f"set -a; [ -f .env ] && . ./.env; set +a; {command}")
             finally:
                 self.cache.clear()
                 # Shell can modify files even on failed commands.
