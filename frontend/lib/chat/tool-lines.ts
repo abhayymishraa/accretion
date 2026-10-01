@@ -3,7 +3,8 @@ import type { TimelineEntry } from "@/lib/chat/run-timeline";
 import type { ActivityItem, ToolCall } from "@/types/chat.type";
 
 // One row of the run timeline, in the words Codex uses: "Read x", "Ran y", "Edited z +3 -1".
-export type LineKind = "read" | "edit" | "create" | "run" | "search" | "list" | "guide" | "other";
+export type LineKind =
+    "read" | "view" | "edit" | "create" | "run" | "search" | "list" | "guide" | "other";
 
 /** [sign, line number, text]; the number is the new file's for " " and "+", the old file's for "-". */
 export type DiffLine = [" " | "+" | "-", number, string];
@@ -36,9 +37,14 @@ const TOOL_STAGES = new Set([
     "Editing project files",
     "Running a workspace command",
     "Reclaiming conversation context",
+    // The build check's own row says this (RunTimeline BuildCheck).
+    "Checking the production build",
+    "Checking production build and browser",
 ]);
 
 const TOKEN = /"([^"]*)"|'([^']*)'|(\S+)/g;
+// The image files read_files hands over as pictures (agent/tools/tools.py IMAGE_SUFFIXES).
+const IMAGE = /\.(?:png|jpe?g|gif|webp)$/i;
 
 function words(command: string) {
     return [...command.matchAll(TOKEN)].map((match) => match[1] ?? match[2] ?? match[3]);
@@ -102,8 +108,16 @@ export function toolLines(tool: ToolCall): ToolLine[] {
         ...extra,
     });
     const failed = tool.status === "error";
-    if (tool.name === "read_files" && result.files.length && !failed)
-        return result.files.map((path, index) => line("read", path, { path }, index));
+    if (tool.name === "read_files" && result.files.length && !failed) {
+        // An image read is "Viewed an image"; the call's stored images go on the first one.
+        let screenshots = screenshotsOf(tool);
+        return result.files.map((path, index) => {
+            if (!IMAGE.test(path)) return line("read", path, { path }, index);
+            const shown = screenshots;
+            screenshots = [];
+            return line("view", path, { path, screenshots: shown }, index);
+        });
+    }
     if (["write_files", "edit_file", "edit_files"].includes(tool.name) && !failed) {
         const diffs = diffsOf(tool);
         if (diffs.length)
@@ -160,6 +174,7 @@ export function timelineBlocks(entries: TimelineEntry[]): TimelineBlock[] {
 
 const PHRASES: Record<LineKind, [string, string]> = {
     read: ["read a file", "read files"],
+    view: ["viewed an image", "viewed images"],
     edit: ["edited a file", "edited files"],
     create: ["created a file", "created files"],
     run: ["ran a command", "ran commands"],
@@ -191,4 +206,30 @@ export function workedFor(start: string, end?: string) {
     if (seconds < 60) return `${seconds}s`;
     const minutes = Math.round(seconds / 60);
     return minutes < 60 ? `${minutes}m` : `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+}
+
+export type EditedFile = { path: string; added: number; removed: number; counted: boolean };
+
+/** Every file the run changed, with its line counts summed over the run. Runs from before diffs were
+ * recorded list their files without counts. */
+export function editedFiles(calls: ToolCall[]): EditedFile[] {
+    const files = new Map<string, EditedFile>();
+    for (const tool of calls) {
+        for (const line of toolLines(tool)) {
+            if ((line.kind !== "edit" && line.kind !== "create") || !line.path) continue;
+            const file = files.get(line.path) ?? {
+                path: line.path,
+                added: 0,
+                removed: 0,
+                counted: false,
+            };
+            if (line.diff) {
+                file.added += line.diff.added;
+                file.removed += line.diff.removed;
+                file.counted = true;
+            }
+            files.set(line.path, file);
+        }
+    }
+    return [...files.values()];
 }

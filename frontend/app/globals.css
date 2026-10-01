@@ -1,6 +1,8 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "./ember.css";
+/* Streamdown styles itself with utilities; Tailwind must scan them (its README). */
+@source "../node_modules/streamdown/dist/*.js";
 
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 

@@ -9,9 +9,7 @@ function Screenshot({ runId, screenshotId }: { runId: string; screenshotId: stri
     const { url, failed } = useScreenshot(runId, screenshotId);
     const [open, setOpen] = useState(false);
     if (failed)
-        return (
-            <p className="m-0 px-1 text-[12.5px] text-muted-foreground">Screenshot unavailable.</p>
-        );
+        return <p className="m-0 text-[12.5px] text-muted-foreground">Screenshot unavailable.</p>;
     return (
         <button
             type="button"

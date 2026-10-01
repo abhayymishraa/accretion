@@ -4,12 +4,11 @@ import {
     BookOpen,
     ChevronRight,
     FilePlus2,
+    Images,
     Folder,
-    ListCollapse,
     Pencil,
     Puzzle,
     Search,
-    ShieldCheck,
     SquareTerminal,
     type LucideIcon,
 } from "lucide-react";
@@ -24,11 +23,13 @@ import {
 } from "@/lib/chat/tool-lines";
 import { presentTool } from "@/lib/tool-presentation";
 import { RunScreenshots } from "./RunScreenshots";
-import { Counts, DiffCard, FileLink, ShellBlock } from "./ToolBlocks";
-import { RecordedResult, ToolResult } from "./ToolResult";
+import { TimelineNote } from "./TimelineNotes";
+import { Counts, DiffCard, FileLink, ROW, RowChevron, ShellBlock, TOGGLE } from "./ToolBlocks";
+import { ToolResult } from "./ToolResult";
 
 const ICONS: Record<LineKind, LucideIcon> = {
     read: BookOpen,
+    view: Images,
     edit: Pencil,
     create: FilePlus2,
     run: SquareTerminal,
@@ -41,6 +42,7 @@ const ICONS: Record<LineKind, LucideIcon> = {
 const VERBS: Record<LineKind, [string, string]> = {
     // [done, in flight]
     read: ["Read", "Reading"],
+    view: ["Viewed an image", "Viewing an image"],
     edit: ["Edited", "Editing"],
     create: ["Created", "Creating"],
     run: ["Ran", "Running"],
@@ -49,13 +51,6 @@ const VERBS: Record<LineKind, [string, string]> = {
     guide: ["Read guidance", "Reading guidance"],
     other: ["Used", "Using"],
 };
-
-const ROW =
-    "group relative flex min-h-8 min-w-0 items-center gap-2 rounded-[6px] px-1 text-[13.5px] text-foreground/85 data-[failed=true]:text-destructive";
-
-// Rows with a body open on click anywhere; the file link inside stays its own target.
-const TOGGLE =
-    "absolute inset-0 cursor-pointer rounded-[6px] focus-visible:outline-2 focus-visible:outline-ring pointer-fine:hover:bg-surface-2";
 
 const TimelineRow = memo(function TimelineRow({ line }: { line: ToolLine }) {
     const { tool } = line;
@@ -106,44 +101,30 @@ const TimelineRow = memo(function TimelineRow({ line }: { line: ToolLine }) {
                     )
                 )}
                 {line.diff && <Counts added={line.diff.added} removed={line.diff.removed} />}
-                {expandable && (
-                    <ChevronRight
-                        size={14}
-                        aria-hidden="true"
-                        className={`pointer-events-none relative shrink-0 text-muted-foreground [transition:transform_180ms_var(--ease-out),opacity_130ms_ease] motion-reduce:[transition:none] ${
-                            open
-                                ? "rotate-90"
-                                : "opacity-0 group-focus-within:opacity-100 pointer-fine:group-hover:opacity-100"
-                        }`}
-                    />
-                )}
+                {expandable && <RowChevron open={open} />}
             </div>
-            {open && expandable && (
-                <div className="pl-7">
-                    {line.diff?.hunks.length ? (
-                        <DiffCard diff={line.diff} />
-                    ) : line.kind === "run" || (result.command && failed) ? (
-                        <ShellBlock
-                            command={result.command || "Command not recorded"}
-                            stdout={result.stdout}
-                            stderr={result.stderr || (failed ? result.error : "")}
-                            exitCode={result.exitCode}
-                            ok={!failed && (result.exitCode ?? 0) === 0}
-                            running={running}
-                            shortened={result.truncatedFields.some((field) =>
-                                field.startsWith("std"),
-                            )}
-                            pageSummary={result.pageSummary}
-                            pageProblems={result.pageProblems}
-                            note={result.browserRestarted}
-                        />
-                    ) : (
-                        <div className="border-l border-hairline pb-2 pl-3">
-                            <ToolResult tool={tool} result={result} />
-                        </div>
-                    )}
-                </div>
-            )}
+            {open &&
+                expandable &&
+                (line.diff?.hunks.length ? (
+                    <DiffCard diff={line.diff} />
+                ) : line.kind === "run" || (result.command && failed) ? (
+                    <ShellBlock
+                        command={result.command || "Command not recorded"}
+                        stdout={result.stdout}
+                        stderr={result.stderr || (failed ? result.error : "")}
+                        exitCode={result.exitCode}
+                        ok={!failed && (result.exitCode ?? 0) === 0}
+                        running={running}
+                        shortened={result.truncatedFields.some((field) => field.startsWith("std"))}
+                        pageSummary={result.pageSummary}
+                        pageProblems={result.pageProblems}
+                        note={result.browserRestarted}
+                    />
+                ) : (
+                    <div className="border-l border-hairline pb-2 pl-3">
+                        <ToolResult tool={tool} result={result} />
+                    </div>
+                ))}
         </div>
     );
 });
@@ -165,7 +146,7 @@ function TimelineSection({ lines, live }: { lines: ToolLine[]; live: boolean }) 
                 type="button"
                 aria-expanded={open}
                 onClick={() => setChoice(!open)}
-                className="group sticky -top-8 z-[2] max-md:-top-5 flex min-h-8 w-full cursor-pointer items-center gap-2 bg-surface-1 px-1 text-left text-[13.5px] text-muted-foreground [transition:color_130ms_ease] focus-visible:outline-2 focus-visible:outline-ring pointer-fine:hover:text-foreground"
+                className="group sticky -top-8 z-[2] max-md:-top-5 flex min-h-8 w-full cursor-pointer items-center gap-2 bg-surface-1 text-left text-[13.5px] text-muted-foreground [transition:color_130ms_ease] focus-visible:outline-2 focus-visible:outline-ring pointer-fine:hover:text-foreground"
             >
                 <Glyph size={15} strokeWidth={1.6} aria-hidden="true" className="shrink-0" />
                 <span className="min-w-0 truncate">{sectionTitle(lines)}</span>
@@ -183,46 +164,6 @@ function TimelineSection({ lines, live }: { lines: ToolLine[]; live: boolean }) 
                 </div>
             )}
         </section>
-    );
-}
-
-function TimelineNote({ block }: { block: Extract<TimelineBlock, { kind: "note" }> }) {
-    const { item } = block;
-    if (item.compacted)
-        return (
-            <p className="m-0 flex min-h-8 items-center gap-2 px-1 text-[13.5px] text-muted-foreground">
-                <ListCollapse size={15} strokeWidth={1.6} aria-hidden="true" />
-                Context automatically compacted
-            </p>
-        );
-    if (item.kind === "verification")
-        return (
-            <div className="min-w-0 px-1">
-                <p
-                    className={`m-0 flex min-h-8 items-center gap-2 text-[13.5px] ${item.ok === false ? "text-destructive" : "text-foreground/85"}`}
-                >
-                    <ShieldCheck
-                        size={15}
-                        strokeWidth={1.6}
-                        aria-hidden="true"
-                        className="shrink-0 text-muted-foreground"
-                    />
-                    <span className="min-w-0 wrap-anywhere">{item.message || "Verification"}</span>
-                </p>
-                {item.checks !== undefined && (
-                    <div className="pl-6">
-                        <RecordedResult
-                            label="Check results"
-                            output={JSON.stringify(item.checks, null, 2)}
-                        />
-                    </div>
-                )}
-            </div>
-        );
-    return (
-        <p className="m-0 px-1 py-1.5 text-[13.5px] text-muted-foreground wrap-anywhere">
-            {item.message}
-        </p>
     );
 }
 

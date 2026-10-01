@@ -1,36 +1,24 @@
 "use client";
 
-import { Button } from "@/components/ui/button";
-import { IconSwap } from "@/components/ui/IconSwap";
-
 import type { Message, WorkflowProposal } from "@/types/chat.type";
-import { CheckIcon, CopyIcon } from "@radix-ui/react-icons";
-import { useState } from "react";
-import { CodeListing } from "./CodeListing";
+import { Streamdown } from "streamdown";
 import { RunActivity } from "./RunActivity";
 import { WorkflowCard } from "./WorkflowCard";
 
 // An approved plan replays as kind "execute"; the run trace shows it instead.
 const CARD_KINDS: WorkflowProposal["kind"][] = ["clarify", "plan", "answer"];
 
+// Replies are markdown. Streamdown (Vercel's chatbot, Onlook) sanitizes raw HTML and copes with unfinished
+// markdown; the overrides keep headings chat-sized instead of document-sized.
 function MessageContent({ content }: { content: string }) {
-    // Parse complete fences before paragraphs so blank lines inside code survive.
-    const parts = content.split(/(```[^\n]*\n[\s\S]*?```)/g);
     return (
-        <div className="transcript-answer mt-3 text-[14.5px] leading-[1.75] wrap-anywhere whitespace-pre-wrap text-pretty [&_p]:m-0 [&_p+p]:mt-3.5 max-[481px]:text-[14px]">
-            {parts.map((part, i) => {
-                const fence = part.match(/^```([^\n]*)\n([\s\S]*?)```$/);
-                if (fence)
-                    return (
-                        <CodeListing
-                            key={i}
-                            value={fence[2].replace(/\n$/, "")}
-                            language={fence[1].trim() || "code"}
-                        />
-                    );
-                return part.trim() ? <p key={i}>{part}</p> : null;
-            })}
-        </div>
+        <Streamdown
+            mode="static"
+            linkSafety={{ enabled: false }}
+            className="transcript-answer mt-3 text-[14.5px] leading-[1.7] wrap-anywhere text-pretty max-[481px]:text-[14px] [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 [&_:is(h1,h2,h3,h4)]:mt-4 [&_:is(h1,h2,h3,h4)]:mb-1.5 [&_:is(h1,h2,h3,h4)]:text-[15px] [&_:is(h1,h2,h3,h4)]:font-semibold [&_p]:my-2 [&_:is(ul,ol)]:my-2 [&_:is(ul,ol)]:pl-5 [&_li]:my-0.5 [&_li]:py-0 [&_li]:marker:text-muted-foreground [&_strong]:font-semibold [&_strong]:text-foreground [&_a]:underline [&_a]:underline-offset-2 [&_:not(pre)>code]:rounded-[4px] [&_:not(pre)>code]:bg-surface-3 [&_:not(pre)>code]:px-1 [&_:not(pre)>code]:py-0.5 [&_:not(pre)>code]:font-mono [&_:not(pre)>code]:text-[0.88em]"
+        >
+            {content}
+        </Streamdown>
     );
 }
 
@@ -45,7 +33,6 @@ export function MessageBubble({
     onWorkflowChanged?: () => void;
     canRespond?: boolean;
 }) {
-    const [copyStatus, setCopyStatus] = useState("");
     if (message.role === "user")
         return (
             <div className="ember-message-user flex justify-end pl-10">
@@ -56,6 +43,22 @@ export function MessageBubble({
                 </div>
             </div>
         );
+    const text =
+        message.content && message.content !== message.workflow?.summary ? message.content : "";
+    const reply = (
+        <>
+            {message.workflow &&
+                CARD_KINDS.includes(message.workflow.kind) &&
+                onWorkflowChanged && (
+                    <WorkflowCard
+                        message={message}
+                        onChanged={onWorkflowChanged}
+                        canRespond={canRespond}
+                    />
+                )}
+            {text && <MessageContent content={text} />}
+        </>
+    );
     const hasRun = Boolean(
         message.run_status || message.tool_calls?.length || message.activity?.length,
     );
@@ -67,51 +70,12 @@ export function MessageBubble({
             <span className="ember-message-label mb-2.5 block text-[11px] font-semibold tracking-[0.02em] text-accent-foreground">
                 accretion
             </span>
-            {hasRun && <RunActivity message={message} connected={connected} />}
-            {message.workflow &&
-                CARD_KINDS.includes(message.workflow.kind) &&
-                onWorkflowChanged && (
-                    <WorkflowCard
-                        message={message}
-                        onChanged={onWorkflowChanged}
-                        canRespond={canRespond}
-                    />
-                )}
-            {message.content && message.content !== message.workflow?.summary && (
-                <>
-                    <MessageContent content={message.content} />
-                    {message.run_status !== "running" && (
-                        <div className="transcript-responseActions mt-1 flex items-center gap-1">
-                            <Button
-                                type="button"
-                                variant="utility"
-                                aria-label="Copy response"
-                                onClick={async () => {
-                                    try {
-                                        await navigator.clipboard.writeText(message.content);
-                                        setCopyStatus("Copied");
-                                    } catch {
-                                        setCopyStatus(
-                                            "Could not copy. Select the response text to copy it.",
-                                        );
-                                    }
-                                }}
-                            >
-                                <IconSwap
-                                    swapped={copyStatus === "Copied"}
-                                    from={<CopyIcon />}
-                                    to={<CheckIcon />}
-                                />
-                            </Button>
-                            <span
-                                role="status"
-                                className="transcript-caption font-mono text-[11px] text-muted-foreground"
-                            >
-                                {copyStatus}
-                            </span>
-                        </div>
-                    )}
-                </>
+            {hasRun ? (
+                <RunActivity message={message} connected={connected}>
+                    {reply}
+                </RunActivity>
+            ) : (
+                reply
             )}
         </article>
     );

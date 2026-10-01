@@ -100,22 +100,3 @@ export function presentTool(tool: ToolCall) {
         parsed,
     };
 }
-
-export type TouchedFile = {
-    path: string;
-    changed: boolean;
-    title: string;
-    summary: string;
-    durationMs?: number;
-};
-
-/** One entry per distinct path across a run; the last tool to touch it wins. */
-export function touchedFiles(calls: ToolCall[]): TouchedFile[] {
-    const index = new Map<string, TouchedFile>();
-    for (const tool of calls) {
-        const { files, changed, title, summary } = presentTool(tool);
-        for (const path of files)
-            index.set(path, { path, changed, title, summary, durationMs: tool.duration_ms });
-    }
-    return [...index.values()];
-}

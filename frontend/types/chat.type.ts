@@ -31,12 +31,13 @@ export interface ToolCall {
 }
 export interface ActivityItem {
     id: string;
-    kind: "stage" | "verification";
+    kind: "stage" | "verification" | "approach";
     created_at: string;
     message?: string;
     ok?: boolean;
     checks?: unknown;
     compacted?: boolean;
+    steps?: string[];
 }
 export interface Message {
     id: string;

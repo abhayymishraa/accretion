@@ -5,33 +5,40 @@
 import type { Message } from "@/types/chat.type";
 import { ChevronRight } from "lucide-react";
 import { ThinkingOrb } from "thinking-orbs";
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 
 import { Elapsed } from "./RunStatus";
 import { RelativeTime, RunMenu } from "./RunMenu";
-import { FileChips } from "./ToolList";
+import { EditedFiles } from "./ToolList";
 import { RunTimeline } from "./RunTimeline";
 import { useRunDetails } from "@/hooks/chat/useRunDetails";
 import { timelineEntries } from "@/lib/chat/run-timeline";
-import { timelineBlocks, workedFor } from "@/lib/chat/tool-lines";
-import { touchedFiles } from "@/lib/tool-presentation";
+import { editedFiles, timelineBlocks, workedFor } from "@/lib/chat/tool-lines";
 import { Button } from "@/components/ui/button";
 import { ErrorBox } from "@/components/ui/ErrorBox";
 
 const QUIET = ["running", "succeeded", "cancelled", "stopped", "awaiting_input", "answered"];
 
-export function RunActivity({ message, connected }: { message: Message; connected: boolean }) {
+/** `children` is the reply: it sits between the trace and the edited-files card, as Codex lays out a turn. */
+export function RunActivity({
+    message,
+    connected,
+    children,
+}: {
+    message: Message;
+    connected: boolean;
+    children?: ReactNode;
+}) {
     const running = message.run_status === "running";
     const [expanded, setExpanded] = useState(false);
     const open = running || expanded;
-    const details = useRunDetails(message, open);
+    // Loaded even while folded: the edited-files card under the reply is built from these steps.
+    const details = useRunDetails(message, true);
     const failed = Boolean(message.run_status && !QUIET.includes(message.run_status));
     const steps = details.activity;
     const calls = details.calls;
-    // An approved plan is replayed as kind "execute"; it belongs in the trace, not the transcript.
-    const approach = message.workflow?.kind === "execute" ? message.workflow : null;
     const blocks = useMemo(() => timelineBlocks(timelineEntries(steps, calls)), [steps, calls]);
-    const files = useMemo(() => touchedFiles(calls), [calls]);
+    const files = useMemo(() => editedFiles(calls), [calls]);
     const transcript = blocks
         .flatMap((block) =>
             block.kind === "note"
@@ -96,24 +103,8 @@ export function RunActivity({ message, connected }: { message: Message; connecte
             </div>
             {open && (
                 <div className="animate-in fade-in pt-2 duration-150 ease-out motion-reduce:animate-none">
-                    {approach && (
-                        <div className="px-1 pb-2 text-[13px] text-muted-foreground">
-                            <p className="m-0 pb-1 wrap-anywhere">{approach.summary}</p>
-                            {approach.steps.map((step, index) => (
-                                <p className="m-0 flex gap-3 py-0.5 wrap-anywhere" key={index}>
-                                    <span aria-hidden="true" className="tabular-nums">
-                                        {index + 1}
-                                    </span>
-                                    <span className="min-w-0">{step}</span>
-                                </p>
-                            ))}
-                        </div>
-                    )}
                     {details.loading && (
-                        <p
-                            className="m-0 px-1 pb-2 text-[13px] text-muted-foreground"
-                            role="status"
-                        >
+                        <p className="m-0 pb-2 text-[13px] text-muted-foreground" role="status">
                             Loading build steps…
                         </p>
                     )}
@@ -127,7 +118,8 @@ export function RunActivity({ message, connected }: { message: Message; connecte
                     <RunTimeline blocks={blocks} running={running} />
                 </div>
             )}
-            {!running && files.length > 0 && <FileChips files={files} />}
+            {children}
+            {!running && files.length > 0 && <EditedFiles files={files} />}
         </div>
     );
 }

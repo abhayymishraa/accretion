@@ -222,11 +222,6 @@ export function PreviewPanel({
                     />
                 </div>
             )}
-            <div className="ember-preview-caption shrink-0 border-t border-t-border px-3.5 py-2 text-[10.5px] leading-[1.5] text-muted-foreground">
-                {activeTab === "preview"
-                    ? "Live app preview · Source available in Files"
-                    : "Saved source and assets · App databases need their own backups"}
-            </div>
         </section>
     );
 }

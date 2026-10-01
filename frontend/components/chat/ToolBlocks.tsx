@@ -1,6 +1,7 @@
 "use client";
 
 import { CheckIcon, CopyIcon, Cross2Icon } from "@radix-ui/react-icons";
+import { ChevronRight } from "lucide-react";
 import { useContext, useState } from "react";
 
 import { IconSwap } from "@/components/ui/IconSwap";
@@ -23,8 +24,9 @@ export function FileLink({ path }: { path: string }) {
 }
 
 export function Counts({ added, removed }: { added: number; removed: number }) {
+    // Positioned, so it paints above a timeline row's hover layer; clicks pass through to the row.
     return (
-        <span className="shrink-0 font-mono text-[12px] tabular-nums">
+        <span className="pointer-events-none relative shrink-0 font-mono text-[12px] tabular-nums">
             <span className="text-emerald-500">+{added}</span>{" "}
             <span className="text-red-400">-{removed}</span>
         </span>
@@ -131,22 +133,26 @@ export function ShellBlock({
     note?: string;
 }) {
     // agent-browser fences page text with nonce markers for the model; the user needs only the text.
-    const shown = stdout.replace(/^--- (?:END_)?AGENT_BROWSER_PAGE_CONTENT .*---\n?/gm, "");
+    const shown = stdout
+        .replace(/^--- (?:END_)?AGENT_BROWSER_PAGE_CONTENT .*---\n?/gm, "")
+        .replace(/^\n+/, "");
     return (
         <div className={FRAME}>
             <div className="flex min-h-9 items-center px-3 text-[12px] text-muted-foreground">
                 Shell
-                <CopyButton text={command} label="Copy command" />
+                {command && <CopyButton text={command} label="Copy command" />}
             </div>
             <div
                 tabIndex={0}
                 aria-label="Command and output"
                 className="max-h-72 overflow-auto px-3 pb-2 font-mono text-[12px] leading-[1.65] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
             >
-                <p className="m-0 whitespace-pre-wrap break-all text-foreground">
-                    <span className="text-muted-foreground select-none">$ </span>
-                    {command}
-                </p>
+                {command && (
+                    <p className="m-0 whitespace-pre-wrap break-all text-foreground">
+                        <span className="text-muted-foreground select-none">$ </span>
+                        {command}
+                    </p>
+                )}
                 {shown && <pre className="m-0 mt-2 text-muted-foreground">{shown}</pre>}
                 {stderr && <pre className="m-0 mt-2 text-destructive">{stderr}</pre>}
                 {shortened && (
@@ -174,5 +180,29 @@ export function ShellBlock({
                 </div>
             )}
         </div>
+    );
+}
+
+// Shared by the timeline's rows (RunTimeline, TimelineNotes). Codex lines every icon, card and image
+// up on one left edge: a row's content starts there and its hover background reaches 4px past it.
+export const ROW =
+    "group relative -mx-1 flex min-h-8 min-w-0 items-center gap-2 rounded-[6px] px-1 text-[13.5px] text-foreground/85 data-[failed=true]:text-destructive";
+
+// Rows with a body open on click anywhere; the file link inside stays its own target.
+export const TOGGLE =
+    "absolute inset-0 cursor-pointer rounded-[6px] focus-visible:outline-2 focus-visible:outline-ring pointer-fine:hover:bg-surface-2";
+
+/** Turns down when the row is open; otherwise shown only on hover or focus. */
+export function RowChevron({ open }: { open: boolean }) {
+    return (
+        <ChevronRight
+            size={14}
+            aria-hidden="true"
+            className={`pointer-events-none relative shrink-0 text-muted-foreground [transition:transform_180ms_var(--ease-out),opacity_130ms_ease] motion-reduce:[transition:none] ${
+                open
+                    ? "rotate-90"
+                    : "opacity-0 group-focus-within:opacity-100 pointer-fine:group-hover:opacity-100"
+            }`}
+        />
     );
 }

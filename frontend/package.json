@@ -30,6 +30,7 @@
         "react-dom": "19.3.0",
         "react-icons": "^5.7.0",
         "sonner": "2.0.8",
+        "streamdown": "^2.7.0",
         "tailwind-merge": "^3.7.0",
         "thinking-orbs": "^0.3.2",
         "three": "^0.186.1"

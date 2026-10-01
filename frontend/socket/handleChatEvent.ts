@@ -4,8 +4,11 @@ export function applyRunEvent(messages: Message[], event: RunEvent): Message[] {
     if (!event.run_id) return messages;
     const id = `run:${event.run_id}`;
     const existing = messages.find((m) => m.id === id);
+    // An approved plan is replayed as kind "execute"; it joins the trace where it happened. Other
+    // proposals are decision cards outside the trace.
+    const plan = event.e === "approach" && event.workflow?.kind === "execute";
     const activityId =
-        event.e === "stage" || event.e === "verification"
+        event.e === "stage" || event.e === "verification" || plan
             ? event.event_id || `${event.e}:${event.created_at}:${event.message}`
             : undefined;
     if (activityId !== undefined && existing?.activity?.some((item) => item.id === activityId)) {
@@ -66,6 +69,14 @@ export function applyRunEvent(messages: Message[], event: RunEvent): Message[] {
             ok: event.ok,
             checks: event.checks,
             compacted: event.compacted,
+        });
+    } else if (plan) {
+        activity.push({
+            id: activityId!,
+            kind: "approach",
+            created_at: event.created_at,
+            message: event.workflow?.summary,
+            steps: event.workflow?.steps,
         });
     } else if (event.message && event.e !== "approach") {
         message.content = event.message;
