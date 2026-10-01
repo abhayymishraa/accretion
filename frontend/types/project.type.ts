@@ -7,7 +7,8 @@ export interface ChatResponse {
 export interface Project {
     id: string;
     user_id: number;
-    title: string;
+    // Null until the first request is named (agent/run/title.py); show projectName() instead.
+    title: string | null;
     app_url: string | null;
     // Null until the first build saves; such a project is listed as a draft.
     latest_saved_revision_id: string | null;

@@ -8,7 +8,7 @@ import { ProjectCollectionSkeleton } from "@/components/projects/ProjectCollecti
 import styles from "@/components/projects/project-shelf.module.css";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { type ProjectPeriod, type ProjectSort } from "@/lib/projects/filters";
+import { projectName, type ProjectPeriod, type ProjectSort } from "@/lib/projects/filters";
 import { ArrowUpRight, ChevronDown, FolderOpen, Search, Trash2 } from "lucide-react";
 import Link from "next/link";
 
@@ -239,7 +239,7 @@ export function ProjectCollection({
                                     <h2
                                         className={`wrap-anywhere ${compact ? "text-base font-medium" : "flex-1 py-8 font-mono text-[clamp(24px,2.4vw,30px)] font-medium leading-[1.25] tracking-[-.04em]"}`}
                                     >
-                                        {project.title}
+                                        {projectName(project)}
                                     </h2>
                                     <span
                                         className={`flex items-center gap-2 text-muted-foreground ${compact ? "text-xs" : "font-mono text-xs uppercase tracking-wide"}`}
@@ -259,12 +259,12 @@ export function ProjectCollection({
                                 </p>
                                 <Button
                                     variant="utility"
-                                    aria-label={`Delete ${project.title}`}
+                                    aria-label={`Delete ${projectName(project)}`}
                                     disabled={deletingId !== null}
                                     onClick={(event) => {
                                         deleteTrigger.current = event.currentTarget;
                                         setDeleteError("");
-                                        setDeleteTitle(project.title);
+                                        setDeleteTitle(projectName(project));
                                         setDialogMotion(event.detail > 0 ? "open" : null);
                                         setPendingDelete(project);
                                     }}

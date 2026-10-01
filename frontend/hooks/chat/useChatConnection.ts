@@ -3,6 +3,7 @@
 import { authService } from "@/services/service.auth";
 
 import { WS_URL } from "@/config/env";
+import { reloadProjects, showProjectTitle } from "@/hooks/projects/useProjectList";
 import { getSessionId } from "@/lib/auth/session";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
@@ -59,6 +60,12 @@ export function useChatConnection({
                     if (incoming.e === "ready") setWsConnected(true);
                     // Catch up after subscription: history remains visible during reconnect.
                     refreshHistory();
+                    reloadProjects();
+                    return;
+                }
+                // The AI's name for a new project; not a run event, so the timeline never sees it.
+                if (incoming.e === "project_title" && typeof incoming.title === "string") {
+                    showProjectTitle(chatId, incoming.title);
                     return;
                 }
                 receiveEvent(event);

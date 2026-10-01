@@ -1,6 +1,7 @@
 "use client";
 
-import { renameProject, useProjectList } from "@/hooks/projects/useProjectList";
+import { renameProject, useNameArrivals, useProjectList } from "@/hooks/projects/useProjectList";
+import { projectName } from "@/lib/projects/filters";
 import { useEffect, useRef, useState } from "react";
 
 // Typing pauses this long before the name is saved; Enter and blur save at once.
@@ -9,7 +10,12 @@ const SAVE_DELAY_MS = 500;
 /** The open project's name, and a debounced rename that shows everywhere before it saves. */
 export function useProjectTitle(projectId: string) {
     const projects = useProjectList();
-    const title = projects?.find((project) => project.id === projectId)?.title ?? null;
+    const project = projects?.find((item) => item.id === projectId);
+    // Null only while the list loads; an unnamed project reads "New project" until it is named.
+    const title = project ? projectName(project) : null;
+    const arrivals = useNameArrivals(projects);
+    const arriving = arrivals.arriving.includes(projectId);
+    const settleArrival = () => arrivals.settle(projectId);
     const [status, setStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
     const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
@@ -38,5 +44,5 @@ export function useProjectTitle(projectId: string) {
         return () => clearTimeout(fade);
     }, [status]);
 
-    return { title, projects, status, save, saveSoon };
+    return { title, arriving, settleArrival, projects, status, save, saveSoon };
 }

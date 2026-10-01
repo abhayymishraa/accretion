@@ -1,5 +1,8 @@
 import type { Project } from "@/types/project.type";
 
+/** What to call a project; a new one is untitled until its first request has been named. */
+export const projectName = (project: Pick<Project, "title">) => project.title || "New project";
+
 export type ProjectSort = "recent" | "newest" | "oldest" | "name-asc" | "name-desc";
 export type ProjectPeriod = "all" | "7" | "30";
 
@@ -14,7 +17,7 @@ export function filterProjects(
     const cutoff = now - Number(period) * 86_400_000;
     return projects
         .filter((project) => {
-            if (!project.title.toLocaleLowerCase().includes(search)) return false;
+            if (!projectName(project).toLocaleLowerCase().includes(search)) return false;
             if (period === "all") return true;
 
             const created = Date.parse(project.created_at);
@@ -23,7 +26,7 @@ export function filterProjects(
         .sort((a, b) => {
             let order: number;
             if (sort === "name-asc" || sort === "name-desc") {
-                order = a.title.localeCompare(b.title, undefined, {
+                order = projectName(a).localeCompare(projectName(b), undefined, {
                     sensitivity: "base",
                     numeric: true,
                 });

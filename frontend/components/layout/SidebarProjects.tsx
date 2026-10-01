@@ -1,6 +1,8 @@
 "use client";
 
-import { useProjectList } from "@/hooks/projects/useProjectList";
+import { NAME_ARRIVES } from "@/components/chat/ProjectTitle";
+import { useNameArrivals, useProjectList } from "@/hooks/projects/useProjectList";
+import { projectName } from "@/lib/projects/filters";
 import type { Project } from "@/types/project.type";
 import { AppWindow, CircleDashed } from "lucide-react";
 import Link from "next/link";
@@ -16,11 +18,15 @@ function Group({
     projects,
     current,
     draft,
+    arriving,
+    onSettle,
 }: {
     label: string;
     projects: Project[];
     current: string | undefined;
     draft: boolean;
+    arriving: string[];
+    onSettle: (id: string) => void;
 }) {
     if (!projects.length) return null;
     const Icon = draft ? CircleDashed : AppWindow;
@@ -31,12 +37,18 @@ function Group({
                 <Link
                     key={project.id}
                     href={`/chat/${project.id}`}
-                    title={project.title}
+                    title={projectName(project)}
                     aria-current={project.id === current ? "page" : undefined}
                     className={SIDEBAR_ROW}
                 >
                     <Icon size={14} strokeWidth={1.6} aria-hidden="true" />
-                    <span className="min-w-0 truncate">{project.title || "Untitled project"}</span>
+                    <span
+                        key={arriving.includes(project.id) ? "arrived" : "steady"}
+                        onTransitionEnd={() => onSettle(project.id)}
+                        className={`min-w-0 truncate ${arriving.includes(project.id) ? NAME_ARRIVES : ""} [transition:opacity_200ms_var(--ease-out),translate_200ms_var(--ease-out)]`}
+                    >
+                        {projectName(project)}
+                    </span>
                 </Link>
             ))}
         </div>
@@ -48,6 +60,7 @@ export function SidebarProjects({ query }: { query: string }) {
     const projects = useProjectList();
     const pathname = usePathname();
     const [allDrafts, setAllDrafts] = useState(false);
+    const { arriving, settle } = useNameArrivals(projects);
     const current = pathname.startsWith("/chat/") ? pathname.slice("/chat/".length) : undefined;
     if (!projects)
         return (
@@ -63,7 +76,7 @@ export function SidebarProjects({ query }: { query: string }) {
         );
     const needle = query.trim().toLowerCase();
     const matches = needle
-        ? projects.filter((project) => project.title.toLowerCase().includes(needle))
+        ? projects.filter((project) => projectName(project).toLowerCase().includes(needle))
         : projects;
     const drafts = matches.filter((project) => !project.latest_saved_revision_id);
     const built = matches.filter((project) => project.latest_saved_revision_id);
@@ -82,6 +95,8 @@ export function SidebarProjects({ query }: { query: string }) {
                     projects={hiddenDrafts > 0 ? drafts.slice(0, SHOWN_DRAFTS) : drafts}
                     current={current}
                     draft
+                    arriving={arriving}
+                    onSettle={settle}
                 />
                 {hiddenDrafts > 0 && (
                     <button
@@ -93,7 +108,14 @@ export function SidebarProjects({ query }: { query: string }) {
                     </button>
                 )}
             </div>
-            <Group label="Recent" projects={built} current={current} draft={false} />
+            <Group
+                label="Recent"
+                projects={built}
+                current={current}
+                draft={false}
+                arriving={arriving}
+                onSettle={settle}
+            />
         </div>
     );
 }

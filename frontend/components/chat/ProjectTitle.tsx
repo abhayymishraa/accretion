@@ -10,11 +10,17 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useProjectDownload } from "@/hooks/files/useProjectDownload";
 import { useProjectTitle } from "@/hooks/projects/useProjectTitle";
+import { projectName } from "@/lib/projects/filters";
 import { ChevronDown, CircleDashed, FolderArchive, Pencil } from "lucide-react";
 import Link from "next/link";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
 
+// The heading, the rename field and its sizer share one box, so editing never moves the text.
+const TITLE_TEXT = "rounded-[7px] px-2 py-1 text-[13.5px] leading-5 font-medium text-foreground";
+// The AI's name fades in and settles 2px once, when it replaces "New project" (plans/001).
+export const NAME_ARRIVES =
+    "starting:translate-y-0.5 starting:opacity-0 motion-reduce:starting:translate-y-0";
 const STATUS = { idle: "", saving: "Saving…", saved: "Saved", error: "Couldn't save the name" };
 
 /** The project name atop the conversation: double-click to rename, ⌄ to switch projects. */
@@ -25,7 +31,11 @@ export function ProjectTitle({
     projectId: string;
     revisionId?: string | null;
 }) {
-    const { title, projects, status, save, saveSoon } = useProjectTitle(projectId);
+    const { title, arriving, settleArrival, projects, status, save, saveSoon } =
+        useProjectTitle(projectId);
+    // The words stay while the status fades out, so nothing blinks and aria-live hears no change.
+    const [message, setMessage] = useState("");
+    if (STATUS[status] && STATUS[status] !== message) setMessage(STATUS[status]);
     const { isDownloading, handleDownloadAll } = useProjectDownload(projectId, revisionId);
     const [draft, setDraft] = useState<string | null>(null);
     // The name when editing began, so Esc can undo a save the pause already made.
@@ -49,23 +59,35 @@ export function ProjectTitle({
     return (
         <div className="flex min-w-0 items-center gap-1">
             {draft !== null ? (
-                <input
-                    autoFocus
-                    aria-label="Project name"
-                    value={draft}
-                    maxLength={255}
-                    onFocus={(event) => event.currentTarget.select()}
-                    onChange={(event) => {
-                        setDraft(event.target.value);
-                        saveSoon(event.target.value);
-                    }}
-                    onKeyDown={(event) => {
-                        if (event.key === "Enter") finish(true);
-                        if (event.key === "Escape") finish(false);
-                    }}
-                    onBlur={() => finish(true)}
-                    className="h-7 w-[min(26ch,100%)] min-w-0 rounded-[7px] border border-ring bg-surface-2 px-2 text-[13.5px] font-medium text-foreground outline-none"
-                />
+                // Sized by a hidden copy of the text in the same grid cell, so the field is exactly
+                // as wide as the name (CSS-Tricks' auto-growing input; field-sizing lacks Firefox).
+                <div className="inline-grid min-w-0 max-w-full [&>*]:[grid-area:1/1]">
+                    <span
+                        aria-hidden="true"
+                        className={`${TITLE_TEXT} invisible overflow-hidden whitespace-pre`}
+                    >
+                        {draft || " "}
+                    </span>
+                    <input
+                        autoFocus
+                        aria-label="Project name"
+                        value={draft}
+                        maxLength={255}
+                        onFocus={(event) => event.currentTarget.select()}
+                        onChange={(event) => {
+                            setDraft(event.target.value);
+                            saveSoon(event.target.value);
+                        }}
+                        onKeyDown={(event) => {
+                            if (event.key === "Enter") finish(true);
+                            if (event.key === "Escape") finish(false);
+                        }}
+                        onBlur={() => finish(true)}
+                        // Open WebUI's rename input: the title's own type, no box of its own; an
+                        // outline marks editing without shifting a pixel.
+                        className={`${TITLE_TEXT} w-full min-w-0 border-0 bg-surface-2 outline-1 outline-ring`}
+                    />
+                </div>
             ) : title === null ? (
                 <span
                     aria-hidden="true"
@@ -73,11 +95,13 @@ export function ProjectTitle({
                 />
             ) : (
                 <h1
+                    key={arriving ? "arrived" : "steady"}
+                    onTransitionEnd={settleArrival}
                     onDoubleClick={startEditing}
                     title="Double-click to rename"
-                    className="m-0 min-w-0 cursor-text truncate rounded-[7px] px-2 py-1 text-[13.5px] font-medium text-foreground [transition:background-color_130ms_ease] pointer-fine:hover:bg-surface-2"
+                    className={`${TITLE_TEXT} m-0 min-w-0 cursor-text truncate ${arriving ? NAME_ARRIVES : ""} [transition:background-color_130ms_ease,opacity_200ms_var(--ease-out),translate_200ms_var(--ease-out)] pointer-fine:hover:bg-surface-2`}
                 >
-                    {title || "Untitled project"}
+                    {title}
                 </h1>
             )}
             <DropdownMenu>
@@ -102,7 +126,7 @@ export function ProjectTitle({
                                 <DropdownMenuItem key={project.id} asChild>
                                     <Link href={`/chat/${project.id}`}>
                                         <span className="min-w-0 flex-1 truncate">
-                                            {project.title || "Untitled project"}
+                                            {projectName(project)}
                                         </span>
                                         {!project.latest_saved_revision_id && (
                                             <CircleDashed aria-label="Draft" />
@@ -132,9 +156,9 @@ export function ProjectTitle({
             </DropdownMenu>
             <span
                 aria-live="polite"
-                className={`shrink-0 text-[11.5px] ${status === "error" ? "text-destructive" : "text-muted-foreground"}`}
+                className={`shrink-0 text-[11.5px] [transition:opacity_200ms_var(--ease-out)] ${status === "idle" ? "opacity-0" : "opacity-100 [transition-duration:0ms]"} ${status === "error" ? "text-destructive" : "text-muted-foreground"}`}
             >
-                {STATUS[status]}
+                {message}
             </span>
         </div>
     );
