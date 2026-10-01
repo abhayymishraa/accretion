@@ -18,7 +18,7 @@ from pydantic import Field
 
 from ..budget.usage import invoke_with_usage, prompt_cache_key, record_usage
 from ..context.compaction import MASK_TRIGGER_TOKENS, backoff_growth, compact, context_limit, hard_limit, mask_stale
-from ..context.context import CONTEXT_RULES, choose_files
+from ..context.context import CONTEXT_RULES, choose_files, mentioned_files
 from ..context.transcript import append as append_transcript
 from ..context.transcript import load as load_transcript
 from ..context.transcript import replace as replace_transcript
@@ -240,8 +240,15 @@ async def run_editor(
     max_repairs = 2
     context = await memory.build(prompt, metrics) if memory is not None else {}
     paths = await list_files(sandbox)
+    # Files the user named with "@" go to the model whole, as Cline sends them; excerpts skip them.
+    mentioned = {}
+    for path in mentioned_files(prompt, paths):
+        try:
+            mentioned[path] = await workspace.read(path)
+        except Exception:
+            mentioned[path] = "Unable to read; inspect with tools before editing"
     initial = {}
-    for path in choose_files(paths, prompt, context):
+    for path in (path for path in choose_files(paths, prompt, context) if path not in mentioned):
         try:
             content = await workspace.read(path)
             encoded = content.encode()
@@ -307,6 +314,7 @@ async def run_editor(
                     # sends CLAUDE.md changes in the next message for the same reason).
                     **({"agents_md": agents_md} if agents_md and agents_md != _last_sent_agents_md(prior) else {}),
                     "request": prompt,
+                    **({"mentioned_files": mentioned} if mentioned else {}),
                     "request_context": request_context,
                     "workspace": workspace_map(stack, paths),
                     "files": initial,
