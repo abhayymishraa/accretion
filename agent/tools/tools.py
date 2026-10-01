@@ -100,7 +100,9 @@ _PROJECT_ENV = "set -a; [ -f .env ] && . ./.env; set +a; "
 _SCREENSHOT = re.compile(r"Screenshot saved to (\S+)")
 MAX_SCREENSHOTS = 4
 MAX_SCREENSHOT_BYTES = 3_000_000
-_IMAGE_TYPES = {b"\x89PNG": "image/png", b"\xff\xd8\xff": "image/jpeg"}
+_IMAGE_TYPES = {b"\x89PNG": "image/png", b"\xff\xd8\xff": "image/jpeg", b"GIF8": "image/gif", b"RIFF": "image/webp"}
+# Project images read_files hands over as pictures, not text (Codex shows them as "Viewed an image").
+IMAGE_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".gif", ".webp"})
 # What a vision model gets; the stored original the user sees is untouched. Anthropic's standard tier
 # reads up to 1568px on the long edge and bills by size, not bytes; chrome-devtools-mcp and browser-use
 # downscale to JPEG for the same reason (agent-browser's own JPEG default is quality 80).
@@ -202,22 +204,37 @@ class WorkspaceTools:
             raise FileWriteError("File upload did not complete; sandbox cleanup is required") from None
         self.cache.update(changes)
 
-    async def screenshots(self, output: str) -> list[tuple[bytes, str]]:
-        """The images a browser command reported saving, as (bytes, media type); unreadable ones are skipped."""
+    async def read_many(self, paths: list[str]) -> dict[str, Any]:
+        """Text files as text; images take the screenshot path: stored, shown, attached for the model."""
+        result = {}
         images = []
-        for path in list(dict.fromkeys(_SCREENSHOT.findall(output)))[:MAX_SCREENSHOTS]:
-            path = path if path.startswith("/") else f"{ROOT}/{path}"
-            try:
-                info = await self.sandbox.files.get_info(path, request_timeout=10)
-                if info.size > MAX_SCREENSHOT_BYTES:
-                    continue
-                data = bytes(await self.sandbox.files.read(path, format="bytes", request_timeout=20))
-            except (SandboxException, httpx.HTTPError):
+        for path in paths:
+            if PurePosixPath(path).suffix.lower() not in IMAGE_SUFFIXES:
+                result[path] = await self.read(path)
                 continue
-            media = next((kind for magic, kind in _IMAGE_TYPES.items() if data.startswith(magic)), None)
-            if media:
-                images.append((data, media))
-        return images
+            image = await self.image(f"{ROOT}/{project_path(path)}")
+            result[path] = "[image, shown to the user]" if image else "[not a readable image under 3 MB]"
+            if image:
+                images.append(image)
+        return {"ok": True, "files": result, **({"_screenshots": images} if images else {})}
+
+    async def image(self, path: str) -> tuple[bytes, str] | None:
+        """An image file as (bytes, media type); None when it is missing, too large or not an image."""
+        try:
+            info = await self.sandbox.files.get_info(path, request_timeout=10)
+            if info.size > MAX_SCREENSHOT_BYTES:
+                return None
+            data = bytes(await self.sandbox.files.read(path, format="bytes", request_timeout=20))
+        except (SandboxException, httpx.HTTPError):
+            return None
+        media = next((kind for magic, kind in _IMAGE_TYPES.items() if data.startswith(magic)), None)
+        return (data, media) if media else None
+
+    async def screenshots(self, output: str) -> list[tuple[bytes, str]]:
+        """The images a browser command reported saving; unreadable ones are skipped."""
+        paths = list(dict.fromkeys(_SCREENSHOT.findall(output)))[:MAX_SCREENSHOTS]
+        images = [await self.image(path if path.startswith("/") else f"{ROOT}/{path}") for path in paths]
+        return [image for image in images if image]
 
     async def browse(self, command: str) -> dict[str, Any]:
         """Run a command using agent-browser; add what the page reported and the screenshots it saved."""
@@ -313,11 +330,9 @@ class WorkspaceTools:
         async def read_files(
             paths: Annotated[list[str], Field(min_length=1, max_length=12)],
         ) -> dict[str, Any]:
-            """Read relevant project files together. Unchanged files are cached; avoid repeat reads."""
-            result = {}
-            for path in paths:
-                result[path] = await self.read(path)
-            return {"ok": True, "files": result}
+            """Read relevant project files together. Unchanged files are cached; avoid repeat reads.
+            Images (png, jpg, gif, webp) are shown to the user, and to you when you can read images."""
+            return await self.read_many(paths)
 
         @tool
         async def write_files(

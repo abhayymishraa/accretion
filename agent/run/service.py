@@ -552,6 +552,8 @@ class Service:
                 "revision_id": live.revision_id,
             },
         )
+        # The reply is shown whole, live as in history (Run.reason): redacted, not cut at the event bound.
+        event["message"] = redact(reason, max_length=None)
         async with AsyncSessionLocal.begin() as db:
             run = await db.get(Run, live.id, with_for_update=True)
             if not run or run.status != "running":
@@ -719,7 +721,8 @@ class Service:
                 await self.save_files(live)
                 status, reason = (
                     "succeeded",
-                    result["summary"] + "\n\nProduction build passed.",
+                    # The timeline's build-check row reports the build; the reply stays the model's own.
+                    result["summary"],
                 )
         except migrations.DestructiveMigration as exc:
             # Spec 6: a change that deletes saved data waits for the user's answer.

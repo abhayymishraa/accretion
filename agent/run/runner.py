@@ -168,6 +168,19 @@ async def verify(
     return {"ok": True, **result}
 
 
+def failed_checks(checks: dict[str, Any]) -> str:
+    """What the model must fix: the failing step's own output, not the whole check record (Dyad sends
+    its TypeScript problems the same way, src/shared/problem_prompt.ts)."""
+    build = checks["build"]
+    if not build["ok"]:
+        output = "\n".join(text for text in (build.get("stdout", ""), build.get("stderr", "")) if text.strip())
+        return f"The typecheck or build failed (exit code {build.get('exit_code')}). Fix only these errors:\n{output}"
+    migration = checks["migration"]
+    files = ", ".join(migration.get("files", []))
+    summary = f"The database migration failed ({migration['migrations']}: {files})."
+    return f"{summary} Fix only this:\n{migration.get('output', '')}"
+
+
 async def run_editor(
     sandbox,
     prompt,
@@ -616,7 +629,7 @@ async def run_editor(
                 if checks["ok"]:
                     await remember()
                     return {
-                        "summary": response.text[:1500] or "Application updated.",
+                        "summary": response.text or "Application updated.",
                         "url": "https://" + sandbox.get_host(stack["preview_port"]),
                     }
                 if repairs >= max_repairs:
@@ -626,7 +639,7 @@ async def run_editor(
                     )
                 repairs += 1
                 metrics["repairs"] = repairs
-                messages.append(HumanMessage(content="Fix only these verification errors: " + json.dumps(checks)))
+                messages.append(HumanMessage(content=failed_checks(checks)))
                 continue
             before_revision = workspace.revision
             metrics["tool_calls"] = metrics.get("tool_calls", 0) + len(calls)
