@@ -10,7 +10,9 @@ from ..tools.tools import WorkspaceTools
 # The preview URL's port: preview_proxy.py, in front of the kit's own web port (stack.json
 # preview_port), so the builder can follow and step the app's navigation. Clear of every kit port.
 PROXY_PORT = 8790
-_PROXY_PATH = '/tmp/accretion-preview-proxy.py'
+# Outside /tmp: files.write runs as root and hands the file to `user`, and /tmp's sticky bit
+# (fs.protected_regular) then refuses root a second write, so every restart after the first failed.
+_PROXY_PATH = '/home/user/.accretion-preview-proxy.py'
 
 
 class PreviewError(Exception):
