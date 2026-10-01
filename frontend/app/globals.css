@@ -67,6 +67,9 @@
 :root {
     color-scheme: dark;
     --radius: 1.3rem;
+    /* Scrollbars as Vercel's chatbot draws them: a faint 4px thumb on no track. */
+    --scrollbar-thumb: oklch(1 0 0 / 0.1);
+    --scrollbar-thumb-hover: oklch(1 0 0 / 0.2);
     --background: oklch(0 0 0);
     --foreground: oklch(0.9328 0.0025 228.7857);
     --card: oklch(0.2097 0.008 274.5332);
@@ -154,6 +157,8 @@
 :root[data-theme="light"],
 [data-palette="light"] {
     color-scheme: light;
+    --scrollbar-thumb: oklch(0 0 0 / 0.12);
+    --scrollbar-thumb-hover: oklch(0 0 0 / 0.25);
     --background: oklch(1 0 0);
     --foreground: oklch(0.1884 0.0128 248.5103);
     --card: oklch(0.9784 0.0011 197.1387);
@@ -218,6 +223,23 @@
 @layer base {
     * {
         @apply border-border outline-ring/50;
+        scrollbar-width: thin;
+        scrollbar-color: var(--scrollbar-thumb) transparent;
+    }
+    /* Older WebKit ignores scrollbar-width and scrollbar-color; newer engines use those instead. */
+    *::-webkit-scrollbar {
+        width: 4px;
+        height: 4px;
+    }
+    *::-webkit-scrollbar-track {
+        background: transparent;
+    }
+    *::-webkit-scrollbar-thumb {
+        background: var(--scrollbar-thumb);
+        border-radius: 9999px;
+    }
+    *::-webkit-scrollbar-thumb:hover {
+        background: var(--scrollbar-thumb-hover);
     }
     html,
     body {

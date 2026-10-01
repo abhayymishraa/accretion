@@ -35,8 +35,9 @@ export function MessageBubble({
 }) {
     if (message.role === "user")
         return (
-            <div className="ember-message-user flex justify-end pl-10">
-                <div className="max-w-full rounded-[16px_16px_6px_16px] bg-surface-2 px-4 py-3 wrap-anywhere whitespace-pre-wrap">
+            <div className="ember-message-user flex justify-end">
+                {/* Vercel's chatbot: fits short prompts, wraps long ones at a readable measure. */}
+                <div className="w-fit max-w-[min(80%,56ch)] rounded-[16px_16px_6px_16px] bg-primary text-primary-foreground px-4 py-3 wrap-anywhere whitespace-pre-wrap">
                     <p className="transcript-userText text-[14.5px] leading-[1.7] wrap-anywhere whitespace-pre-wrap max-[481px]:text-[14px]">
                         {message.content}
                     </p>
@@ -67,9 +68,6 @@ export function MessageBubble({
             className="ember-message-assistant transcript-message w-full min-w-0 text-[14.5px] text-foreground wrap-anywhere"
             aria-label="Accretion response"
         >
-            <span className="ember-message-label mb-2.5 block text-[11px] font-semibold tracking-[0.02em] text-accent-foreground">
-                accretion
-            </span>
             {hasRun ? (
                 <RunActivity message={message} connected={connected}>
                     {reply}
