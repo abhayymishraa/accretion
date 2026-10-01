@@ -8,7 +8,16 @@
 - Preserve runtime validation, build checks, preview checks, and deployment health checks.
 - Run lint, typecheck, build, or manual browser checks only with explicit user approval. Never claim unrun checks passed.
 
-## Sandbox runtimes
+## Branches and pull requests
+
+Every change reaches `main` through a pull request. Only a hotfix goes to `main` direct.
+
+- One branch per request, cut from fresh `origin/main`. Name: `<type>/<short-kebab-topic>`, e.g. `feat/at-file-mentions`, `fix/preview-proxy-tmp`.
+- Types match commit types: `feat` feature, `fix` bug fix, `refactor` no behaviour change, `perf`, `docs`, `chore` tooling or deps, `hotfix` production down or broken now.
+- `hotfix/*` only: may push to `main` direct. Still open a PR after, so the change has a record.
+- Commits: Conventional Commits, `<type>(<scope>): <summary>`, imperative, describe the change only. Same type as branch. `prompts.md` change = own commit.
+- PR: title = main commit summary. Body says what changed, why, how verified, what not verified. One concern per PR; unrelated fix = own branch.
+- Never push feature work to `main`. Never force-push `main`. Never merge own PR: owner merges, merge deploys.
 
 `agent/sandbox/sandbox_runtime.py` owns E2B sandboxes; `agent/run/service.py` drives it.
 
