@@ -1,4 +1,5 @@
 """Bounded command observations. Reconnect to owned processes, never replay them."""
+from types import SimpleNamespace
 from typing import Any
 import asyncio
 from uuid import uuid4
@@ -28,6 +29,20 @@ async def _bounded_output(sandbox, text: str, stream: str, max_output: int) -> s
 
 class CommandStateError(SandboxException):
     """The run must retire its sandbox before any further edits or checkpoints."""
+
+
+async def _stop_tree(sandbox, pid: int) -> bool:
+    """Kill a timed-out command with everything it started; True once it is gone.
+
+    The shell's children (npm, then node) outlive a kill of the shell alone, so leaves go first.
+    """
+    script = ('tree() { for child in $(ps -o pid= --ppid "$1"); do tree "$child"; done; echo "$1"; }; '
+              f'kill -9 $(tree {pid}) 2>/dev/null; sleep 0.2; ! kill -0 {pid} 2>/dev/null')
+    try:
+        stopped = await sandbox.commands.run(script, timeout=10, request_timeout=10)
+    except (CommandExitException, SandboxException, httpx.HTTPError):
+        return False
+    return bool(stopped.exit_code == 0)
 
 
 async def run_command(sandbox, command: str, *, cwd: str, timeout: int, max_output: int = MAX_OUTPUT) -> dict[str, Any]:
@@ -72,7 +87,13 @@ async def run_command(sandbox, command: str, *, cwd: str, timeout: int, max_outp
     except CommandStateError:
         raise
     except TimeoutError:
-        raise CommandStateError('Command timed out; its process may still be running. Sandbox cleanup is required') from None
+        # Codex stops a timed-out command and hands the model the result, exit code 124, and the
+        # turn goes on (openai/codex@444da31 core/src/exec.rs). Only a process that will not die
+        # leaves the sandbox in an unknown state.
+        if handle is None or not await _stop_tree(sandbox, handle.pid):
+            raise CommandStateError('Command timed out and could not be stopped. Sandbox cleanup is required') from None
+        result = SimpleNamespace(exit_code=124, stdout=handle.stdout,
+            stderr=handle.stderr + f'\n[stopped after {timeout}s: the command did not finish in time]')
     except Exception:
         # Even a lost start response can leave a process running without its PID.
         raise CommandStateError('Command connection lost; its outcome is unknown. Sandbox cleanup is required') from None

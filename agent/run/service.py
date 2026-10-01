@@ -32,7 +32,7 @@ from ..sandbox import migrations, project
 from ..sandbox.commands import CommandStateError
 from ..sandbox.kits import KITS
 from ..sandbox.preview import PROXY_PORT, PreviewError, control_preview
-from ..sandbox.sandbox_runtime import SandboxRuntimes
+from ..sandbox.sandbox_runtime import RUNTIME_TIMEOUT, SandboxRuntimes
 from ..storage.persistence import (
     archive_slots,
     latest_revision,
@@ -154,6 +154,8 @@ class LiveRun:
     # The first run of a new project names it alongside the reply; finish waits for it.
     unnamed: bool = False
     naming: asyncio.Task[None] | None = None
+    # When this run last reset its sandbox's provider timer (see checkpoint).
+    sandbox_touched: float = 0.0
 
 
 class Service:
@@ -383,7 +385,11 @@ class Service:
                 queue.put_nowait(event)
 
     def event(self, live, kind, **payload):
-        return redact(
+        details, diffs = payload.get("details"), None
+        if isinstance(details, dict) and "diffs" in details:
+            diffs = details["diffs"]
+            payload["details"] = {key: value for key, value in details.items() if key != "diffs"}
+        event = redact(
             {
                 "e": kind,
                 "run_id": live.id,
@@ -393,6 +399,10 @@ class Service:
                 **payload,
             }
         )
+        if diffs is not None:
+            # The user's own code, shown whole like Codex: secrets redacted, nothing cut.
+            event["details"]["diffs"] = redact(diffs, max_length=None, max_items=None)
+        return event
 
     async def emit(self, live, kind, **payload):
         async with live.emit_lock:
@@ -412,6 +422,15 @@ class Service:
         logger.info(json.dumps(record))
 
     async def checkpoint(self, live, dirty=False):
+        # A run has no clock, so a long one renews its sandbox's lease (metered, sandbox_runtime.py)
+        # before E2B parks it at RUNTIME_TIMEOUT. Once a turn, at most every third of that.
+        if live.sandbox and time.monotonic() - live.sandbox_touched > RUNTIME_TIMEOUT / 3:
+            try:
+                await self.runtimes.renew(live.chat_id)
+                live.sandbox_touched = time.monotonic()
+            except SandboxException:
+                # The provider call failed; the lease is still running, so the next turn retries.
+                logger.warning("Could not renew the sandbox lease run_id=%s", live.id)
         if dirty:
             await self.save_files(live)
         async with AsyncSessionLocal.begin() as db:
@@ -676,66 +695,61 @@ class Service:
         status, reason, result = "failed", "The run failed. Submit a new request to retry.", None
         diagnose_sandbox = False
         try:
-            remaining_time = run_settings.RUN_TIMEOUT_SECONDS - previous_elapsed / 1000
-            if remaining_time <= 0:
-                raise RunLimitError("The request reached its active time limit")
-            async with asyncio.timeout(remaining_time):
-                await self.emit(live, "run_started", message="Starting your request")
-                await self.emit(live, "stage", message="Understanding your request")
-                model = await self.model_for(live)
-                live.workflow = await select_workflow(live, model=model)
-                await self.emit(
-                    live,
-                    "approach",
-                    message=live.workflow["summary"],
-                    workflow=public_workflow(live.workflow),
-                )
-                if live.workflow["kind"] != "execute":
-                    status = "answered" if live.workflow["kind"] == "answer" else "awaiting_input"
-                    reason = live.workflow["summary"]
-                    return
-                if await latest_revision(live.chat_id) is None:
-                    await self.emit(live, "stage", message="Choosing how to build it")
-                    await pick_kit(live)
-                await self.open_sandbox(live)
-                stack = KITS[await chat_kit(live.chat_id)].model_dump()
-                result = await run_editor(
-                    live.sandbox,
-                    live.prompt,
-                    lambda kind, **data: self.emit(live, kind, **data),
-                    lambda dirty=False: self.checkpoint(live, dirty),
-                    live.metrics,
-                    model=model,
-                    user_model=live.model_choice != "auto",
-                    deadline=started + remaining_time,
-                    inbox=live.inbox,
-                    request_context={
-                        "continuation": live.workflow.get("context"),
-                        "approach": public_workflow(live.workflow),
-                        "plan_approved": live.workflow.get("approved", False),
-                    },
-                    memory=ProjectContext(live.chat_id, live.user_id, live.message_id)
-                    if live.user_id is not None and live.message_id is not None
-                    else None,
-                    migrate=lambda: migrations.gate(live.sandbox, stack, allow_data_loss=approved_data_loss(live)),
-                    save_screenshot=lambda data, media_type: self.save_screenshot(live, data, media_type),
-                )
-                if "decision" in result:
-                    current = await latest_revision(live.chat_id)
-                    live.workflow = {
-                        **live.workflow,
-                        **redact(result["decision"]),
-                        "revision_id": current.id if current else None,
-                        "approved": False,
-                    }
-                    status, reason = "awaiting_input", live.workflow["summary"]
-                    return
-                await self.save_files(live)
-                status, reason = (
-                    "succeeded",
-                    # The timeline's build-check row reports the build; the reply stays the model's own.
-                    result["summary"],
-                )
+            await self.emit(live, "run_started", message="Starting your request")
+            await self.emit(live, "stage", message="Understanding your request")
+            model = await self.model_for(live)
+            live.workflow = await select_workflow(live, model=model)
+            await self.emit(
+                live,
+                "approach",
+                message=live.workflow["summary"],
+                workflow=public_workflow(live.workflow),
+            )
+            if live.workflow["kind"] != "execute":
+                status = "answered" if live.workflow["kind"] == "answer" else "awaiting_input"
+                reason = live.workflow["summary"]
+                return
+            if await latest_revision(live.chat_id) is None:
+                await self.emit(live, "stage", message="Choosing how to build it")
+                await pick_kit(live)
+            await self.open_sandbox(live)
+            stack = KITS[await chat_kit(live.chat_id)].model_dump()
+            result = await run_editor(
+                live.sandbox,
+                live.prompt,
+                lambda kind, **data: self.emit(live, kind, **data),
+                lambda dirty=False: self.checkpoint(live, dirty),
+                live.metrics,
+                model=model,
+                user_model=live.model_choice != "auto",
+                inbox=live.inbox,
+                request_context={
+                    "continuation": live.workflow.get("context"),
+                    "approach": public_workflow(live.workflow),
+                    "plan_approved": live.workflow.get("approved", False),
+                },
+                memory=ProjectContext(live.chat_id, live.user_id, live.message_id)
+                if live.user_id is not None and live.message_id is not None
+                else None,
+                migrate=lambda: migrations.gate(live.sandbox, stack, allow_data_loss=approved_data_loss(live)),
+                save_screenshot=lambda data, media_type: self.save_screenshot(live, data, media_type),
+            )
+            if "decision" in result:
+                current = await latest_revision(live.chat_id)
+                live.workflow = {
+                    **live.workflow,
+                    **redact(result["decision"]),
+                    "revision_id": current.id if current else None,
+                    "approved": False,
+                }
+                status, reason = "awaiting_input", live.workflow["summary"]
+                return
+            await self.save_files(live)
+            status, reason = (
+                "succeeded",
+                # The timeline's build-check row reports the build; the reply stays the model's own.
+                result["summary"],
+            )
         except migrations.DestructiveMigration as exc:
             # Spec 6: a change that deletes saved data waits for the user's answer.
             status, reason = await self.ask(
@@ -747,7 +761,9 @@ class Service:
         except TimeoutError:
             status, reason = (
                 "timed_out",
-                "The run reached its time limit. Partial changes may remain; submit a smaller request.",
+                # Commands return a timeout to the model (sandbox/commands.py); what is left is the
+                # workspace itself: creating, connecting or saving the sandbox.
+                "The workspace didn't respond in time. Your work so far is saved. Send another message to retry.",
             )
             diagnose_sandbox = True
         except asyncio.CancelledError:

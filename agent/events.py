@@ -28,15 +28,15 @@ ARCHIVE_MAX_BYTES = 4 * 1024 * 1024
 EVENT_PAGE = 201
 
 
-def redact(value, *, max_length=4000):
+def redact(value, *, max_length=4000, max_items=250):
     if isinstance(value, dict):
         return {
-            k: redact(v, max_length=max_length)
+            k: redact(v, max_length=max_length, max_items=max_items)
             for k, v in value.items()
             if k.lower() not in {"authorization", "cookie", "password", "secret", "api_key", "token"}
         }
     if isinstance(value, list):
-        return [redact(v, max_length=max_length) for v in value[:250]]
+        return [redact(v, max_length=max_length, max_items=max_items) for v in value[:max_items]]
     if not isinstance(value, str):
         return value
     for key, secret in os.environ.items():

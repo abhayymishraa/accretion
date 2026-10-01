@@ -114,6 +114,19 @@ class SandboxRuntimes:
                 self.forget_handle(row.chat_id)
         return state
 
+    async def renew(self, chat_id):
+        """Extend a running sandbox's provider timer, metered like connect: reserve the next lease
+        first, then extend, then confirm against the provider's reported size. Runs have no clock,
+        so a long one renews instead of being parked at RUNTIME_TIMEOUT mid-work."""
+        row, handle = await self.get(chat_id), self.handles.get(chat_id)
+        if not row or not handle or row.state != 'running':
+            return
+        info = await AsyncSandbox.get_info(handle.sandbox_id, request_timeout=API_TIMEOUT)
+        spend = await reserve_runtime(chat_id, RUNTIME_TIMEOUT, row.spend_id, info)
+        await self.change(row, spend_id=spend.id, last_used_at=datetime.now(timezone.utc))
+        await handle.set_timeout(RUNTIME_TIMEOUT, request_timeout=API_TIMEOUT)
+        await confirm_runtime(spend.id, await AsyncSandbox.get_info(handle.sandbox_id, request_timeout=API_TIMEOUT))
+
     async def acquire(self, chat_id, revision, template):
         """Return (handle, needs_source_restore); caller already reserved admission and chose the template."""
         revision_id = revision.id if revision else None

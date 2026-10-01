@@ -41,16 +41,14 @@ _NAMES_DIR = re.compile(r"\bcd\s+\S|--prefix\b")
 # About 25k tokens, Claude Code's Read limit. Bounds reads, writes and edits alike, so a file the model
 # can write it can also read back and edit; lockfile-sized reads are refused rather than resent every turn.
 MAX_FILE_BYTES = 100_000
-# What the chat shows of an edit, never what the model sees. Codex draws one line of context around each
-# change; the caps keep one tool event small enough to store and stream.
+# What the chat shows of an edit, never what the model sees. Like Codex, one line of context around
+# each change and the whole diff, uncapped (openai/codex@444da31 tui/src/diff_render.rs).
 _DIFF_CONTEXT = 1
-_DIFF_MAX_LINES = 240
-_DIFF_MAX_LINE_CHARS = 240
 
 
 def file_diffs(before: dict[str, str | None], after: dict[str, str]) -> list[dict[str, Any]]:
-    """Line diffs for the chat, one per file. A None `before` is a file whose old text was unreadable."""
-    budget = _DIFF_MAX_LINES
+    """Line diffs for the chat, one per file, whole. A None `before` is a file whose old text was
+    unreadable: it gets counts but no hunks, marked truncated."""
     diffs = []
     for path, new_text in after.items():
         old_text = before.get(path)
@@ -69,11 +67,7 @@ def file_diffs(before: dict[str, str | None], after: dict[str, str]) -> list[dic
                     continue
                 lines += [["-", i + 1, old[i]] for i in range(i1, i2)]
                 lines += [["+", j + 1, new[j]] for j in range(j1, j2)]
-            if len(lines) > budget:
-                truncated = True
-                break
-            budget -= len(lines)
-            hunks.append([[sign, number, text[:_DIFF_MAX_LINE_CHARS]] for sign, number, text in lines])
+            hunks.append(lines)
         diffs.append(
             {
                 "path": path,
@@ -94,7 +88,7 @@ BROWSER = re.compile(r"\bagent-browser\b")
 # Subcommands that do not touch a page (docs, session management) skip the host's page preparation.
 _BROWSER_CALL = re.compile(r"\bagent-browser((?:\s+--?\S+)*)\s+([a-z][\w-]*)")
 _NOT_PAGE = frozenset({"skills", "close", "install", "session", "profiles", "help", "dashboard", "upgrade"})
-# Under the tool's 60s deadline, which is fatal to the run: a hung browser exits 124 instead.
+# Under the tool's 60s deadline, so a hung browser exits 124 from `timeout` itself before that.
 BROWSER_TIMEOUT = 50
 _PROJECT_ENV = "set -a; [ -f .env ] && . ./.env; set +a; "
 _SCREENSHOT = re.compile(r"Screenshot saved to (\S+)")

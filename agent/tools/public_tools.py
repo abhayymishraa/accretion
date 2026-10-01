@@ -6,9 +6,6 @@ from ..events import redact
 
 # Room for a readable slice of command output in the chat's shell block.
 MAX_PUBLIC_BYTES = 4000
-# Diffs are bounded where they are made (agent/tools/tools.py file_diffs) and again here, apart from the
-# other fields: squeezed together with stdout, halving would cut a diff mid-hunk.
-MAX_DIFF_BYTES = 24_000
 MAX_COMMAND_CHARS = 600
 
 
@@ -118,8 +115,6 @@ def public_tool_details(name, *, args=None, result=None, diffs=None, screenshots
     if screenshots:
         bounded["screenshots"] = list(screenshots)
     if diffs:
-        kept = list(diffs)
-        while kept and len(encode_public(kept).encode()) > MAX_DIFF_BYTES:
-            kept = kept[:-1]
-        bounded["diffs"] = kept
+        # Whole, like Codex: kept apart from the bounded fields above, never cut.
+        bounded["diffs"] = list(diffs)
     return bounded

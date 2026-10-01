@@ -42,8 +42,6 @@ logger = logging.getLogger("webbuilder.runs")
 # 3 times (OpenHands StuckDetector) gets one nudge, then the run pauses.
 REPEAT_LIMIT = 4
 ERROR_REPEAT_LIMIT = 3
-# Spec 5 grace turn: a run within this many seconds of its time budget gets one turn to finish.
-GRACE_SECONDS = 120
 # Safe to run together: they only read (spec 5, Codex RwLock).
 READ_ONLY = frozenset({"read_files", "read_skill", "search_project_history"})
 
@@ -191,7 +189,6 @@ async def run_editor(
     memory=None,
     request_context=None,
     user_model=False,
-    deadline=None,
     inbox=None,
     migrate=None,
     save_screenshot: Callable[[bytes, str], Awaitable[str | None]] | None = None,
@@ -518,16 +515,6 @@ async def run_editor(
             if repairs:
                 await emit("stage", message="Repairing verification errors")
             await checkpoint()
-            # Checked once per turn, before anything that can spend.
-            # Spec 5: the first time the deadline nears the model gets one grace turn to finish.
-            if deadline is not None and time.monotonic() > deadline - GRACE_SECONDS:
-                nudge(
-                    "grace",
-                    "Time almost used. Stop exploring: finish the smallest working version of the change "
-                    "now, then reply without calling tools.",
-                    "Time budget reached",
-                )
-                flush_notes()
             drain_inbox()
             estimated_input, estimator = estimate_input_tokens(model, messages, tool_schema)
             # The provider's own count of the last editing call, not our estimate: the estimate reads
