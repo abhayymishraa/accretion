@@ -6,7 +6,8 @@ from auth.dependencies import CurrentUser
 from db.base import DbSession
 from projects import service
 from projects.constants import DEFAULT_MESSAGE_PAGE
-from projects.schemas import MessagePage, ProjectDeletion, ProjectList, RunAdmission
+from projects.dependencies import OwnedProject
+from projects.schemas import MessagePage, ProjectDeletion, ProjectList, ProjectRef, ProjectRename, RunAdmission
 from request_timing import timed
 from runs.schemas import ChatPayload
 
@@ -35,6 +36,11 @@ async def create_project(payload: ChatPayload, current_user: CurrentUser) -> Run
 async def list_user_projects(current_user: CurrentUser, db: DbSession) -> ProjectList:
     """List projects by the latest accepted prompt, falling back to creation."""
     return await service.list_projects(db, current_user)
+
+
+@router.patch("/projects/{project_id}")
+async def rename_project(payload: ProjectRename, project: OwnedProject, db: DbSession) -> ProjectRef:
+    return await service.rename_project(db, project, payload.title)
 
 
 @router.delete("/projects/{project_id}")

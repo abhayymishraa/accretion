@@ -18,7 +18,7 @@ from db.models import Chat, Message, ProjectRevision, Run, RunScreenshot, Storag
 from projects.constants import LIVE_RUN_STATUSES
 from projects.dependencies import owned_chat
 from projects.exceptions import ChatNotFound, NotChatOwner, ProjectBusy
-from projects.schemas import MessagePage, ProjectDeletion, ProjectList, ProjectSummary, RunAdmission
+from projects.schemas import MessagePage, ProjectDeletion, ProjectList, ProjectRef, ProjectSummary, RunAdmission
 
 
 async def message_page(db: AsyncSession, project_id: str, user: User, limit: int, before: str | None) -> MessagePage:
@@ -66,6 +66,12 @@ async def list_projects(db: AsyncSession, user: User) -> ProjectList:
     return ProjectList(
         projects=[ProjectSummary(**jsonable_encoder(chat), updated_at=updated) for chat, updated in result.all()]
     )
+
+
+async def rename_project(db: AsyncSession, chat: Chat, title: str) -> ProjectRef:
+    chat.title = title
+    await db.commit()
+    return ProjectRef.model_validate(chat)
 
 
 async def delete_project(db: AsyncSession, project_id: str, user: User) -> ProjectDeletion:

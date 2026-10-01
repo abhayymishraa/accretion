@@ -1,6 +1,8 @@
 """Responses for the project resource."""
 
-from typing import Any
+from typing import Annotated, Any
+
+from pydantic import StringConstraints
 
 from models import CustomModel, UtcDatetime
 
@@ -18,6 +20,11 @@ class ProjectSummary(CustomModel):
 
 class ProjectList(CustomModel):
     projects: list[ProjectSummary]
+
+
+class ProjectRename(CustomModel):
+    # 255 is the column width on chats.title.
+    title: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=255)]
 
 
 class ProjectRef(CustomModel):
