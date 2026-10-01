@@ -128,9 +128,10 @@ export function useComposerMenu({
     /** Reads the caret straight off the element so callers stay one-liners. */
     function syncFromEvent(element: HTMLTextAreaElement) {
         const next = detect(element.value, element.selectionStart);
+        // Only a new query resets the highlight: the key-up after ArrowDown re-syncs the same one.
+        if (next?.start !== trigger?.start || next?.query !== trigger?.query) setActiveIndex(0);
         setTrigger(next);
         if (!next) setDismissedKey(null);
-        setActiveIndex(0);
     }
 
     /** Escape: suppress this run but keep the typed text. */
