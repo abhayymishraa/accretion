@@ -36,6 +36,14 @@ class SandboxRuntimes:
         async with AsyncSessionLocal() as db:
             return await db.get(SandboxRuntime, chat_id)
 
+    async def running_for(self, user_id, except_chat):
+        """The user's running sandboxes other than except_chat: what one-active-per-user pauses."""
+        async with AsyncSessionLocal() as db:
+            return list((await db.scalars(select(SandboxRuntime)
+                .join(Chat, Chat.id == SandboxRuntime.chat_id)
+                .where(Chat.user_id == user_id, SandboxRuntime.chat_id != except_chat,
+                       SandboxRuntime.state == 'running'))).all())
+
     async def reserved(self):
         async with AsyncSessionLocal() as db:
             return set((await db.scalars(select(SandboxRuntime.chat_id)
@@ -179,7 +187,10 @@ class SandboxRuntimes:
         try:
             async with asyncio.timeout(40):
                 handle = await AsyncSandbox.create(template=template, timeout=RUNTIME_TIMEOUT,
-                    lifecycle={'on_timeout': 'pause', 'auto_resume': True},
+                    # No auto_resume: a paused sandbox wakes only through acquire, which reserves its
+                    # lease. The builder opens a sleeping preview itself (usePreviewLifecycle), and a
+                    # stale tab must not wake, unmetered, a sandbox the user switched away from.
+                    lifecycle={'on_timeout': 'pause', 'auto_resume': False},
                     metadata={'webbuilder_operation': row.operation_id}, request_timeout=30)
         except (AuthenticationException, InvalidArgumentException, NotFoundException,
                 RateLimitException, ServiceBusyException):

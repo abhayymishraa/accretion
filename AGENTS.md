@@ -18,7 +18,8 @@
 - `SandboxRuntimes.state()` is not a getter. It drops rows whose sandbox is gone, syncs the row to the provider, and settles spend once a sandbox has paused. `maintain()` must call it on every pass, unconditionally. Put it behind a short-circuit and it stops running, leaving rows stuck at `running`.
 - `reserved()` counts every row whose state is not `paused`. A stale `running` row holds capacity forever, and `require_sandbox_capacity` then refuses previews with a 429.
 - A run has no clock, so a long one renews its lease through `SandboxRuntimes.renew`, which reserves before it extends. Never call `set_timeout` directly: an extension without a reservation is unmetered.
-- `auto_resume` wakes a sandbox from preview traffic without passing `reserve_runtime`. That resume is unmetered; treat billing as an open item (edit this when billing covers this edge case).
+- One active sandbox per user. Viewing a project (`preview_status`) or acquiring its sandbox calls `Service.park_others`, which pauses the user's other running sandboxes; one with a build in progress keeps running and is parked when its build ends.
+- Sandboxes are created without `auto_resume`. A paused one wakes only through `acquire`, which reserves its lease first; the builder opens a sleeping preview itself. Turning `auto_resume` back on makes preview traffic resume a sandbox unmetered, and lets a stale tab undo the one-sandbox rule. A `lifecycle` change reaches existing sandboxes only after `E2B_RUNTIME_GENERATION` is raised.
 
 ## Context compaction
 

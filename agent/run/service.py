@@ -168,6 +168,8 @@ class Service:
         self.stopping = False
         self.maintenance_task = None
         self.opening: set[str] = set()
+        # The project each user opened last: one active sandbox per user (park_others).
+        self.focus: dict[int, str] = {}
 
     async def require_sandbox_capacity(self, chat_id, *, requesting_run=None):
         # Paused rows retain ownership without occupying a running slot.
@@ -199,6 +201,9 @@ class Service:
             await self.runtimes.maintain(self.opening | {r.chat_id for r in self.active.values()})
 
     async def preview_status(self, chat) -> dict[str, Any]:
+        # Viewing a project is what makes it the user's active one, even when its sandbox is already up
+        # and nothing is acquired. Outside admission: parking calls the provider.
+        await self.park_others(chat.id)
         async with self.admission:
             if any(r.chat_id == chat.id for r in self.active.values()):
                 return {"url": None, "state": "building"}
@@ -436,7 +441,20 @@ class Service:
         async with AsyncSessionLocal.begin() as db:
             await db.execute(update(Run).where(Run.id == live.id).values(metrics=redact(live.metrics)))
 
+    async def park_others(self, chat_id):
+        """One active sandbox per user, as open-lovable keeps one (firecrawl/open-lovable@69bd93b), but
+        per user and paused, not killed: switching to this project parks the user's other idle sandboxes.
+        One with a build or an open in progress keeps running; a build parks its own when it ends."""
+        async with AsyncSessionLocal() as db:
+            user_id = await db.scalar(select(Chat.user_id).where(Chat.id == chat_id))
+        if user_id is None:
+            return
+        self.focus[user_id] = chat_id
+        for row in await self.runtimes.running_for(user_id, chat_id):
+            await self.park_left(row.chat_id)
+
     async def get_e2b_sandbox(self, id: str):
+        await self.park_others(id)
         revision = await latest_revision(id)
         kit_id = await chat_kit(id)
         try:
@@ -854,6 +872,9 @@ class Service:
                 self.publish(live.chat_id, {"e": "resync"})
             self.active.pop(live.id, None)
             spend_scope.reset(scope_token)
+            if live.user_id is not None and self.focus.get(live.user_id, live.chat_id) != live.chat_id:
+                # The user moved to another project while this built: park its sandbox now.
+                await self.park_left(live.chat_id)
 
     async def name_project(self, live):
         try:
@@ -864,6 +885,19 @@ class Service:
         if title:
             # Not a run event: the name belongs to the project, so it is pushed and never replayed.
             self.publish(live.chat_id, {"e": "project_title", "title": title})
+
+    async def park_left(self, chat_id):
+        """Pause a project's sandbox the user has moved away from, unless a build or an open uses it."""
+        if chat_id in self.opening or any(run.chat_id == chat_id for run in self.active.values()):
+            return
+        row = await self.runtimes.get(chat_id)
+        if not row or row.state != "running":
+            return
+        try:
+            await self.runtimes.pause(row)
+        except (SandboxException, StorageError, TimeoutError):
+            # Never blocks the project being opened; this one still parks at its own timeout.
+            logger.warning("Could not park the sandbox left behind chat_id=%s", chat_id)
 
     async def open_sandbox(self, live):
         async with self.admission:
