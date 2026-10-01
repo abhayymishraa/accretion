@@ -8,7 +8,7 @@
   ],
   "preview_port": 5173,
   "install": "cd frontend && npm ci --ignore-scripts && cd ../backend && npm ci --ignore-scripts",
-  "build": "cd frontend && npm run build && cd ../backend && npm run typecheck",
+  "build": "cd frontend && npm run build",
   "typecheck": "cd frontend && npm run typecheck && cd ../backend && npm run typecheck",
   "migrate": "cd backend && npm run migrate",
   "seed": "",
