@@ -78,7 +78,8 @@ export function applyRunEvent(messages: Message[], event: RunEvent): Message[] {
             message: event.workflow?.summary,
             steps: event.workflow?.steps,
         });
-    } else if (event.message && event.e !== "approach") {
+    } else if (event.message && event.e !== "approach" && event.e !== "checkpoint_saved") {
+        // A checkpoint is bookkeeping, saved even after a run only reads files; it is not a reply.
         message.content = event.message;
     }
     if (event.e === "run_finished") {
