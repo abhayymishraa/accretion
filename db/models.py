@@ -51,7 +51,8 @@ class Chat(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"))
-    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    # Null until agent/run/title.py names the project from its first request.
+    title: Mapped[str | None] = mapped_column(String(255), nullable=True)
     app_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     # The kit the project started from (sandbox/kits/<kit>/stack.json).
     kit: Mapped[str] = mapped_column(String(64), server_default="vite-fastapi-postgres")

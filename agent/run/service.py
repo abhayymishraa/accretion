@@ -13,6 +13,7 @@ from e2b import AsyncSandbox, SandboxException
 from e2b.exceptions import ServiceBusyException
 from fastapi import HTTPException
 from sqlalchemy import func, select, update
+from sqlalchemy.exc import SQLAlchemyError
 
 from agent.sandbox.config import sandbox_settings
 from agent.storage.config import storage_settings
@@ -46,6 +47,7 @@ from .config import run_settings
 from .decisions import decision_source, prepare_continuation, resolve_decision
 from .diagnostics import sandbox_diagnostics
 from .runner import RunLimitError, SandboxSetupError, VerificationError, run_editor
+from .title import name_project
 from .workflow import public_workflow, select_workflow
 
 logger = logging.getLogger("webbuilder.runs")
@@ -149,6 +151,9 @@ class LiveRun:
     # Read-only tools run in parallel (spec 5), so their events arrive together: each takes its
     # sequence number and is stored under this lock, or two get the same number.
     emit_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    # The first run of a new project names it alongside the reply; finish waits for it.
+    unnamed: bool = False
+    naming: asyncio.Task[None] | None = None
 
 
 class Service:
@@ -311,6 +316,7 @@ class Service:
                     raise HTTPException(429, str(exc)) from None
                 if not storage_settings.configured:
                     raise HTTPException(503, "Project storage is not configured.")
+                unnamed = not chat_id
                 if chat_id:
                     chat = await db.scalar(
                         select(Chat).where(Chat.id == chat_id, Chat.user_id == user_id).with_for_update()
@@ -326,7 +332,8 @@ class Service:
                         raise HTTPException(409, "Answer or dismiss the pending question or plan first.")
                 else:
                     chat_id = str(uuid.uuid4())
-                    db.add(Chat(id=chat_id, user_id=user_id, title=prompt[:100], kit=sandbox_settings.DEFAULT_KIT))
+                    # Untitled until title.py names it from this request.
+                    db.add(Chat(id=chat_id, user_id=user_id, kit=sandbox_settings.DEFAULT_KIT))
                     await db.flush()
                 run_id = str(uuid.uuid4())
                 db.add(
@@ -353,6 +360,7 @@ class Service:
                 workflow=workflow,
                 metrics=metrics,
                 model_choice=model_choice,
+                unnamed=unnamed,
             )
             self.active[run_id] = live
             if parent is not None:
@@ -659,6 +667,9 @@ class Service:
         scope_token = spend_scope.set(
             {"user_id": live.user_id, "run_id": live.id, "limit_error": None, "metrics": live.metrics}
         )
+        if live.unnamed:
+            # Started inside the spend scope, so the naming call is metered like any other.
+            live.naming = asyncio.create_task(self.name_project(live), name=f"name:{live.chat_id}")
         started = time.monotonic()
         previous_elapsed = live.metrics.get("elapsed_ms", 0)
         status, reason, result = "failed", "The run failed. Submit a new request to retry.", None
@@ -789,6 +800,9 @@ class Service:
             live.metrics["error_type"] = type(exc).__name__
             logger.error("Run failed run_id=%s error_type=%s", live.id, type(exc).__name__)
         finally:
+            if live.naming:
+                # Its cost lands in live.metrics, which finish() persists; bounded by title.py's timeout.
+                await live.naming
             # Creation registers ownership before restoring files; cancellation can interrupt restoration.
             if live.sandbox_started:
                 live.sandbox = live.sandbox or self.sandboxes.get(live.chat_id)
@@ -823,6 +837,16 @@ class Service:
                 self.publish(live.chat_id, {"e": "resync"})
             self.active.pop(live.id, None)
             spend_scope.reset(scope_token)
+
+    async def name_project(self, live):
+        try:
+            title = await name_project(live.chat_id, live.prompt, live.metrics)
+        except SQLAlchemyError:
+            logger.warning("Could not save the project name chat_id=%s", live.chat_id)
+            return
+        if title:
+            # Not a run event: the name belongs to the project, so it is pushed and never replayed.
+            self.publish(live.chat_id, {"e": "project_title", "title": title})
 
     async def open_sandbox(self, live):
         async with self.admission:

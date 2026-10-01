@@ -29,7 +29,7 @@ the environment from the tools.
 
 | Package | Owns | Modules |
 | --- | --- | --- |
-| `run/` | The editing loop and what it is built from | `agent.py`, `prompts.py`, `runner.py`, `service.py`, `workflow.py`, `decisions.py`, `diagnostics.py`, `structured.py` |
+| `run/` | The editing loop and what it is built from | `agent.py`, `prompts.py`, `runner.py`, `service.py`, `workflow.py`, `decisions.py`, `diagnostics.py`, `structured.py`, `title.py` |
 | `sandbox/` | The E2B environment and everything executed inside it | `sandbox_runtime.py`, `preview.py`, `preview_process.py`, `commands.py`, `check_data.py`, `archive.py`, `kits.py`, `project.py`, `secrets.py`, `migrations.py` |
 | `tools/` | The tool surface offered to the model | `tools.py`, `public_tools.py`, `skills.py` |
 | `context/` | What the model is shown and what it remembers | `compaction.py`, `context.py`, `transcript.py`, `history.py` |
