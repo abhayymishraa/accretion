@@ -1,5 +1,19 @@
 import type { MenuChoice, MenuKind } from "@/hooks/chat/useComposerMenu";
 import styles from "@/components/chat/menu.module.css";
+import { FileIcon } from "@/components/files/FileIcon";
+
+/** The label with the typed query picked out, as editors' quick-open lists do. */
+function Label({ choice }: { choice: MenuChoice }) {
+    if (!choice.match) return <>{choice.label}</>;
+    const [start, end] = choice.match;
+    return (
+        <>
+            {choice.label.slice(0, start)}
+            <span className="text-accent-foreground">{choice.label.slice(start, end)}</span>
+            {choice.label.slice(end)}
+        </>
+    );
+}
 
 interface ComposerMenuProps {
     id: string;
@@ -40,13 +54,14 @@ export function ComposerMenu({
                             onMouseDown={(event) => event.preventDefault()}
                             onMouseMove={() => onHover(index)}
                             onClick={() => onPick(choice)}
-                            className="flex w-full items-baseline gap-2 rounded-[7px] px-2.5 py-1.5 text-left aria-selected:bg-surface-1"
+                            className="flex w-full min-w-0 items-center gap-2.5 rounded-[7px] px-2.5 py-1.5 text-left aria-selected:bg-surface-1"
                         >
+                            {kind === "files" && <FileIcon filename={choice.label} />}
                             <span className="shrink-0 text-[13px] text-foreground">
-                                {choice.label}
+                                <Label choice={choice} />
                             </span>
                             {choice.detail ? (
-                                <span className="truncate font-mono text-[11px] text-muted-foreground">
+                                <span className="min-w-0 truncate font-mono text-[11px] text-muted-foreground">
                                     {choice.detail}
                                 </span>
                             ) : null}

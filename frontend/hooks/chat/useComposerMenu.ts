@@ -25,6 +25,8 @@ export interface MenuChoice {
     label: string;
     detail?: string;
     insert: string;
+    // Where the query matched inside the label, for highlighting.
+    match?: [number, number];
 }
 
 interface Trigger {
@@ -44,27 +46,46 @@ function detect(value: string, caret: number): Trigger | null {
     };
 }
 
-function buildChoices(kind: MenuKind, query: string, files: string[]): MenuChoice[] {
+// A path with a dot-folder or dot-file in it (.accretion/, .env): never offered; the backend
+// ignores such mentions too (agent/context/context.py mentioned_files).
+const hidden = (path: string) => path.split("/").some((part) => part.startsWith("."));
+
+/**
+ * Files ranked like an editor's quick open: names starting with the query, then names containing
+ * it, then paths containing it; shorter paths first within each rank.
+ */
+function fileChoices(query: string, files: string[]): MenuChoice[] {
     const needle = query.toLowerCase();
-    const source: MenuChoice[] =
-        kind === "files"
-            ? files.map((path) => ({
-                  id: path,
-                  label: path.slice(path.lastIndexOf("/") + 1),
-                  detail: path,
-                  insert: `@${path} `,
-              }))
-            : promptCommands.map((command) => ({
-                  id: command.name,
-                  label: command.name,
-                  insert: command.prompt,
-              }));
-    const matches: MenuChoice[] = [];
-    for (const choice of source) {
-        if (matches.length === MAX_CHOICES) break;
-        if ((choice.detail ?? choice.label).toLowerCase().includes(needle)) matches.push(choice);
+    const ranked: { rank: number; path: string; at: number }[] = [];
+    for (const path of files) {
+        if (hidden(path)) continue;
+        const name = path.slice(path.lastIndexOf("/") + 1).toLowerCase();
+        const at = name.indexOf(needle);
+        const rank = at === 0 ? 0 : at > 0 ? 1 : path.toLowerCase().includes(needle) ? 2 : -1;
+        if (rank >= 0) ranked.push({ rank, path, at });
     }
-    return matches;
+    ranked.sort(
+        (a, b) => a.rank - b.rank || a.path.length - b.path.length || a.path.localeCompare(b.path),
+    );
+    return ranked.slice(0, MAX_CHOICES).map(({ path, at }) => {
+        const cut = path.lastIndexOf("/") + 1;
+        return {
+            id: path,
+            label: path.slice(cut),
+            detail: path.slice(0, cut),
+            insert: `@${path} `,
+            match: needle && at >= 0 ? [at, at + needle.length] : undefined,
+        };
+    });
+}
+
+function buildChoices(kind: MenuKind, query: string, files: string[]): MenuChoice[] {
+    if (kind === "files") return fileChoices(query, files);
+    const needle = query.toLowerCase();
+    return promptCommands
+        .filter((command) => command.name.toLowerCase().includes(needle))
+        .slice(0, MAX_CHOICES)
+        .map((command) => ({ id: command.name, label: command.name, insert: command.prompt }));
 }
 
 export function useComposerMenu({
