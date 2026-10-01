@@ -16,7 +16,8 @@ const MENU_ID = "chat-prompt-menu";
 const LiquidTools = dynamic(() => import("@/components/effects/LiquidTools"), { ssr: false });
 
 const modes = [
-    { value: "auto" as const, label: "Auto", hint: "Edits the app straight away" },
+    // "Build", not "Auto": the model picker beside it has its own Auto, and one word meant two things.
+    { value: "auto" as const, label: "Build", hint: "Edits the app straight away" },
     { value: "plan" as const, label: "Plan", hint: "Proposes a plan before editing" },
 ];
 
@@ -286,7 +287,12 @@ function ConnectionPill({
           ? ["Working", "bg-primary", "border-hairline text-foreground"]
           : awaiting
             ? ["Your turn", "bg-primary", "border-hairline text-foreground"]
-            : ["Live", "bg-muted-foreground/50", "border-transparent text-muted-foreground"];
+            : // Idle is the one state a phone-width composer can drop: it has no room for it.
+              [
+                  "Live",
+                  "bg-muted-foreground/50",
+                  "border-transparent text-muted-foreground max-sm:hidden",
+              ];
     return (
         <span
             className={`ember-connection inline-flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-[11px] ${tone}`}

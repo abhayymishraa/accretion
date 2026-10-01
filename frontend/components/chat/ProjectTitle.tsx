@@ -83,9 +83,9 @@ export function ProjectTitle({
                             if (event.key === "Escape") finish(false);
                         }}
                         onBlur={() => finish(true)}
-                        // Open WebUI's rename input: the title's own type, no box of its own; an
-                        // outline marks editing without shifting a pixel.
-                        className={`${TITLE_TEXT} w-full min-w-0 border-0 bg-surface-2 outline-1 outline-ring`}
+                        // Open WebUI's rename input: the title's own type, no box or ring of its own;
+                        // the tinted field and the selection show it is being edited.
+                        className={`${TITLE_TEXT} w-full min-w-0 border-0 bg-surface-2 outline-none focus-visible:outline-none`}
                     />
                 </div>
             ) : title === null ? (
