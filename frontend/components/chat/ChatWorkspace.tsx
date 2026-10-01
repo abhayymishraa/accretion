@@ -8,11 +8,13 @@ import { ChatInput } from "@/components/chat/ChatInput";
 import { MessageBubble } from "@/components/chat/MessageBubble";
 import { OpenFileContext } from "@/components/chat/OpenFileContext";
 import { PreviewPanel } from "@/components/chat/PreviewPanel";
+import { ProjectTitle } from "@/components/chat/ProjectTitle";
 import { WorkspaceSidebar } from "@/components/layout/WorkspaceSidebar";
 import { Loader2, Sparkles } from "lucide-react";
 import { ThinkingOrb } from "thinking-orbs";
 
 import { useChatWorkspace } from "@/hooks/chat/useChatWorkspace";
+import { useState } from "react";
 export default function ChatWorkspace({ chatId }: { chatId: string }) {
     const {
         router,
@@ -36,10 +38,11 @@ export default function ChatWorkspace({ chatId }: { chatId: string }) {
         runId,
         previewWidth,
         setPreviewWidth,
-        setIsDragging,
+        resizeHandlers,
         showPreview,
         setShowPreview,
         userData,
+        signOut,
         models,
         modelChoice,
         setModelChoice,
@@ -59,6 +62,8 @@ export default function ChatWorkspace({ chatId }: { chatId: string }) {
         handleSendMessage,
         handleCancel,
     } = useChatWorkspace(chatId);
+    // v0's panel toggle: the preview takes the whole width while the conversation is folded away.
+    const [chatHidden, setChatHidden] = useState(false);
     return (
         <OpenFileContext value={openFile}>
             <div className="ember-builder relative flex h-dvh min-h-0 flex-col overflow-hidden bg-background">
@@ -96,18 +101,21 @@ export default function ChatWorkspace({ chatId }: { chatId: string }) {
                     </Button>
                 </div>
                 <div className="ember-builder-shell flex min-h-0 flex-1 max-[1101px]:[&>.ember-workspace-sidebar]:hidden">
-                    <WorkspaceSidebar current="builder" />
+                    <WorkspaceSidebar userData={userData} onSignOut={signOut} />
                     <main
                         ref={containerRef}
-                        className="ember-builder-body flex min-h-0 flex-1 gap-px overflow-hidden bg-border max-md:gap-0 max-md:[&[data-mobile-pane=chat]>.ember-preview]:hidden max-md:[&[data-mobile-pane=preview]>.ember-conversation]:hidden max-md:[&>.ember-preview]:w-full! max-md:[&>.ember-conversation]:w-full!"
+                        className="ember-builder-body [&[data-resizing]_iframe]:pointer-events-none flex min-h-0 flex-1 gap-px overflow-hidden bg-border max-md:gap-0 max-md:[&[data-mobile-pane=chat]>.ember-preview]:hidden max-md:[&[data-mobile-pane=preview]>.ember-conversation]:hidden max-md:[&>.ember-preview]:w-full! max-md:[&>.ember-conversation]:w-full!"
                         data-mobile-pane={mobilePane}
                         id="main-content"
                     >
                         <section
-                            className="ember-conversation flex min-h-0 min-w-0 flex-col bg-surface-1"
+                            className={`ember-conversation flex min-h-0 min-w-0 flex-col bg-surface-1 ${chatHidden ? "md:hidden" : ""}`}
                             aria-label="Project conversation"
                             style={{ width: showPreview ? `${100 - previewWidth}%` : "100%" }}
                         >
+                            <div className="flex h-11 shrink-0 items-center border-b border-b-border bg-background px-3 max-md:hidden">
+                                <ProjectTitle projectId={chatId} revisionId={revisionId} />
+                            </div>
                             <div
                                 className="ember-message-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 py-8 [overflow-anchor:none] max-md:px-4 max-md:py-5"
                                 ref={conversationRef}
@@ -208,7 +216,8 @@ export default function ChatWorkspace({ chatId }: { chatId: string }) {
                         {showPreview && (
                             <>
                                 <div
-                                    className="ember-resizer w-px shrink-0 cursor-col-resize touch-none bg-border outline-offset-0 [transition:background-color_140ms_ease] focus-visible:bg-ring focus-visible:outline-none pointer-fine:hover:bg-ring max-md:hidden"
+                                    hidden={chatHidden}
+                                    className="ember-resizer relative z-10 w-px shrink-0 cursor-col-resize touch-none bg-border outline-offset-0 [transition:background-color_140ms_ease] before:absolute before:inset-y-0 before:-inset-x-1 before:content-[''] focus-visible:bg-ring focus-visible:outline-none [[data-resizing]_&]:bg-ring pointer-fine:hover:bg-ring max-md:hidden"
                                     role="separator"
                                     aria-label="Resize conversation and preview"
                                     aria-orientation="vertical"
@@ -216,7 +225,7 @@ export default function ChatWorkspace({ chatId }: { chatId: string }) {
                                     aria-valuemin={20}
                                     aria-valuemax={70}
                                     tabIndex={0}
-                                    onMouseDown={() => setIsDragging(true)}
+                                    {...resizeHandlers}
                                     onKeyDown={(event) => {
                                         if (
                                             event.key === "ArrowLeft" ||
@@ -238,7 +247,7 @@ export default function ChatWorkspace({ chatId }: { chatId: string }) {
                                 />
                                 <PreviewPanel
                                     appUrl={appUrl}
-                                    previewWidth={previewWidth}
+                                    previewWidth={chatHidden ? 100 : previewWidth}
                                     files={projectFiles}
                                     revisionId={revisionId}
                                     isBuilding={isBuilding}
@@ -250,6 +259,8 @@ export default function ChatWorkspace({ chatId }: { chatId: string }) {
                                     phase={preview.phase}
                                     previewError={preview.error}
                                     onRetry={preview.retry}
+                                    chatHidden={chatHidden}
+                                    onToggleChat={() => setChatHidden(!chatHidden)}
                                 />
                             </>
                         )}

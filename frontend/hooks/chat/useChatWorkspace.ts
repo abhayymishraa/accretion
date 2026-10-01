@@ -4,7 +4,7 @@ import { authService } from "@/services/service.auth";
 import { runService } from "@/services/service.runs";
 
 import { usePreviewLifecycle } from "@/hooks/preview/usePreviewLifecycle";
-import { subscribeSession } from "@/lib/auth/session";
+import { clearSession, subscribeSession } from "@/lib/auth/session";
 import type { UserData } from "@/types/auth.type";
 import type { Message } from "@/types/chat.type";
 import { useRouter } from "next/navigation";
@@ -37,7 +37,7 @@ export function useChatWorkspace(chatId: string) {
     const {
         previewWidth,
         setPreviewWidth,
-        setIsDragging,
+        resizeHandlers,
         showPreview,
         setShowPreview,
         mobilePane,
@@ -219,8 +219,14 @@ export function useChatWorkspace(chatId: string) {
         }
     };
 
+    const signOut = () => {
+        clearSession();
+        router.push("/");
+    };
+
     return {
         router,
+        signOut,
         wsConnected,
         messages,
         error,
@@ -241,7 +247,7 @@ export function useChatWorkspace(chatId: string) {
         runId,
         previewWidth,
         setPreviewWidth,
-        setIsDragging,
+        resizeHandlers,
         showPreview,
         setShowPreview,
         userData,

@@ -147,6 +147,8 @@
        landing module the auth module had nothing to reference and hand-typed
        the literal instead. */
     --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+    /* Strong ease-in-out for something resizing in place, like the preview frame's device switch. */
+    --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
     /* Makes `auto` animatable, which is what lets a disclosure transition its
        height. Inert everywhere nothing transitions a keyword size. */
     interpolate-size: allow-keywords;

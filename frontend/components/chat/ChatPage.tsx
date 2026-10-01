@@ -27,13 +27,9 @@ export default function ChatPage() {
     } = useNewProject();
     return (
         <div className="ember-chat-home relative flex h-dvh flex-col overflow-hidden [&>.ember-workspace-header]:shrink-0">
-            <ChatNavbar
-                isAuthenticated={isAuthenticated}
-                userData={userData}
-                onSignOut={handleSignOut}
-            />
+            <ChatNavbar isAuthenticated={isAuthenticated} onSignOut={handleSignOut} />
             <div className="ember-workspace-shell flex min-h-0 flex-1 overflow-hidden">
-                <WorkspaceSidebar current="new" />
+                <WorkspaceSidebar current="new" userData={userData} onSignOut={handleSignOut} />
                 <main
                     id="main-content"
                     className="relative min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain bg-background"

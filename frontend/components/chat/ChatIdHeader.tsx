@@ -23,7 +23,9 @@ export function ChatIdHeader({
     onBack,
 }: ChatIdHeaderProps) {
     return (
-        <header className="ember-workspace-header flex h-14 shrink-0 items-center justify-between gap-4 border-b border-b-border bg-background px-4 [&_.ember-brand]:gap-2 [&_.ember-brand]:text-[17px] [&_.ember-brand]:tracking-[-0.03em] [&_.ember-brand>svg]:w-[22px] max-md:px-3 max-[381px]:gap-2">
+        <header
+            className={`ember-workspace-header flex h-14 shrink-0 items-center justify-between gap-4 border-b border-b-border bg-background px-4 [&_.ember-brand]:gap-2 [&_.ember-brand]:text-[17px] [&_.ember-brand]:tracking-[-0.03em] [&_.ember-brand>svg]:w-[22px] max-md:px-3 max-[381px]:gap-2 min-[1102px]:hidden`}
+        >
             <div className="ember-row flex min-w-0 items-center gap-2">
                 <Button variant="icon" onClick={onBack} aria-label="Back to projects">
                     <ChevronLeft size={18} />

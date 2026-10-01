@@ -74,6 +74,10 @@ export function useLightTheme() {
     return useContext(ThemeContext).light;
 }
 
+export function useThemeToggle() {
+    return useContext(ThemeContext).toggle;
+}
+
 export function ThemeToggle() {
     const { light, toggle } = useContext(ThemeContext);
     return (

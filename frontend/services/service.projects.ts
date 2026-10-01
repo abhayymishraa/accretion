@@ -28,6 +28,14 @@ export const projectService = {
         return response.data;
     },
 
+    renameProject: async (id: string, title: string): Promise<{ title: string }> => {
+        const response = await apiClient.patch<{ title: string }>(
+            `/projects/${encodeURIComponent(id)}`,
+            { title },
+        );
+        return response.data;
+    },
+
     /**
      * Get list of user's projects
      */

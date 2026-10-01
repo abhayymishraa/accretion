@@ -1,30 +1,27 @@
-import { AccountSummary } from "@/components/layout/AccountSummary";
 import { Brand } from "@/components/layout/Brand";
 import { ThemeToggle } from "@/components/layout/ThemeProvider";
 import { Button, buttonVariants } from "@/components/ui/button";
-import type { UserData } from "@/types/auth.type";
 import { LogOut, Plus } from "lucide-react";
 import Link from "next/link";
 
 interface ChatNavbarProps {
     isAuthenticated: boolean;
-    userData: UserData | null;
     onSignOut: () => void;
 }
 
-export function ChatNavbar({ isAuthenticated, userData, onSignOut }: ChatNavbarProps) {
+export function ChatNavbar({ isAuthenticated, onSignOut }: ChatNavbarProps) {
     return (
-        <header className="ember-workspace-header flex h-14 shrink-0 items-center justify-between gap-4 border-b border-b-border bg-background px-4 [&_.ember-brand]:gap-2 [&_.ember-brand]:text-[17px] [&_.ember-brand]:tracking-[-0.03em] [&_.ember-brand>svg]:w-[22px] max-md:px-3 max-[381px]:gap-2">
+        <header
+            // Signed in, the sidebar carries the logo, theme and sign-out wherever it shows.
+            className={`ember-workspace-header ${isAuthenticated ? "md:hidden" : ""} flex h-14 shrink-0 items-center justify-between gap-4 border-b border-b-border bg-background px-4 [&_.ember-brand]:gap-2 [&_.ember-brand]:text-[17px] [&_.ember-brand]:tracking-[-0.03em] [&_.ember-brand>svg]:w-[22px] max-md:px-3 max-[381px]:gap-2`}
+        >
             <Brand />
             <div className="ember-row flex items-center gap-1">
                 <ThemeToggle />
                 {isAuthenticated ? (
-                    <>
-                        <AccountSummary userData={userData} />
-                        <Button variant="icon" onClick={onSignOut} aria-label="Sign out">
-                            <LogOut size={17} />
-                        </Button>
-                    </>
+                    <Button variant="icon" onClick={onSignOut} aria-label="Sign out">
+                        <LogOut size={17} />
+                    </Button>
                 ) : (
                     <>
                         <Link

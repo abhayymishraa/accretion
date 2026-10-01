@@ -2,6 +2,7 @@
 
 import { fileService } from "@/services/service.files";
 import type { OpenedFile } from "@/hooks/chat/useWorkspaceLayout";
+import { downloadBlob, useProjectDownload } from "@/hooks/files/useProjectDownload";
 
 import { getSessionId } from "@/lib/auth/session";
 import { cacheFile, getCachedFile } from "@/lib/files/contentCache";
@@ -15,17 +16,6 @@ interface FileViewerProps {
     openedFile?: OpenedFile | null;
 }
 
-function downloadBlob(blob: Blob, filename: string) {
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    window.URL.revokeObjectURL(url);
-    document.body.removeChild(a);
-}
-
 export function useFileViewer({ files, projectId, revisionId, openedFile }: FileViewerProps) {
     const [selectedFile, setSelectedFile] = useState<string | null>(null);
     // A file opened from the run timeline. Adjusted during render, not in an effect, so the
@@ -35,57 +25,55 @@ export function useFileViewer({ files, projectId, revisionId, openedFile }: File
         setHandled(openedFile);
         if (files.includes(openedFile.path)) setSelectedFile(openedFile.path);
     }
-    const [fileContent, setFileContent] = useState<string>("");
-    const [isLoadingFile, setIsLoadingFile] = useState(false);
-    const [isDownloading, setIsDownloading] = useState(false);
-    const [downloadError, setDownloadError] = useState("");
-    const [binary, setBinary] = useState(false);
+    const { isDownloading, downloadError, setDownloadError, handleDownloadAll } =
+        useProjectDownload(projectId, revisionId);
     const revisionQuery = revisionId ? `revision_id=${encodeURIComponent(revisionId)}` : "";
+    // Derived, not synced in an effect: a missing or vanished selection falls back to the first file.
+    const current =
+        selectedFile && files.includes(selectedFile)
+            ? selectedFile
+            : (files.find((f) => !f.includes("/")) ?? files[0] ?? null);
+    const loadKey = JSON.stringify([projectId, revisionId, current]);
+    const [loaded, setLoaded] = useState<{ key: string; content: string; binary: boolean }>();
+    const isLoadingFile = Boolean(current) && loaded?.key !== loadKey;
 
     useEffect(() => {
-        if (!selectedFile) return;
+        if (!current) return;
         const sessionId = getSessionId();
         const key =
             sessionId && revisionId
-                ? JSON.stringify([sessionId, projectId, revisionId, selectedFile])
+                ? JSON.stringify([sessionId, projectId, revisionId, current])
                 : null;
         const cached = key ? getCachedFile(key) : undefined;
-        if (cached) {
-            setBinary(cached.binary);
-            setFileContent(cached.content ?? "");
-            setIsLoadingFile(false);
-            return;
-        }
         const controller = new AbortController();
-        setIsLoadingFile(true);
-        setBinary(false);
-        setFileContent("");
-        fileService
-            .read(projectId, selectedFile, revisionQuery, controller.signal)
+        (cached
+            ? Promise.resolve(cached)
+            : fileService.read(projectId, current, revisionQuery, controller.signal)
+        )
             .then((data) => {
                 if (controller.signal.aborted || getSessionId() !== sessionId) return;
-                if (key) cacheFile(key, data);
-                setBinary(data.binary);
-                setFileContent(data.content ?? "");
+                if (key && !cached) cacheFile(key, data);
+                setLoaded({ key: loadKey, content: data.content ?? "", binary: data.binary });
             })
             .catch(() => {
                 if (!controller.signal.aborted)
-                    setFileContent("Saved file could not be loaded. Try again.");
-            })
-            .finally(() => {
-                if (!controller.signal.aborted) setIsLoadingFile(false);
+                    setLoaded({
+                        key: loadKey,
+                        content: "Saved file could not be loaded. Try again.",
+                        binary: false,
+                    });
             });
         return () => controller.abort();
-    }, [projectId, selectedFile, revisionId, revisionQuery]);
+    }, [projectId, current, revisionId, revisionQuery, loadKey]);
 
     const handleDownloadFile = async () => {
-        if (!selectedFile) return;
+        if (!current) return;
         setDownloadError("");
         try {
-            const blob = await fileService.downloadFile(projectId, selectedFile, revisionQuery);
-            downloadBlob(blob, selectedFile.split("/").pop() || "file.txt");
+            const blob = await fileService.downloadFile(projectId, current, revisionQuery);
+            downloadBlob(blob, current.split("/").pop() || "file.txt");
             toast.success("File download started", {
-                description: selectedFile,
+                description: current,
                 id: `download-${projectId}`,
             });
         } catch {
@@ -93,43 +81,14 @@ export function useFileViewer({ files, projectId, revisionId, openedFile }: File
         }
     };
 
-    const handleDownloadAll = async () => {
-        setIsDownloading(true);
-        setDownloadError("");
-        try {
-            const blob = await fileService.downloadProject(projectId, revisionQuery);
-
-            downloadBlob(blob, `${projectId}-files.zip`);
-            toast.success("Project ZIP download started", {
-                id: `download-${projectId}`,
-            });
-        } catch {
-            setDownloadError("Could not download the project ZIP. Please try again.");
-        } finally {
-            setIsDownloading(false);
-        }
-    };
-
-    // Auto-select first file
-    useEffect(() => {
-        if (!files.length) {
-            setSelectedFile(null);
-            return;
-        }
-        if (!selectedFile || !files.includes(selectedFile)) {
-            const firstFile = files.find((f) => !f.includes("/")) || files[0];
-            setSelectedFile(firstFile);
-        }
-    }, [files, selectedFile]);
-
     return {
-        selectedFile,
+        selectedFile: current,
         setSelectedFile,
-        fileContent,
+        fileContent: isLoadingFile ? "" : (loaded?.content ?? ""),
         isLoadingFile,
         isDownloading,
         downloadError,
-        binary,
+        binary: !isLoadingFile && Boolean(loaded?.binary),
         handleDownloadFile,
         handleDownloadAll,
     };

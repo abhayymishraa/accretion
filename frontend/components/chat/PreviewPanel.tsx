@@ -2,20 +2,13 @@ import { FileViewer } from "@/components/files/FileViewer";
 import { EFFECTS } from "@/config/effects";
 import dynamic from "next/dynamic";
 import type { OpenedFile } from "@/hooks/chat/useWorkspaceLayout";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { ErrorBox } from "@/components/ui/ErrorBox";
 import type { PreviewPhase } from "@/types/preview.type";
-import {
-    ExternalLink,
-    Eye,
-    FileCode,
-    Globe,
-    Monitor,
-    RotateCcw,
-    Smartphone,
-    Tablet,
-} from "lucide-react";
+import { Eye } from "lucide-react";
 import { useEffect, useState } from "react";
+import { PreviewAddressBar } from "./PreviewAddressBar";
+import { PreviewToolbar } from "./PreviewToolbar";
 
 interface PreviewPanelProps {
     appUrl: string | null;
@@ -31,6 +24,8 @@ interface PreviewPanelProps {
     previewError: string | null;
     onRetry: () => void;
     openedFile: OpenedFile | null;
+    chatHidden: boolean;
+    onToggleChat: () => void;
 }
 // Loaded only when switched on: img-fx brings three.js with it.
 const PreviewReveal = dynamic(() => import("@/components/effects/PreviewReveal"), { ssr: false });
@@ -51,8 +46,12 @@ export function PreviewPanel({
     previewError,
     onRetry,
     openedFile,
+    chatHidden,
+    onToggleChat,
 }: PreviewPanelProps) {
-    const [viewport, setViewport] = useState("desktop");
+    const [mobile, setMobile] = useState(false);
+    const [route, setRoute] = useState("/");
+    const src = appUrl ? new URL(route, appUrl).href : null;
     const [refresh, setRefresh] = useState(0);
     const [retainPreview, setRetainPreview] = useState(false);
     const previewReady = visible && Boolean(appUrl) && phase === "active" && !isBuilding;
@@ -93,87 +92,31 @@ export function PreviewPanel({
 
     return (
         <section
-            className="ember-preview min-w-0 min-h-0 flex flex-col bg-surface-1 [&[data-viewport=tablet]_iframe]:max-w-192 [&[data-viewport=mobile]_iframe]:max-w-[375px]"
+            className="ember-preview min-w-0 min-h-0 flex flex-col bg-surface-1"
             aria-label="App workspace"
-            data-viewport={viewport}
             style={{ width: `${previewWidth}%` }}
         >
-            <div className="ember-preview-toolbar flex h-11 shrink-0 flex-wrap items-center justify-between gap-2 border-b border-b-border bg-background px-2 max-md:px-1.5 [&_.ember-row]:min-w-0">
-                <div
-                    className="ember-row flex items-center gap-0.5"
-                    role="group"
-                    aria-label="Preview views"
-                >
-                    <Button
-                        variant="tab"
-                        aria-pressed={activeTab === "preview"}
-                        onClick={() => onTabChange("preview")}
-                    >
-                        <Globe size={14} />
-                        Preview
-                    </Button>
-                    <Button
-                        variant="tab"
-                        aria-pressed={activeTab === "files"}
-                        onClick={() => onTabChange("files")}
-                    >
-                        <FileCode size={14} />
-                        Files{files.length ? ` (${files.length})` : ""}
-                    </Button>
-                </div>
-                <div className="ember-row flex items-center gap-0.5">
-                    {activeTab === "preview" && (
-                        <>
-                            <Button
-                                variant="icon"
-                                aria-label="Desktop preview"
-                                aria-pressed={viewport === "desktop"}
-                                onClick={() => setViewport("desktop")}
-                            >
-                                <Monitor size={15} />
-                            </Button>
-                            <Button
-                                variant="icon"
-                                aria-label="Tablet preview"
-                                aria-pressed={viewport === "tablet"}
-                                onClick={() => setViewport("tablet")}
-                            >
-                                <Tablet size={15} />
-                            </Button>
-                            <Button
-                                variant="icon"
-                                aria-label="Mobile preview"
-                                aria-pressed={viewport === "mobile"}
-                                onClick={() => setViewport("mobile")}
-                            >
-                                <Smartphone size={15} />
-                            </Button>
-                            <Button
-                                variant="icon"
-                                disabled={!appUrl || phase !== "active"}
-                                aria-label="Reload preview"
-                                onClick={() => setRefresh((value) => value + 1)}
-                            >
-                                <RotateCcw size={14} />
-                            </Button>
-                        </>
-                    )}
-                    {appUrl && phase === "active" && (
-                        <a
-                            href={appUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className={buttonVariants({ variant: "icon" })}
-                            aria-label="Open preview in new tab"
-                        >
-                            <ExternalLink size={15} />
-                        </a>
-                    )}
-                </div>
-            </div>
+            <PreviewToolbar
+                activeTab={activeTab}
+                onTabChange={onTabChange}
+                chatHidden={chatHidden}
+                onToggleChat={onToggleChat}
+                projectId={projectId}
+                revisionId={revisionId}
+            />
+            {activeTab === "preview" && (
+                <PreviewAddressBar
+                    src={src}
+                    phase={phase}
+                    mobile={mobile}
+                    onToggleMobile={() => setMobile(!mobile)}
+                    onNavigate={setRoute}
+                    onRefresh={() => setRefresh((value) => value + 1)}
+                />
+            )}
             {visible && (activeTab === "preview" || retainPreview) && (
                 <div
-                    className="ember-preview-stage flex min-h-0 flex-1 justify-center overflow-auto p-4 [&_iframe]:h-full [&_iframe]:w-full [&_iframe]:opacity-0 [&_iframe]:[transition:opacity_200ms_var(--ease-out)] motion-reduce:[&_iframe]:[transition-duration:120ms] [&_iframe[data-loaded]]:opacity-100 [&_iframe]:min-h-70 [&_iframe]:rounded-[10px] [&_iframe]:border [&_iframe]:border-border [&_iframe]:bg-white [&>.ember-empty]:w-full [&>.ember-empty]:justify-center max-md:p-2"
+                    className="ember-preview-stage flex min-h-0 flex-1 justify-center overflow-auto p-4 [&_iframe]:h-full [&_iframe]:w-full [&_iframe]:opacity-0 [&_iframe[data-loaded]]:opacity-100 [&_iframe]:min-h-70 [&_iframe]:rounded-[10px] [&_iframe]:border [&_iframe]:border-border [&_iframe]:bg-white [&>.ember-empty]:w-full [&>.ember-empty]:justify-center max-md:p-2"
                     style={activeTab === "files" ? { display: "none" } : undefined}
                 >
                     {appUrl && phase === "active" && !building ? (
@@ -184,7 +127,10 @@ export function PreviewPanel({
                             onLoad={(event) => {
                                 event.currentTarget.dataset.loaded = "";
                             }}
-                            src={appUrl}
+                            src={src ?? undefined}
+                            // Mobile ↔ responsive resizes in place; max-width is the one property that
+                            // narrows the frame without scaling its content, so it is the one animated.
+                            className={`${mobile ? "max-w-[375px]" : "max-w-full"} [transition:opacity_200ms_var(--ease-out),max-width_300ms_var(--ease-in-out)] motion-reduce:[transition:opacity_120ms_var(--ease-out)]`}
                             title="App preview"
                             sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-modals"
                         />
