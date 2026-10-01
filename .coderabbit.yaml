@@ -1,0 +1,53 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+# High-signal comments only. Unset values use CodeRabbit's defaults; AGENTS.md is read as a
+# code guideline automatically.
+
+tone_instructions: >-
+    Be direct and concise. State the issue, impact, and fix with no preamble, praise,
+    or repetition. In pull request conversations, never reply with agreement alone or
+    restate the author's explanation. Reply only to add actionable information.
+
+reviews:
+    # Surface only the highest-signal feedback.
+    profile: 'quiet'
+
+    # Request changes when issues are found; approve once its comments are resolved and the
+    # pre-merge checks pass. "@coderabbitai approve" resolves its threads and approves.
+    request_changes_workflow: true
+
+    # CodeRabbit writes this summary into the pull request description by default,
+    # so it would edit the body the author wrote.
+    high_level_summary: false
+
+    # Sections of the walkthrough comment, off to keep it short.
+    changed_files_summary: false
+    sequence_diagrams: false
+    estimate_code_review_effort: false
+    assess_linked_issues: false
+    related_issues: false
+    related_prs: false
+    suggested_labels: false
+    suggested_reviewers: false
+    in_progress_fortune: false
+
+    # Lockfiles and vendored skills: generated or hash-pinned, never edited by hand.
+    path_filters:
+        - '!uv.lock'
+        - '!frontend/package-lock.json'
+        - '!agent/skills/**'
+
+    path_instructions:
+        - path: '**/*'
+          instructions: >-
+              Do not comment on alphabetical sorting, trailing commas, or formatting. Linters catch these.
+              Judge code by three simplicity rules: it expresses every idea it needs to express, says
+              everything once and only once, and has no superfluous parts.
+
+    pre_merge_checks:
+        # Docstrings are written where they help, not to a coverage target.
+        docstrings:
+            mode: 'off'
+
+        # Pull requests here do not link issues.
+        issue_assessment:
+            mode: 'off'
