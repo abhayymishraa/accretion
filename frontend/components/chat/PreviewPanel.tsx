@@ -6,7 +6,8 @@ import { Button } from "@/components/ui/button";
 import { ErrorBox } from "@/components/ui/ErrorBox";
 import type { PreviewPhase } from "@/types/preview.type";
 import { Eye } from "lucide-react";
-import { useEffect, useState } from "react";
+import { usePreviewHistory } from "@/hooks/preview/usePreviewHistory";
+import { useEffect, useRef, useState } from "react";
 import { PreviewAddressBar } from "./PreviewAddressBar";
 import { PreviewToolbar } from "./PreviewToolbar";
 
@@ -52,6 +53,8 @@ export function PreviewPanel({
     const [mobile, setMobile] = useState(false);
     const [route, setRoute] = useState("/");
     const src = appUrl ? new URL(route, appUrl).href : null;
+    const frame = useRef<HTMLIFrameElement>(null);
+    const previewHistory = usePreviewHistory(frame, appUrl);
     const [refresh, setRefresh] = useState(0);
     const [retainPreview, setRetainPreview] = useState(false);
     const previewReady = visible && Boolean(appUrl) && phase === "active" && !isBuilding;
@@ -107,11 +110,21 @@ export function PreviewPanel({
             {activeTab === "preview" && (
                 <PreviewAddressBar
                     src={src}
+                    current={previewHistory.path}
+                    canBack={previewHistory.canBack}
+                    canForward={previewHistory.canForward}
+                    onBack={previewHistory.back}
+                    onForward={previewHistory.forward}
                     phase={phase}
                     mobile={mobile}
                     onToggleMobile={() => setMobile(!mobile)}
-                    onNavigate={setRoute}
-                    onRefresh={() => setRefresh((value) => value + 1)}
+                    // Through the bridge when there is one, so even the frame's first path reloads.
+                    onNavigate={(path) => previewHistory.visit(path) || setRoute(path)}
+                    onRefresh={() =>
+                        previewHistory.path
+                            ? previewHistory.reload()
+                            : setRefresh((value) => value + 1)
+                    }
                 />
             )}
             {visible && (activeTab === "preview" || retainPreview) && (
@@ -121,6 +134,7 @@ export function PreviewPanel({
                 >
                     {appUrl && phase === "active" && !building ? (
                         <iframe
+                            ref={frame}
                             key={`${projectId}-${refresh}`}
                             // Shown once the app has painted, so dark theme never flashes the frame's
                             // white background; a refresh re-mounts it and fades in again.

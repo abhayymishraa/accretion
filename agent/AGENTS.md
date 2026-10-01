@@ -30,7 +30,7 @@ the environment from the tools.
 | Package | Owns | Modules |
 | --- | --- | --- |
 | `run/` | The editing loop and what it is built from | `agent.py`, `prompts.py`, `runner.py`, `service.py`, `workflow.py`, `decisions.py`, `diagnostics.py`, `structured.py`, `title.py` |
-| `sandbox/` | The E2B environment and everything executed inside it | `sandbox_runtime.py`, `preview.py`, `preview_process.py`, `commands.py`, `check_data.py`, `archive.py`, `kits.py`, `project.py`, `secrets.py`, `migrations.py` |
+| `sandbox/` | The E2B environment and everything executed inside it | `sandbox_runtime.py`, `preview.py`, `preview_process.py`, `preview_proxy.py`, `commands.py`, `check_data.py`, `archive.py`, `kits.py`, `project.py`, `secrets.py`, `migrations.py` |
 | `tools/` | The tool surface offered to the model | `tools.py`, `public_tools.py`, `skills.py` |
 | `context/` | What the model is shown and what it remembers | `compaction.py`, `context.py`, `transcript.py`, `history.py` |
 | `budget/` | Cost admission and accounting | `budget.py`, `model_budget.py`, `sandbox_budget.py`, `usage.py` |
@@ -56,7 +56,7 @@ from published diagnostics. It needs every variable, not a typed subset.
 
 ### Assets and paths
 
-`preview_process.py` and `archive.py` are read as text and
+`preview_process.py`, `preview_proxy.py` and `archive.py` are read as text and
 executed elsewhere, not imported. They live in `sandbox/` with the code that
 ships them.
 

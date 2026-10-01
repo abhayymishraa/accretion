@@ -28,7 +28,7 @@ from ..routing.providers import bind_tools, cache_options, chat_model, entry_for
 from ..sandbox import migrations
 from ..sandbox.check_data import CheckData
 from ..sandbox.commands import CommandStateError
-from ..sandbox.preview import ensure_preview_current
+from ..sandbox.preview import PROXY_PORT, ensure_preview_current
 from ..tools.public_tools import encode_public, public_tool_details
 from ..tools.skills import RuntimeSkills
 from ..tools.tools import FileWriteError, WorkspaceTools, list_files, shrink_for_model
@@ -630,7 +630,7 @@ async def run_editor(
                     await remember()
                     return {
                         "summary": response.text or "Application updated.",
-                        "url": "https://" + sandbox.get_host(stack["preview_port"]),
+                        "url": "https://" + sandbox.get_host(PROXY_PORT),
                     }
                 if repairs >= max_repairs:
                     raise VerificationError(

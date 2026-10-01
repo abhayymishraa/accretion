@@ -4,6 +4,7 @@ import fcntl
 import json
 import os
 from pathlib import Path
+import shlex
 import signal
 import socket
 import subprocess
@@ -50,13 +51,22 @@ def stop_services():
     GROUPS.unlink()
 
 
-def start_services():
-    """Start the kit's services in stack.json order and wait for each ready path (spec 8)."""
+def start_services(proxy):
+    """Start the kit's services in stack.json order and wait for each ready path (spec 8).
+
+    Last comes the navigation proxy (preview_proxy.py), the port the preview URL points at.
+    """
     stack = json.loads(STACK.read_text())
     env = kit_env()
     groups = []
+    port, script, origins = proxy
+    web = next(s for s in stack['services'] if s['port'] == stack['preview_port'])
+    services = stack['services'] + [{
+        'name': 'preview proxy', 'cwd': '.', 'port': int(port), 'ready': web['ready'],
+        'start': shlex.join(['python3', script, port, str(web['port']), origins]),
+    }]
     try:
-        for service in stack['services']:
+        for service in services:
             port = service['port']
             # Refuse an unknown listener instead of killing it or accepting its HTTP 200.
             with socket.socket() as probe:
@@ -87,7 +97,7 @@ def start_services():
         raise
 
 
-def main(action):
+def main(action, proxy):
     if action not in {'stop', 'start', 'restart'}:
         raise ValueError('Unknown preview operation')
     # Outside the restored/archived project tree, and released even on failure.
@@ -98,9 +108,9 @@ def main(action):
         if action in {'stop', 'restart'}:
             stop_services()
         if action in {'start', 'restart'}:
-            start_services()
+            start_services(proxy)
     print('Preview ' + action + ' completed')
 
 
 if __name__ == '__main__':
-    main(sys.argv[1])
+    main(sys.argv[1], sys.argv[2:5])

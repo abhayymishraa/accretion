@@ -31,7 +31,7 @@ from ..routing import router as routing_router
 from ..sandbox import migrations, project
 from ..sandbox.commands import CommandStateError
 from ..sandbox.kits import KITS
-from ..sandbox.preview import PreviewError, control_preview
+from ..sandbox.preview import PROXY_PORT, PreviewError, control_preview
 from ..sandbox.sandbox_runtime import SandboxRuntimes
 from ..storage.persistence import (
     archive_slots,
@@ -518,7 +518,8 @@ class Service:
                 raise HTTPException(404, "No saved project yet")
             async with asyncio.timeout(180):
                 sandbox = await self.get_e2b_sandbox(chat_id)
-                port = KITS[await chat_kit(chat_id)].preview_port
+                # The navigation proxy's port; it fronts the kit's own web port (sandbox/preview.py).
+                port = PROXY_PORT
                 try:
                     await self.preview_ready(sandbox, port)
                 except CommandStateError:
