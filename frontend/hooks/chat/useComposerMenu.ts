@@ -50,6 +50,27 @@ function detect(value: string, caret: number): Trigger | null {
 // ignores such mentions too (agent/context/context.py mentioned_files).
 const hidden = (path: string) => path.split("/").some((part) => part.startsWith("."));
 
+const MENTION = /(^|\s)@([^\s@]+)/g;
+const TRAILING = /[.,;:!?)\]}'"]+$/;
+
+/**
+ * The prompt cut around "@path" mentions of real project files, by the backend's rule
+ * (agent/context/context.py mentioned_files), so the composer can highlight them.
+ */
+export function splitMentions(text: string, files: Set<string>): (string | { path: string })[] {
+    const parts: (string | { path: string })[] = [];
+    let last = 0;
+    for (const match of text.matchAll(MENTION)) {
+        const path = match[2].replace(TRAILING, "");
+        if (!files.has(path) || hidden(path)) continue;
+        const at = match.index + match[1].length;
+        parts.push(text.slice(last, at), { path });
+        last = at + 1 + path.length;
+    }
+    parts.push(text.slice(last));
+    return parts;
+}
+
 /**
  * Files ranked like an editor's quick open: names starting with the query, then names containing
  * it, then paths containing it; shorter paths first within each rank.

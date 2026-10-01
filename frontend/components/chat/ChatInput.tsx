@@ -1,11 +1,13 @@
 import { ComposerMenu } from "@/components/chat/ComposerMenu";
+import { ConnectionPill } from "@/components/chat/ConnectionPill";
 import { ModelPicker } from "@/components/chat/ModelPicker";
 import { Button } from "@/components/ui/button";
 import { useLightTheme } from "@/components/layout/ThemeProvider";
-import { useComposerMenu } from "@/hooks/chat/useComposerMenu";
+import { splitMentions, useComposerMenu } from "@/hooks/chat/useComposerMenu";
 // Composer structure adapted from Beautiful UI ChatComposer, MIT © 2026 Shane Levine.
 // See ../ember/BEAUTIFUL-UI-LICENSE. The parent owns the real run lifecycle.
-import { ArrowUpIcon, FileTextIcon, StopIcon } from "@radix-ui/react-icons";
+import { ArrowUpIcon, StopIcon } from "@radix-ui/react-icons";
+import { AtSign } from "lucide-react";
 import type { ModelOption } from "@/types/models.type";
 import { EFFECTS } from "@/config/effects";
 import { BorderBeam } from "border-beam";
@@ -73,13 +75,13 @@ export function ChatInput({
             key="files"
             type="button"
             variant="utility"
-            className="h-8 min-h-8 min-w-8 gap-1.5 px-2"
+            className="h-8 min-h-8 min-w-8 px-2"
             disabled={!canCompose}
             aria-label="Reference a project file"
+            title="Reference a file"
             onClick={() => menu.openKind("files")}
         >
-            <FileTextIcon aria-hidden="true" />
-            <span aria-hidden="true">@</span>
+            <AtSign size={15} aria-hidden="true" />
         </Button>,
         <Button
             type="button"
@@ -88,6 +90,7 @@ export function ChatInput({
             className="h-8 min-h-8 min-w-8 px-2 font-mono"
             disabled={!canCompose}
             aria-label="Insert a command"
+            title="Insert a command"
             onClick={() => menu.openKind("commands")}
         >
             /
@@ -123,12 +126,24 @@ export function ChatInput({
                             Describe a change to your app
                         </label>
                         <div className="grid max-h-44 overflow-y-auto overscroll-contain">
-                            {/* Mirrors the text so the grid cell, and with it the textarea, grows to fit. */}
+                            {/* Mirrors the text so the grid cell, and with it the textarea, grows to fit;
+                                @file mentions get a highlight box behind the textarea's text. */}
                             <div
                                 aria-hidden="true"
-                                className={`${mirror} invisible whitespace-pre-wrap`}
+                                className={`${mirror} whitespace-pre-wrap text-transparent`}
                             >
-                                {input}{" "}
+                                {splitMentions(input, new Set(files)).map((part, index) =>
+                                    typeof part === "string" ? (
+                                        part
+                                    ) : (
+                                        <mark
+                                            key={index}
+                                            className="rounded-[3px] bg-[color-mix(in_srgb,var(--foreground)_30%,transparent)] text-transparent [box-shadow:0_0_0_0.5px_color-mix(in_srgb,var(--foreground)_30%,transparent)]"
+                                        >
+                                            @{part.path}
+                                        </mark>
+                                    ),
+                                )}{" "}
                             </div>
                             <textarea
                                 id="chat-prompt"
@@ -270,43 +285,5 @@ export function ChatInput({
                 </BorderBeam>
             </div>
         </div>
-    );
-}
-
-/** Steady state is the boring one, so it stays muted. Only trouble takes colour. */
-function ConnectionPill({
-    connected,
-    building,
-    awaiting,
-}: {
-    connected: boolean;
-    building: boolean;
-    awaiting: boolean;
-}) {
-    const [label, dot, tone] = !connected
-        ? ["Offline", "bg-destructive", "border-destructive/40 text-destructive"]
-        : building
-          ? ["Working", "bg-primary", "border-hairline text-foreground"]
-          : awaiting
-            ? ["Your turn", "bg-primary", "border-hairline text-foreground"]
-            : // Idle is the one state a phone-width composer can drop: it has no room for it.
-              [
-                  "Live",
-                  "bg-muted-foreground/50",
-                  "border-transparent text-muted-foreground max-sm:hidden",
-              ];
-    return (
-        <span
-            className={`ember-connection inline-flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-[11px] [transition:color_150ms_ease,border-color_150ms_ease] ${tone}`}
-            role="status"
-        >
-            <span
-                aria-hidden="true"
-                className={`size-1.5 rounded-full [transition:background-color_150ms_ease] ${dot} ${
-                    building || !connected ? "motion-safe:animate-pulse" : ""
-                }`}
-            />
-            {label}
-        </span>
     );
 }
