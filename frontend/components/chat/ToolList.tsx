@@ -38,7 +38,8 @@ export function EditedFiles({ files }: { files: EditedFile[] }) {
         );
     };
     return (
-        <div className="mt-3 min-w-0 overflow-hidden rounded-[12px] border border-border bg-surface-2">
+        // Arrives when the build ends, the moment the user is waiting for, instead of popping in.
+        <div className="mt-3 min-w-0 overflow-hidden rounded-[12px] border border-border bg-surface-2 [transition:opacity_200ms_var(--ease-out),translate_200ms_var(--ease-out)] starting:translate-y-1 starting:opacity-0 motion-reduce:starting:translate-y-0">
             <div className="flex items-center gap-3 border-b border-hairline px-3 py-2.5">
                 <span className="grid size-9 shrink-0 place-items-center rounded-[8px] bg-surface-3 text-muted-foreground">
                     <FileDiff size={16} strokeWidth={1.6} aria-hidden="true" />
