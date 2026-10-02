@@ -48,9 +48,9 @@ export function getLanguageFromPath(filePath: string): string {
     const ext = filePath.split(".").pop()?.toLowerCase();
     const languageMap: Record<string, string> = {
         js: "javascript",
-        jsx: "javascript",
+        jsx: "jsx",
         ts: "typescript",
-        tsx: "typescript",
+        tsx: "tsx",
         json: "json",
         html: "html",
         css: "css",

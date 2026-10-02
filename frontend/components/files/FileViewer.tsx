@@ -8,6 +8,7 @@ import Editor from "@monaco-editor/react";
 import { Download, FileCode, Loader2 } from "lucide-react";
 
 import type { OpenedFile } from "@/hooks/chat/useWorkspaceLayout";
+import { useCodeTheme } from "@/hooks/files/useCodeTheme";
 import { useFileViewer } from "@/hooks/files/useFileViewer";
 import { buildFileTree, getLanguageFromPath } from "@/lib/files/tree";
 import { FileTreeNode } from "./FileTreeNode";
@@ -28,6 +29,7 @@ export function FileViewer({ files, projectId, revisionId, openedFile }: FileVie
         binary,
         handleDownloadFile,
     } = useFileViewer({ files, projectId, revisionId, openedFile });
+    const codeTheme = useCodeTheme();
     const fileTree = buildFileTree(files);
     if (files.length === 0) {
         return (
@@ -89,7 +91,7 @@ export function FileViewer({ files, projectId, revisionId, openedFile }: FileVie
 
                         {/* Monaco Editor */}
                         <div className="flex-1 relative">
-                            {isLoadingFile ? (
+                            {isLoadingFile || !codeTheme.ready ? (
                                 <div className="absolute inset-0 flex items-center justify-center bg-surface-1">
                                     <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
                                 </div>
@@ -102,7 +104,7 @@ export function FileViewer({ files, projectId, revisionId, openedFile }: FileVie
                                     height="100%"
                                     language={getLanguageFromPath(selectedFile)}
                                     value={fileContent}
-                                    theme="vs-dark"
+                                    theme={codeTheme.theme}
                                     options={{
                                         readOnly: true,
                                         minimap: { enabled: false },
