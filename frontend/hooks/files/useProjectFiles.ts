@@ -21,13 +21,15 @@ export function useProjectFiles(chatId: string, isBuilding: boolean) {
                 if (!disposed && request === requestNumber) {
                     setProjectFiles(data.files);
                     setRevisionId(data.revision_id);
+                    // Only a load that landed counts: a cancelled or failed one leaves the next
+                    // run of this effect to load at once.
+                    loadedChat.current = chatId;
                 }
             } catch {
                 /* Keep the last readable checkpoint during a temporary outage. */
             }
         };
         if (!isBuilding || loadedChat.current !== chatId) void loadFiles();
-        loadedChat.current = chatId;
         const timer = isBuilding
             ? setInterval(() => {
                   void loadFiles();
