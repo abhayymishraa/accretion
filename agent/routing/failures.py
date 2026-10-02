@@ -20,7 +20,10 @@ _OVERFLOW = re.compile(
 _NOT_OVERFLOW = re.compile(r"rate limit|too many requests", re.IGNORECASE)
 # Rate limits, overload (529 is Anthropic/TypeSafe-style), gateway and server errors.
 _TRANSIENT = {408, 409, 429, 500, 502, 503, 504, 529}
-_COOLDOWN_SECONDS = 300
+# A benched model rejoins on its own after this; one that still fails is benched again.
+_COOLDOWN_SECONDS = 3600
+# Billing refusals: a 429 that no retry fixes, only a top-up.
+_OUT_OF_CREDITS = {"insufficient_quota", "credit_balance_exhausted"}
 _cooling: dict[str, float] = {}
 
 
@@ -48,6 +51,14 @@ def is_transient(exc: BaseException) -> bool:
     if isinstance(exc, (openai.APIConnectionError, httpx.TransportError)):
         return True
     return _status(exc) in _TRANSIENT
+
+
+def out_of_credits(exc: BaseException) -> bool:
+    """The account behind this model has no credit left: switch now, retrying cannot help."""
+    if isinstance(exc, openai.APIStatusError):
+        body = exc.body if isinstance(exc.body, dict) else {}
+        return exc.code in _OUT_OF_CREDITS or body.get("type") in _OUT_OF_CREDITS
+    return False
 
 
 def cool_down(model_id: str) -> None:

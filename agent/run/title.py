@@ -9,14 +9,13 @@ import logging
 import re
 from typing import Any
 
-from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 from sqlalchemy import update
 
 from db.base import AsyncSessionLocal
 from db.models import Chat
 
-from ..budget.usage import invoke_with_usage, record_usage
+from ..budget.usage import record_usage
 from ..routing import providers
 
 logger = logging.getLogger(__name__)
@@ -34,8 +33,9 @@ _PROMPT = (
     '- "track my gym workouts and show weekly progress" -> Workout Tracker\n'
     '- "hi" -> New Project'
 )
-# Five words fit in well under this; the cap only bounds what the call reserves.
-_MAX_OUTPUT_TOKENS = 24
+# Thinking counts against the cap: Gemini 3.1 Pro measured 215 reasoning tokens before a 2-word name,
+# and at 24 it stopped with no name at all. The cap only bounds what the call reserves.
+_MAX_OUTPUT_TOKENS = 512
 _TIMEOUT_SECONDS = 15
 # Vercel trims leading markdown and wrapping quotes the same way.
 _WRAPPING = re.compile(r"""^[\s#*"'`]+|[\s"'`.]+$""")
@@ -43,22 +43,14 @@ _WRAPPING = re.compile(r"""^[\s#*"'`]+|[\s"'`.]+$""")
 _FALLBACK_LENGTH = 100
 
 
-def _naming_model() -> BaseChatModel | None:
-    """The cheapest Auto model this deployment can call, as Vercel keeps a separate fast title model."""
-    entries = [entry for entry in providers.usable_models() if entry.auto]
-    if not entries:
-        return None
-    cheapest = min(entries, key=lambda entry: entry.cost.input + entry.cost.output)
-    return providers.limit_output(providers.chat_model(cheapest.id), _MAX_OUTPUT_TOKENS, reasoning=False)
-
-
 async def _generate(prompt: str, metrics: dict[str, Any]) -> str | None:
-    model = _naming_model()
-    if model is None:
-        return None
+    """The cheapest Auto model names it, as Vercel keeps a separate fast title model."""
     try:
         response = await asyncio.wait_for(
-            invoke_with_usage(model, [SystemMessage(content=_PROMPT), HumanMessage(content=prompt)]),
+            providers.invoke_auto(
+                [SystemMessage(content=_PROMPT), HumanMessage(content=prompt)],
+                lambda model_id: providers.limit_output(providers.chat_model(model_id), _MAX_OUTPUT_TOKENS),
+            ),
             timeout=_TIMEOUT_SECONDS,
         )
     except Exception:

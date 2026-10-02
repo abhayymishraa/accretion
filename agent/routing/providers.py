@@ -12,16 +12,18 @@ provider-specific kwargs directly.
 """
 
 import functools
+from collections.abc import Callable
 from typing import Any
 
 import httpx
 from google.genai import Client, types
 from langchain_core.language_models import BaseChatModel
+from langchain_core.messages import AIMessage, BaseMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
 
-from ..budget.model_budget import reserve_model_request, settle_model_response
-from ..budget.usage import capture_provider_usage
+from ..budget.model_budget import model_rates, reserve_model_request, settle_model_response
+from ..budget.usage import capture_provider_usage, invoke_with_usage
 from . import failures
 from .config import routing_settings
 from .registry import MAX_OUTPUT_TOKENS, MODELS, ModelEntry
@@ -151,10 +153,41 @@ def usable_models() -> list[ModelEntry]:
     return [entry for entry in MODELS.values() if getattr(routing_settings, _KEYS[entry.provider])]
 
 
+def price(entry: ModelEntry) -> tuple[int, int]:
+    rates = model_rates(entry.id)
+    return rates["output"], rates["input"]
+
+
+def auto_models() -> list[ModelEntry]:
+    """The Auto models callable now, cheapest first. A benched model rejoins when its cooldown ends."""
+    return sorted((e for e in usable_models() if e.auto and not failures.cooling(e.id)), key=price)
+
+
+class NoModelAvailable(Exception):
+    """Every Auto model failed, replied empty, or is benched."""
+
+
+async def invoke_auto(
+    messages: list[BaseMessage], prepare: Callable[[str], BaseChatModel] = chat_model, **kwargs: Any
+) -> AIMessage:
+    """Call the cheapest Auto model; on a provider failure bench it and try the next.
+    An empty reply also moves on, unbenched: it is this call's output cap, not an outage.
+    A budget refusal or a bad request is not the model's fault and propagates."""
+    for entry in auto_models():
+        try:
+            response = await invoke_with_usage(prepare(entry.id), messages, **kwargs)
+        except Exception as exc:
+            if not failures.is_transient(exc):
+                raise
+            failures.cool_down(entry.id)
+            continue
+        assert isinstance(response, AIMessage)
+        if response.text.strip() or response.tool_calls:
+            return response
+    raise NoModelAvailable
+
+
 def same_tier(model_id: str) -> str | None:
     """Spec 6: the next Auto model at the same cost level that is usable and not cooling down."""
     word = MODELS[model_id].card.cost
-    for entry in usable_models():
-        if entry.id != model_id and entry.auto and entry.card.cost == word and not failures.cooling(entry.id):
-            return entry.id
-    return None
+    return next((e.id for e in auto_models() if e.id != model_id and e.card.cost == word), None)

@@ -22,7 +22,7 @@ from ..context.context import CONTEXT_RULES, choose_files, mentions
 from ..context.transcript import append as append_transcript
 from ..context.transcript import load as load_transcript
 from ..context.transcript import replace as replace_transcript
-from ..routing.failures import cool_down, is_context_overflow, is_transient
+from ..routing.failures import cool_down, is_context_overflow, is_transient, out_of_credits
 from ..routing.history import for_model
 from ..routing.providers import bind_tools, cache_options, chat_model, entry_for, output_truncated, same_tier
 from ..sandbox import migrations
@@ -420,8 +420,9 @@ async def run_editor(
             inbox.clear()
 
     async def call_model():
-        """Spec 6: back off and retry a transient provider error up to 4 times, then move
-        to the next model at the same cost level (Auto only) and cool the failed one down."""
+        """Spec 6: back off and retry a transient provider error up to 4 times (none when the
+        account is out of credit), then move to the next model at the same cost level (Auto only)
+        and cool the failed one down."""
         nonlocal model, bound, window, window_limit, ceiling, messages
         for attempt in range(5):
             try:
@@ -429,7 +430,7 @@ async def run_editor(
             except Exception as exc:
                 if not is_transient(exc):
                     raise
-                if attempt == 4:
+                if attempt == 4 or out_of_credits(exc):
                     break
                 await asyncio.sleep(2**attempt)
         failed = entry_for(model).id

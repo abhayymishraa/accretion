@@ -8,10 +8,10 @@ One Jev request also answers the front door's kind and difficulty, logged only.
 from dataclasses import dataclass
 from typing import Any
 
-from ..budget.model_budget import call_bound, model_rates
-from . import failures, jev
+from ..budget.model_budget import call_bound
+from . import jev
 from .config import routing_settings
-from .providers import usable_models
+from .providers import auto_models, price
 from .registry import MAX_OUTPUT_TOKENS, MODELS, ModelEntry
 
 # Front door (spec 4): logged only in #3.
@@ -34,26 +34,19 @@ class Pick:
     log: dict[str, Any]
 
 
-def _price(entry: ModelEntry) -> tuple[int, int]:
-    rates = model_rates(entry.id)
-    return rates["output"], rates["input"]
-
-
 def _candidates(needed_tokens: int, remaining_nanos: int | None, failed_model: str | None) -> list[ModelEntry]:
     """Spec 4.1 step 1: drop a model the context would not fit or the budget cannot afford.
     `remaining_nanos` is the user's monthly budget left; None means unlimited. A model fits
     only if one call's reservation does: reserve() counts request bytes as tokens, about
     three per estimated token, at the dearest input rate.
     Step 3: after a failed run, keep only models priced above the one that failed."""
-    floor = _price(MODELS[failed_model]) if failed_model in MODELS else None
+    floor = price(MODELS[failed_model]) if failed_model in MODELS else None
     return [
         entry
-        for entry in usable_models()
-        if entry.auto
-        and not failures.cooling(entry.id)
-        and needed_tokens <= entry.context_window * 95 // 100
+        for entry in auto_models()
+        if needed_tokens <= entry.context_window * 95 // 100
         and (remaining_nanos is None or call_bound(entry.id, needed_tokens * 3, MAX_OUTPUT_TOKENS) <= remaining_nanos)
-        and (floor is None or _price(entry) > floor)
+        and (floor is None or price(entry) > floor)
     ]
 
 
