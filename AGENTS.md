@@ -58,6 +58,7 @@ API and database sit in different regions: each database round trip costs ~120 m
 - History never ships run steps. Folded run carries `edits` (Postgres strips diff hunks) for its edited-files card. Steps load on expand or menu open. Open run: its stream replays every event, no `/events` fetch.
 - `/runs/{id}/events` is paged at `EVENT_PAGE`. Client follows `has_more`. One page truncates long runs.
 - Refresh bumps a run's `details_version` only when its status or end changed. Bumping every run refetches every loaded log.
+- One stream per project (`/projects/{id}/stream`) carries its notices and the events of its runs. A run event's id is `run_id:sequence`; a reconnect sends it and that run resumes after it, even if it ended meanwhile. No per-run stream.
 - Project stream `ready` carries `latest_run_id` and `title`, read after subscribing. Client reloads history only when that run is missing. Read before subscribing opens a gap. `resync`, or Redis down: full reload.
 - After a deploy every tab reconnects at once. Catch-up must cost one query per tab, not a history load per tab.
 

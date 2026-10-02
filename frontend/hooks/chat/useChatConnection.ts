@@ -12,24 +12,28 @@ type ConnectionOptions = {
     chatId: string;
     refreshHistory: () => void;
     syncHistory: (latestRunId: string | null) => void;
+    receiveEvent: (event: MessageEvent) => void;
     setError: (error: string | null) => void;
 };
 export function useChatConnection({
     chatId,
     refreshHistory,
     syncHistory,
+    receiveEvent,
     setError,
 }: ConnectionOptions) {
     const router = useRouter();
     const [connected, setConnected] = useState(false);
-    // The project stream announces runs; each run's events arrive on its own stream (useRunStream).
+    // One stream per project: its notices and the events of the runs it follows. A reconnect sends
+    // the last run event's id (`run_id:sequence`), so that run resumes where this tab left it.
     useEffect(() => {
         const controller = new AbortController();
         const { signal } = controller;
         let retry: ReturnType<typeof setTimeout>;
         let attempt = 0;
+        let lastEventId: string | undefined;
         setConnected(false);
-        const onEvent = (data: string) => {
+        const onEvent = (data: string, id: string | undefined) => {
             let incoming;
             try {
                 incoming = JSON.parse(data);
@@ -37,6 +41,7 @@ export function useChatConnection({
                 return;
             }
             attempt = 0;
+            if (id) lastEventId = id;
             if (incoming.e === "ready" || incoming.e === "resync") {
                 if (incoming.e === "ready") {
                     setConnected(true);
@@ -60,8 +65,10 @@ export function useChatConnection({
                 showProjectTitle(chatId, incoming.title);
                 return;
             }
-            // History then lists the run as open, and useRunStream follows it.
+            // History then lists the run as open; its events follow on this stream.
             if (incoming.e === "run_created") refreshHistory();
+            else if (typeof incoming.run_id === "string")
+                receiveEvent(new MessageEvent("message", { data }));
         };
         const connect = async () => {
             const token = localStorage.getItem("auth_token");
@@ -71,7 +78,7 @@ export function useChatConnection({
                 return;
             }
             try {
-                await followEvents(`/projects/${chatId}/stream`, { onEvent, signal });
+                await followEvents(`/projects/${chatId}/stream`, { lastEventId, onEvent, signal });
             } catch (error) {
                 if (signal.aborted) return;
                 if (error instanceof StreamRefusedError) {
@@ -100,7 +107,7 @@ export function useChatConnection({
             controller.abort();
             clearTimeout(retry);
         };
-    }, [chatId, router, refreshHistory, syncHistory, setError]);
+    }, [chatId, router, refreshHistory, syncHistory, receiveEvent, setError]);
 
     return { connected };
 }
