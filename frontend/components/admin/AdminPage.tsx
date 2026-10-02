@@ -128,6 +128,7 @@ export default function AdminPage() {
                     <Input
                         type="search"
                         aria-label="Search by name or email"
+                        maxLength={100}
                         placeholder="Search name or email"
                         value={admin.query}
                         onChange={(event) => admin.setQuery(event.target.value)}
@@ -223,7 +224,11 @@ export default function AdminPage() {
                             </>
                         ) : (
                             <p className="m-auto text-center text-muted-foreground">
-                                {data ? "Nobody here. New signups show up under Waiting." : ""}
+                                {!data
+                                    ? ""
+                                    : items.length
+                                      ? "That account isn't on this page. Pick someone from the list or search for them."
+                                      : "Nobody here. New signups show up under Waiting."}
                             </p>
                         )}
                     </div>

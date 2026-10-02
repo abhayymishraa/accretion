@@ -12,6 +12,7 @@ import sqlalchemy as sa
 
 from alembic import op
 from auth.config import auth_settings
+from auth.utils import canonical_email
 
 # revision identifiers, used by Alembic.
 revision: str = "962004e2f0f1"
@@ -33,7 +34,7 @@ def upgrade() -> None:
         sa.text(
             "UPDATE users SET role = 'admin', approved_at = COALESCE(approved_at, now()) WHERE lower(email) = :email"
         ),
-        {"email": auth_settings.ADMIN_EMAIL.lower()},
+        {"email": canonical_email(auth_settings.ADMIN_EMAIL)},
     )
 
 

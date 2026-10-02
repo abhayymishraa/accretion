@@ -34,6 +34,7 @@ export function useAdminUsers() {
         const timer = setTimeout(() => {
             setSearch(next);
             setPage(1);
+            setSelectedId(null);
         }, 250);
         return () => clearTimeout(timer);
     }, [query, search]);
@@ -50,11 +51,17 @@ export function useAdminUsers() {
     }, [error, router]);
 
     const items = data?.items ?? [];
-    const selected = items.find((user) => user.id === selectedId) ?? items[0] ?? null;
+    // Fall back to the first row only when no one was asked for: a linked account that is
+    // not on this page must not leave someone else's approve button showing.
+    const selected =
+        selectedId === null
+            ? (items[0] ?? null)
+            : (items.find((user) => user.id === selectedId) ?? null);
 
     function changeStatus(next: AccountStatus) {
         setStatus(next);
         setPage(1);
+        setSelectedId(null);
     }
 
     async function approve(userId: number) {
@@ -65,6 +72,8 @@ export function useAdminUsers() {
             // Move on to the next person on this page.
             const index = items.findIndex((user) => user.id === userId);
             setSelectedId(items[index + 1]?.id ?? items[index - 1]?.id ?? null);
+            // Approving the last waiting account on a later page would strand an empty page.
+            if (status === "waiting" && items.length === 1 && page > 1) setPage(page - 1);
             await mutate();
         } catch (err) {
             setActionError(err instanceof Error ? err.message : "Could not approve this account.");
