@@ -29,7 +29,7 @@ the environment from the tools.
 
 | Package | Owns | Modules |
 | --- | --- | --- |
-| `run/` | The editing loop and what it is built from | `agent.py`, `prompts.py`, `runner.py`, `service.py`, `workflow.py`, `decisions.py`, `diagnostics.py`, `structured.py`, `title.py` |
+| `run/` | The editing loop and what it is built from | `agent.py`, `prompts.py`, `runner.py`, `service.py`, `worker.py`, `bus.py`, `workflow.py`, `decisions.py`, `diagnostics.py`, `structured.py`, `title.py` |
 | `sandbox/` | The E2B environment and everything executed inside it | `sandbox_runtime.py`, `preview.py`, `preview_process.py`, `preview_proxy.py`, `commands.py`, `check_data.py`, `archive.py`, `kits.py`, `project.py`, `secrets.py`, `migrations.py` |
 | `tools/` | The tool surface offered to the model | `tools.py`, `public_tools.py`, `skills.py` |
 | `context/` | What the model is shown and what it remembers | `compaction.py`, `context.py`, `transcript.py`, `history.py` |
@@ -113,8 +113,8 @@ split.
 - `runner.py` owns one conversation with shared budgets and host-controlled
   verification. Keep orchestration there and the work it calls out to in the
   owning group.
-- `service.py` owns single-worker run ownership, durable outcomes, and
-  reconnectable activity. It is the boundary the API talks to, so
+- `service.py` owns admission, durable outcomes and reconnectable activity; `worker.py` owns run
+  ownership through a Postgres lease (Aegra's pattern). `service.py` is the boundary the API talks to, so
   `main.py` should not reach past it into the loop.
 - When the model needs a user decision, `workflow.py` produces an immutable,
   bounded proposal. Proposals do not carry authority to act.

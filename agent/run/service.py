@@ -1,4 +1,4 @@
-"""Single-worker run ownership, durable outcomes and reconnectable activity."""
+"""Run admission, leased execution, durable outcomes and reconnectable activity."""
 
 import asyncio
 import json
@@ -14,6 +14,7 @@ from e2b.exceptions import ServiceBusyException
 from fastapi import HTTPException
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent.sandbox.config import sandbox_settings
 from agent.storage.config import storage_settings
@@ -43,11 +44,13 @@ from ..storage.persistence import (
 )
 from ..storage.storage import StorageError
 from ..tools.tools import ROOT, FileWriteError
+from . import bus
 from .config import run_settings
 from .decisions import decision_source, prepare_continuation, resolve_decision
 from .diagnostics import sandbox_diagnostics
 from .runner import RunLimitError, SandboxSetupError, VerificationError, run_editor
 from .title import name_project
+from .worker import OPEN_STATUSES, Workers
 from .workflow import public_workflow, select_workflow
 
 logger = logging.getLogger("webbuilder.runs")
@@ -64,6 +67,11 @@ async def chat_kit(chat_id):
     if kit not in KITS:
         raise SandboxSetupError(f"Project kit {kit!r} is not available. No editing model request was made.")
     return kit
+
+
+async def open_run(db: AsyncSession, chat_id: str) -> str | None:
+    """A queued or running run of this chat. Any worker may claim it and open the sandbox at any moment."""
+    return await db.scalar(select(Run.id).where(Run.chat_id == chat_id, Run.status.in_(OPEN_STATUSES)).limit(1))
 
 
 DELETE_DATA, KEEP_DATA = "Delete the data", "Keep my data"
@@ -163,13 +171,13 @@ class Service:
         self.active: dict[str, LiveRun] = {}
         self.runtimes = SandboxRuntimes()
         self.sandboxes = self.runtimes.handles
-        self.subscribers: dict[str, set[asyncio.Queue[Any]]] = {}
         self.admission = asyncio.Lock()
         self.stopping = False
         self.maintenance_task = None
         self.opening: set[str] = set()
         # The project each user opened last: one active sandbox per user (park_others).
         self.focus: dict[int, str] = {}
+        self.workers = Workers(self)
 
     async def require_sandbox_capacity(self, chat_id, *, requesting_run=None):
         # Paused rows retain ownership without occupying a running slot.
@@ -196,9 +204,17 @@ class Service:
                 logger.warning("Sandbox cleanup deferred chat_id=%s error_type=%s", chat_id, type(exc).__name__)
                 return False
 
+    async def busy_chats(self) -> set[str]:
+        """Chats maintain() must leave alone: a preview opening here, or an open run. A run's sandbox stays
+        non-reusable until the run ends, and maintain() retires non-reusable rows, so the runs come from
+        Postgres: a run another process's worker owns is not in this process's memory."""
+        async with AsyncSessionLocal() as db:
+            open_chats = set((await db.scalars(select(Run.chat_id).where(Run.status.in_(OPEN_STATUSES)))).all())
+        return open_chats | self.opening
+
     async def reap_idle_sandboxes(self):
         async with self.admission:
-            await self.runtimes.maintain(self.opening | {r.chat_id for r in self.active.values()})
+            await self.runtimes.maintain(await self.busy_chats())
 
     async def preview_status(self, chat) -> dict[str, Any]:
         # Viewing a project is what makes it the user's active one, even when its sandbox is already up
@@ -242,9 +258,11 @@ class Service:
         self.stopping = False
         # No automatic replay of mutations after a process restart.
         async with AsyncSessionLocal.begin() as db:
+            # Only running rows no lease covers. A lapsed lease is ended by the reaper below, with a
+            # terminal event; a live lease belongs to another process.
             await db.execute(
                 update(Run)
-                .where(Run.status == "running")
+                .where(Run.status == "running", Run.lease_expires_at.is_(None))
                 .values(
                     status="interrupted",
                     reason="Server restarted before this run finished. Submit a new request to continue.",
@@ -252,14 +270,19 @@ class Service:
                 )
             )
             await db.execute(update(Chat).values(app_url=None))
-        # Reconcile before admission. Unknown states stay reserved; clean runtimes sleep.
-        await self.runtimes.maintain(set(), shutdown=True)
+        # End runs whose lease lapsed while no process held them, with a terminal event each.
+        await self.workers.reap()
+        # Reconcile before admission. Unknown states stay reserved; clean runtimes sleep. Runs still open
+        # here hold a live lease, so another process owns them and their sandboxes.
+        await self.runtimes.maintain(await self.busy_chats(), shutdown=True)
         from ..storage.maintenance import maintain_loop
 
         self.maintenance_task = asyncio.create_task(maintain_loop(self), name="persistence-maintenance")
+        await self.workers.start()
 
     async def shutdown(self):
         self.stopping = True
+        await self.workers.stop()
         if self.maintenance_task:
             self.maintenance_task.cancel()
             await asyncio.gather(self.maintenance_task, return_exceptions=True)
@@ -268,7 +291,8 @@ class Service:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
         async with self.admission:
-            await self.runtimes.maintain(set(), shutdown=True)
+            # This process's runs were cancelled above and are no longer open; other processes' runs are.
+            await self.runtimes.maintain(await self.busy_chats(), shutdown=True)
 
     async def admit(
         self, user_id: int, prompt: str, chat_id: str | None = None, *, mode="auto", response=None, model_choice="auto"
@@ -296,11 +320,9 @@ class Service:
                         resolve_decision(parent, fingerprint, "dismiss")
                         # Commit before telling other tabs to fetch the resolved state.
                         await db.commit()
-                        self.publish(parent.chat_id, {"e": "resync"})
+                        await self.notify(parent.chat_id, {"e": "resync"})
                         return {"chat_id": parent.chat_id, "run_id": None, "status": "cancelled"}
                     chat_id = parent.chat_id
-            if self.stopping or len(self.active) + len(self.opening) >= run_settings.MAX_CONCURRENT_RUNS:
-                raise HTTPException(429, "The builder is busy. Try again shortly.")
             workflow, metrics = {"mode": mode}, {}
             async with AsyncSessionLocal.begin() as db:
                 user = await db.scalar(select(User).where(User.id == user_id).with_for_update())
@@ -308,6 +330,9 @@ class Service:
                     raise HTTPException(401, "User not found")
                 if not user.email_verified:
                     raise HTTPException(403, "Verify your email before continuing.")
+                open_runs = await db.scalar(select(func.count()).select_from(Run).where(Run.status.in_(OPEN_STATUSES)))
+                if self.stopping or (open_runs or 0) + len(self.opening) >= run_settings.MAX_CONCURRENT_RUNS:
+                    raise HTTPException(429, "The builder is busy. Try again shortly.")
                 parent = None
                 if response is not None:
                     parent, fingerprint = await decision_source(db, user_id, *response)
@@ -323,14 +348,13 @@ class Service:
                     raise HTTPException(429, str(exc)) from None
                 if not storage_settings.configured:
                     raise HTTPException(503, "Project storage is not configured.")
-                unnamed = not chat_id
                 if chat_id:
                     chat = await db.scalar(
                         select(Chat).where(Chat.id == chat_id, Chat.user_id == user_id).with_for_update()
                     )
                     if not chat:
                         raise HTTPException(404, "Project not found")
-                    if chat_id in self.opening or any(r.chat_id == chat_id for r in self.active.values()):
+                    if chat_id in self.opening or await open_run(db, chat_id):
                         raise HTTPException(409, "This project already has a running request.")
                     pending = await db.scalar(
                         select(Run.id).where(Run.chat_id == chat_id, Run.status == "awaiting_input").limit(1)
@@ -342,52 +366,55 @@ class Service:
                     # Untitled until title.py names it from this request.
                     db.add(Chat(id=chat_id, user_id=user_id, kit=sandbox_settings.DEFAULT_KIT))
                     await db.flush()
+                message_id = str(uuid.uuid4())
                 run_id = str(uuid.uuid4())
                 db.add(
                     Run(
                         id=run_id,
                         chat_id=chat_id,
                         prompt=prompt,
-                        status="running",
+                        status="queued",
                         model_choice=model_choice,
                         workflow=workflow,
                         metrics=metrics,
+                        message_id=message_id,
                     )
                 )
                 if parent is not None:
                     resolve_decision(parent, fingerprint, response[1], run_id)
-                message_id = str(uuid.uuid4())
                 db.add(Message(id=message_id, chat_id=chat_id, role="user", content=prompt))
-            live = LiveRun(
-                run_id,
-                chat_id,
-                prompt,
-                user_id=user_id,
-                message_id=message_id,
-                workflow=workflow,
-                metrics=metrics,
-                model_choice=model_choice,
-                unnamed=unnamed,
-            )
-            self.active[run_id] = live
-            if parent is not None:
-                self.publish(chat_id, {"e": "resync"})
-            live.task = asyncio.create_task(self.execute(live), name=f"run:{run_id}")
-            return {
-                "chat_id": chat_id,
-                "run_id": run_id,
-                "status": "running",
-            }
+        # Outside admission: both need only the committed row, and a slow Redis must not hold the
+        # lock that previews and deletes wait on. Other tabs learn of the run; the starter opens its stream.
+        await asyncio.gather(self.workers.enqueue(run_id), self.notify(chat_id, {"e": "run_created", "run_id": run_id}))
+        return {
+            "chat_id": chat_id,
+            "run_id": run_id,
+            "status": "queued",
+        }
 
-    def publish(self, chat_id, event):
-        for queue in list(self.subscribers.get(chat_id, set())):
-            if queue.full():
-                # A slow observer reloads a snapshot rather than blocking generation.
-                while not queue.empty():
-                    queue.get_nowait()
-                queue.put_nowait({"e": "resync"})
-            else:
-                queue.put_nowait(event)
+    def load_live(self, run: Run, chat: Chat) -> LiveRun:
+        """The in-memory run a worker drives, rebuilt from its row."""
+        return LiveRun(
+            run.id,
+            run.chat_id,
+            run.prompt,
+            metrics=dict(run.metrics),
+            user_id=chat.user_id,
+            message_id=run.message_id,
+            workflow=dict(run.workflow),
+            model_choice=run.model_choice,
+            # Untitled means title.py has not named it yet; a failed naming retries next run.
+            unnamed=chat.title is None,
+        )
+
+    def interrupt(self, live: LiveRun) -> None:
+        if live.task and not live.cancelling:
+            live.cancelling = True
+            live.task.cancel()
+
+    async def notify(self, chat_id: str, event: dict[str, Any]) -> None:
+        """A project notice (new run, title, resync); live, never replayed."""
+        await bus.publish(bus.project_channel(chat_id), event)
 
     def event(self, live, kind, **payload):
         details, diffs = payload.get("details"), None
@@ -417,7 +444,7 @@ class Service:
             async with AsyncSessionLocal.begin() as db:
                 db.add(RunEvent(run_id=live.id, sequence=event["sequence"], payload=event))
             live.events.append(event)
-        self.publish(live.chat_id, event)
+        await bus.publish(bus.run_channel(live.id), event)
         record = {k: event[k] for k in ("e", "run_id", "sequence")}
         if kind == "stage":
             live.metrics["stage"] = payload.get("message")
@@ -536,17 +563,18 @@ class Service:
                 if event:
                     live.events.append(event)
         if event:
-            self.publish(live.chat_id, event)
+            await bus.publish(bus.run_channel(live.id), event)
 
     async def open_preview(self, chat_id) -> dict[str, Any]:
         async with self.admission:
-            if (
-                self.stopping
-                or chat_id in self.opening
-                or any(r.chat_id == chat_id for r in self.active.values())
-                or len(self.active) + len(self.opening) >= run_settings.MAX_CONCURRENT_RUNS
-            ):
-                raise HTTPException(409, "Wait for the current operation to finish")
+            async with AsyncSessionLocal() as db:
+                if (
+                    self.stopping
+                    or chat_id in self.opening
+                    or await open_run(db, chat_id)
+                    or len(self.active) + len(self.opening) >= run_settings.MAX_CONCURRENT_RUNS
+                ):
+                    raise HTTPException(409, "Wait for the current operation to finish")
             await self.require_sandbox_capacity(chat_id)
             self.opening.add(chat_id)
         try:
@@ -643,7 +671,7 @@ class Service:
                 )
             )
         live.events.append(event)
-        self.publish(live.chat_id, event)
+        await bus.publish(bus.run_channel(live.id), event)
         logger.info(
             json.dumps(
                 {
@@ -869,7 +897,7 @@ class Service:
                 if live.sandbox_started:
                     await self.retire_sandbox(live.chat_id)
                 logger.error("Could not persist terminal state run_id=%s", live.id)
-                self.publish(live.chat_id, {"e": "resync"})
+                await self.notify(live.chat_id, {"e": "resync"})
             self.active.pop(live.id, None)
             spend_scope.reset(scope_token)
             if live.user_id is not None and self.focus.get(live.user_id, live.chat_id) != live.chat_id:
@@ -884,12 +912,17 @@ class Service:
             return
         if title:
             # Not a run event: the name belongs to the project, so it is pushed and never replayed.
-            self.publish(live.chat_id, {"e": "project_title", "title": title})
+            await self.notify(live.chat_id, {"e": "project_title", "title": title})
 
     async def park_left(self, chat_id):
         """Pause a project's sandbox the user has moved away from, unless a build or an open uses it."""
-        if chat_id in self.opening or any(run.chat_id == chat_id for run in self.active.values()):
+        if chat_id in self.opening:
             return
+        async with AsyncSessionLocal() as db:
+            # A queued run is about to acquire this sandbox, and a running one may belong to another
+            # process's worker: neither is in self.active, so the row decides.
+            if await open_run(db, chat_id):
+                return
         row = await self.runtimes.get(chat_id)
         if not row or row.state != "running":
             return
@@ -926,30 +959,38 @@ class Service:
         await self.emit(live, "approach", message=question, workflow=public_workflow(live.workflow))
         return "awaiting_input", question
 
-    async def steer(self, run_id, text) -> bool:
+    async def steer(self, run_id: str, text: str) -> bool:
         """Queue a user message for a running build (Pi's steering queue). False if it is not running."""
-        live = self.active.get(run_id)
-        if live is None or live.cancelling or live.task is None or live.task.done():
-            return False
         async with AsyncSessionLocal.begin() as db:
-            db.add(Message(id=str(uuid.uuid4()), chat_id=live.chat_id, role="user", content=text))
-        live.inbox.append(text)
-        self.publish(live.chat_id, {"e": "resync"})
+            run = await db.get(Run, run_id)
+            if run is None or run.status != "running" or run.cancel_requested:
+                return False
+            db.add(Message(id=str(uuid.uuid4()), chat_id=run.chat_id, role="user", content=text))
+        await bus.publish(bus.COMMANDS, {"type": "steer", "run_id": run_id, "text": text})
+        await self.notify(run.chat_id, {"e": "resync"})
         return True
 
-    async def cancel(self, run_id):
-        live = self.active.get(run_id)
-        if live and live.task and not live.cancelling:
-            live.cancelling = True
-            live.task.cancel()
-            await asyncio.gather(live.task, return_exceptions=True)
-            # Cancellation before the coroutine's first instruction still gets a terminal record.
-            if run_id in self.active:
-                await self.finish(live, "cancelled", "Stopped before generation started.")
-                self.active.pop(run_id, None)
+    async def cancel(self, run_id: str) -> None:
+        async with AsyncSessionLocal.begin() as db:
+            status = await db.scalar(
+                update(Run)
+                .where(Run.id == run_id, Run.status.in_(OPEN_STATUSES))
+                .values(cancel_requested=True)
+                .returning(Run.status)
+            )
+        if status == "queued":
+            # Never executed: take it off the queue by claiming it, then record the stop.
+            live = await self.workers.claim(run_id)
+            if live is not None:
+                await self.workers.finish_unstarted(live)
+                return
+        if status is not None:
+            # Running, or a worker claimed it between our update and claim. The command is
+            # immediate; the flag reaches the owner at its next heartbeat if the command is lost.
+            await bus.publish(bus.COMMANDS, {"type": "cancel", "run_id": run_id})
 
     async def snapshot(self, chat_id, offset=0, limit=10) -> list[dict[str, Any]]:
-        async with AsyncSessionLocal.begin() as db:
+        async with AsyncSessionLocal() as db:
             rows = (
                 await db.scalars(
                     select(Run)
@@ -962,12 +1003,6 @@ class Service:
             runs = []
             for row in reversed(rows):
                 live = self.active.get(row.id)
-                if row.status == "running" and not live:
-                    row.status, row.reason = (
-                        "interrupted",
-                        "Run stopped before a final state was saved. Submit a new request to continue.",
-                    )
-                    row.finished_at = datetime.now(UTC)
                 runs.append(
                     {
                         "id": row.id,

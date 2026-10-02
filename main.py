@@ -10,6 +10,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from agent.run import bus
 from agent.run.service import agent_service
 from agent.storage.storage import StorageError
 from auth.router import router as auth_router
@@ -31,6 +32,7 @@ async def lifespan(app):
         yield
     finally:
         await agent_service.shutdown()
+        await bus.client.aclose()
         await engine.dispose()
 
 
