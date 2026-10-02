@@ -48,20 +48,26 @@ compose() {
 rollback() {
     local status=$?
     trap - ERR INT TERM
-    echo 'Deployment failed; restoring the previous release.'
-    if [[ -n "$(compose "$release" ps -q api 2>/dev/null || true)" ]]; then
-        compose "$release" ps api || true
-        docker inspect --format 'API health diagnostics: {{json .State.Health}}' "$(compose "$release" ps -q api)" || true
+    echo 'Deployment failed; the previous release keeps serving.'
+    if [[ -n "${new_api:-}" ]]; then
+        docker inspect --format 'API health diagnostics: {{json .State.Health}}' "$new_api" || true
         echo 'API container logs:'
-        compose "$release" logs --tail 50 --no-color api || true
+        docker logs --tail 50 "$new_api" || true
+        # The old container never stopped, so removing the new one is the whole rollback.
+        docker rm -f "$new_api" || true
     fi
     if [[ -n "$previous" ]]; then
-        compose "$previous" up -d --remove-orphans || true
-    else
-        compose "$release" stop api || true
+        install -m 644 "$previous/Caddyfile" "$root/caddy/Caddyfile" || true
+        reload_proxy "$previous" || true
     fi
     rm -f "$artifact_dir/backend-image.tar.gz"
     exit "$status"
+}
+
+# Applies the Caddyfile in $root/caddy without restarting Caddy, so open connections stay up.
+reload_proxy() {
+    compose "$1" up -d --no-deps proxy
+    compose "$1" exec -T proxy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
 }
 
 mkdir -p "$release"
@@ -76,33 +82,48 @@ compose "$release" config --quiet
 compose "$release" pull proxy
 trap rollback ERR
 trap 'false' INT TERM
-# Drain the old writer before migrating legacy event arrays into ordered rows.
-if [[ -n "$previous" ]]; then compose "$previous" stop api; fi
+# The previous release keeps serving while the schema migrates, so a migration must work with it
+# still running (AGENTS.md).
 docker run --rm --env-file "$root/runtime.env" "$image" alembic upgrade head
 # --no-deps skips depends_on, so Redis is started on its own. An unchanged service is left running,
 # so its queue and channels survive a normal deploy.
 compose "$release" up -d --no-deps redis
-compose "$release" up -d --no-deps api
+
+# Zero downtime: the new api container starts beside the running one, Caddy routes to both, and
+# the old one stops only once the new one is healthy and reachable through the proxy.
+old_api=$(docker ps -q --no-trunc --filter label=com.docker.compose.project=webbuilder \
+    --filter label=com.docker.compose.service=api)
+running=$(grep -c . <<<"$old_api" || true)
+compose "$release" up -d --no-deps --no-recreate --scale api=$((running + 1)) api
+new_api=$(compose "$release" ps -q api | grep -vxF -f <(printf '%s\n' "${old_api:-none}"))
+(( $(wc -l <<<"$new_api") == 1 ))
 
 healthy=false
-for attempt in $(seq 1 60); do
-    container=$(compose "$release" ps -q api)
-    if [[ -n "$container" ]] && [[ $(docker inspect --format '{{.State.Health.Status}}' "$container") == healthy ]]; then
+for attempt in $(seq 1 90); do
+    if [[ $(docker inspect --format '{{.State.Health.Status}}' "$new_api") == healthy ]]; then
         healthy=true
         break
     fi
-    sleep 3
+    sleep 2
 done
 [[ "$healthy" == true ]]
-compose "$release" up -d --no-deps proxy
+mkdir -p "$root/caddy"
+install -m 644 "$release/Caddyfile" "$root/caddy/Caddyfile"
+reload_proxy "$release"
 # Verify routing through the proxy without depending on public DNS propagation.
-curl --fail --silent --show-error --retry 5 --retry-connrefused --retry-delay 2 \
-    --max-time 15 http://127.0.0.1:8000/health/ready >/dev/null
-curl --fail --silent --show-error --retry 10 --retry-all-errors --retry-delay 6 \
+curl --fail --silent --show-error --retry 10 --retry-all-errors --retry-delay 3 \
     --resolve "$domain:443:127.0.0.1" --max-time 15 "https://$domain/health/ready" >/dev/null
 ln -sfn "$release" "$root/current.next"
 mv -Tf "$root/current.next" "$root/current"
 trap - ERR INT TERM
+
+# The new release serves; now the old container goes. Requests in flight finish within its graceful
+# timeout, and Caddy retries any that reach it while stopping on the new one. A failure here leaves
+# both running, which the next deploy cleans up, so it does not fail this one.
+if [[ -n "$old_api" ]]; then
+    xargs docker stop --time 40 <<<"$old_api" >/dev/null || echo 'Old api container did not stop'
+    xargs docker rm <<<"$old_api" >/dev/null || echo 'Old api container was not removed'
+fi
 
 # Keep the current and previous image for rollback; only remove this app's older tags.
 previous_image=

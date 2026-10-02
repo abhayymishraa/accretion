@@ -11,5 +11,10 @@
             header Content-Type text/plain*
         }
     }
-    reverse_proxy api:8000
+    # `api` resolves per connection to the running containers, so a deploy's old and new api both
+    # serve. A request that reaches one already stopping, or finds none yet, retries instead of failing.
+    reverse_proxy api:8000 {
+        lb_try_duration 10s
+        lb_try_interval 250ms
+    }
 }

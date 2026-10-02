@@ -122,6 +122,8 @@ Domain-first, one package per concern. Adapted from
 
 A domain owns `models.py` when it is the only domain using those tables. Tables read by several domains stay in `db/models.py` — `Chat` is used by eight, and moving it into `projects/` would make the agent engine import from the API layer. Every module holding ORM models must be imported in `alembic/env.py`, or autogenerate proposes dropping its tables.
 
+A deploy migrates while the previous release still serves, so a migration must work with that release's code: add first, then drop a column or table in a later deploy, once no released code reads it.
+
 A migration meets two kinds of database: one created before Alembic existed, and one built from the baseline. Anything that alters an existing object — dropping a column, renaming a constraint — must check first, because the object it targets exists in only one of them. An unguarded `drop_column` or `drop_constraint` makes fresh databases unbuildable, and nothing catches that until someone provisions one.
 
 An object a migration creates but the ORM cannot express — a partial index, for instance — must be listed in `MIGRATION_OWNED_INDEXES` in `alembic/env.py`. Otherwise autogenerate proposes dropping it on every run, and someone eventually applies that.

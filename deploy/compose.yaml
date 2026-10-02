@@ -6,8 +6,8 @@ services:
     env_file:
       - path: /opt/webbuilder/runtime.env
         format: raw
-    ports:
-      - "127.0.0.1:8000:8000"
+    # No host port: a deploy runs two api containers side by side, and Caddy reaches each one
+    # on the compose network.
     volumes:
       - /opt/webbuilder/projects:/app/var/projects
       - type: bind
@@ -24,6 +24,11 @@ services:
     mem_limit: 512m
     memswap_limit: 768m
     pids_limit: 128
+    # The Dockerfile's check, probed every 2 s while starting instead of every 30 s, so a deploy
+    # switches to the new container seconds after it can serve.
+    healthcheck:
+      start_period: 60s
+      start_interval: 2s
     # Dockerfile's 5 s graceful timeout for open requests, then about 35 s for lifespan shutdown before SIGKILL.
     stop_grace_period: 40s
     logging:
@@ -60,7 +65,9 @@ services:
       - "80:80"
       - "443:443"
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # A fixed folder, not this release's: the proxy is not recreated on every deploy, and a new
+      # Caddyfile is applied with `caddy reload`, which keeps open connections.
+      - /opt/webbuilder/caddy:/etc/caddy:ro
       - caddy_data:/data
       - caddy_config:/config
     mem_limit: 96m
