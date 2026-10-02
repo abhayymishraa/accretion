@@ -8,7 +8,7 @@ from fastapi.responses import Response
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 
 from auth.dependencies import CurrentUser, get_current_user
-from db.base import DbSession
+from db.base import DbSession, ReadOnly
 from projects.dependencies import StreamedProject, owned_project
 from projects.schemas import RunAdmission
 from runs import service, stream
@@ -23,7 +23,7 @@ async def create_run(project_id: str, payload: ChatPayload, current_user: Curren
     return await service.start_run(current_user, project_id, payload.prompt, payload.mode, payload.model_choice)
 
 
-@router.get("/models", dependencies=[Depends(get_current_user)])
+@router.get("/models", dependencies=[ReadOnly, Depends(get_current_user)])
 async def list_models() -> ModelList:
     return service.model_options()
 
@@ -48,7 +48,7 @@ async def cancel_run(run: OwnedRun) -> RunList:
     return await service.cancel(run)
 
 
-@router.get("/runs/{run_id}/events")
+@router.get("/runs/{run_id}/events", dependencies=[ReadOnly])
 async def get_run_events(run: OwnedRun, db: DbSession, after_sequence: int = 0) -> RunEventsPage:
     return await service.events_page(db, run, after_sequence)
 
