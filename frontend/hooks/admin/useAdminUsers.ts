@@ -53,12 +53,14 @@ export function useAdminUsers() {
     const items = data?.items ?? [];
     // Fall back to the first row only when no one was asked for: a linked account that is
     // not on this page must not leave someone else's approve button showing. While a new
-    // filter loads, `keepPreviousData` still shows the old list, so select nobody until then.
-    const selected = isLoading
-        ? null
-        : selectedId === null
-          ? (items[0] ?? null)
-          : (items.find((user) => user.id === selectedId) ?? null);
+    // filter loads, or after it fails, `keepPreviousData` still shows the old list, so select
+    // nobody until data for the current key arrives.
+    const selected =
+        isLoading || error
+            ? null
+            : selectedId === null
+              ? (items[0] ?? null)
+              : (items.find((user) => user.id === selectedId) ?? null);
 
     function changeStatus(next: AccountStatus) {
         setStatus(next);
