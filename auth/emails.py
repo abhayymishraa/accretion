@@ -72,7 +72,13 @@ async def send(to: str, subject: str, text: str, html: str, idempotency_key: str
                 },
             )
             response.raise_for_status()
-    except httpx.HTTPError:
+    except httpx.HTTPStatusError as exc:
+        # Resend says why it refused (an unverified sending domain, a bad sender, a rate limit);
+        # without this line every failure reads the same.
+        logger.warning("Resend refused an email status=%s reason=%r", exc.response.status_code, exc.response.text[:300])
+        raise VerificationEmailFailed from None
+    except httpx.HTTPError as exc:
+        logger.warning("Resend unreachable error_type=%s", type(exc).__name__)
         raise VerificationEmailFailed from None
 
 
