@@ -27,7 +27,6 @@ export interface MenuChoice {
     insert: string;
     // Where the query matched inside the label, for highlighting.
     match?: [number, number];
-    folder?: boolean;
 }
 
 interface Trigger {
@@ -108,7 +107,6 @@ function fileChoices(query: string, targets: string[]): MenuChoice[] {
             detail: path.slice(0, cut),
             insert: `@${path} `,
             match: needle && at >= 0 ? [at, at + needle.length] : undefined,
-            folder: path.endsWith("/"),
         };
     });
 }

@@ -5,7 +5,7 @@
 // Uses the upstream accordion/context composition with controlled file selection,
 // native scrolling, and Ember styling. Folder clicks never select a source file.
 import * as Accordion from "@radix-ui/react-accordion";
-import { ChevronRight, FileCode, FolderClosed, FolderOpen } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import { createContext, useContext, useState, type ReactNode } from "react";
 
 const rowClassName = [
@@ -71,10 +71,14 @@ export function Tree({
 export function Folder({
     value,
     name,
+    icon,
+    openIcon,
     children,
 }: {
     value: string;
     name: string;
+    icon: ReactNode;
+    openIcon: ReactNode;
     children: ReactNode;
 }) {
     const { expandedItems, toggleFolder } = useTree();
@@ -91,11 +95,7 @@ export function Folder({
                         className="transition-transform duration-[140ms] ease-[var(--ease-out)] group-data-[state=open]:rotate-90 motion-reduce:transition-none"
                         aria-hidden="true"
                     />
-                    {expanded ? (
-                        <FolderOpen aria-hidden="true" />
-                    ) : (
-                        <FolderClosed aria-hidden="true" />
-                    )}
+                    {expanded ? openIcon : icon}
                     <span className="min-w-0 truncate">{name}</span>
                 </Accordion.Trigger>
             </Accordion.Header>
@@ -112,7 +112,7 @@ export function Folder({
     );
 }
 
-export function File({ value, name }: { value: string; name: string }) {
+export function File({ value, name, icon }: { value: string; name: string; icon: ReactNode }) {
     const { selectedId, selectFile } = useTree();
     return (
         <button
@@ -124,7 +124,7 @@ export function File({ value, name }: { value: string; name: string }) {
             title={value}
         >
             <span className="size-[14px] flex-[0_0_14px]" aria-hidden="true" />
-            <FileCode aria-hidden="true" />
+            {icon}
             <span className="min-w-0 truncate">{name}</span>
         </button>
     );
