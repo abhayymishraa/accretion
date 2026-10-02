@@ -4,6 +4,8 @@ import { API_BASE_URL } from "@/config/env";
 // Retrying with the same token cannot succeed, unlike a network failure.
 export class StreamRefusedError extends Error {}
 const REFUSED = [401, 403, 404];
+// The server could not resume from the Last-Event-ID sent. Retrying it unchanged cannot succeed.
+export class StreamCursorRejectedError extends Error {}
 
 // Reconnect backoff shared by every stream: 1 s, doubling, capped at 10 s.
 export function retryDelay(attempt: number): number {
@@ -30,6 +32,7 @@ export async function followEvents(path: string, { lastEventId, onEvent, signal 
     if (lastEventId) headers["Last-Event-ID"] = lastEventId;
     const response = await fetch(`${API_BASE_URL}${path}`, { headers, signal });
     if (REFUSED.includes(response.status)) throw new StreamRefusedError();
+    if (response.status === 422) throw new StreamCursorRejectedError();
     if (!response.ok || !response.body) throw new Error(`Stream failed with ${response.status}`);
     const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
     let buffer = "";

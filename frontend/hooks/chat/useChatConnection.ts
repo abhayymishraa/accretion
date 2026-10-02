@@ -4,7 +4,12 @@ import { authService } from "@/services/service.auth";
 
 import { reloadProjects, showProjectTitle } from "@/hooks/projects/useProjectList";
 import { getSessionId } from "@/lib/auth/session";
-import { followEvents, retryDelay, StreamRefusedError } from "@/lib/http/eventStream";
+import {
+    followEvents,
+    retryDelay,
+    StreamCursorRejectedError,
+    StreamRefusedError,
+} from "@/lib/http/eventStream";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
@@ -81,6 +86,18 @@ export function useChatConnection({
                 await followEvents(`/projects/${chatId}/stream`, { lastEventId, onEvent, signal });
             } catch (error) {
                 if (signal.aborted) return;
+                // A rejected resume point: start over once without it, as a reload does (history
+                // drops what it already shows). Rejected without one, retrying cannot help.
+                if (error instanceof StreamCursorRejectedError) {
+                    if (lastEventId) {
+                        lastEventId = undefined;
+                        void connect();
+                        return;
+                    }
+                    setConnected(false);
+                    setError("Could not reconnect to this project. Reload the page.");
+                    return;
+                }
                 if (error instanceof StreamRefusedError) {
                     setConnected(false);
                     // HTTP can renew an expired token; a refusal alone cannot distinguish
