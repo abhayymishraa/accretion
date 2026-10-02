@@ -23,8 +23,8 @@ class RunConfig(BaseConfig):
     # It runs on the same VM as the API (deploy/compose.yaml), so no network hop.
     REDIS_URL: str = "redis://localhost:6379/0"
 
-    # Aegra (worker_executor.py, settings.py @ 8cdf0b1): WORKER_COUNT loops per process, each
-    # running up to N_JOBS_PER_WORKER=10 runs. One loop here; 0 turns a process into API-only.
+    # WORKER_COUNT loops per process, each running up to RUN_JOBS_PER_WORKER runs.
+    # 0 turns a process into API-only.
     WORKER_COUNT: int = 1
     RUN_JOBS_PER_WORKER: int = 10
 

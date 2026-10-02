@@ -114,7 +114,7 @@ split.
   verification. Keep orchestration there and the work it calls out to in the
   owning group.
 - `service.py` owns admission, durable outcomes and reconnectable activity; `worker.py` owns run
-  ownership through a Postgres lease (Aegra's pattern). `service.py` is the boundary the API talks to, so
+  ownership through a Postgres lease. `service.py` is the boundary the API talks to, so
   `main.py` should not reach past it into the loop.
 - When the model needs a user decision, `workflow.py` produces an immutable,
   bounded proposal. Proposals do not carry authority to act.

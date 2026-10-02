@@ -1,8 +1,6 @@
 """Run workers: claim queued runs under a Postgres lease, keep the lease alive, end expired ones.
 
-Ported from Aegra @ 8cdf0b1b7d004c7700bfc255be18d5d496a2e97d: services/worker_executor.py
-(queue, semaphore, lease, heartbeat) and services/lease_reaper.py (expired and stuck runs).
-Deliberate differences:
+Design choices:
 - An expired lease ends the run as interrupted instead of re-queueing it: agent/AGENTS.md,
   "Recovery makes no model calls".
 - Cancel is durable: Run.cancel_requested is read by every heartbeat; the Redis command
@@ -35,11 +33,11 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("webbuilder.runs")
 
-# Aegra lease_reaper.py STUCK_PENDING_THRESHOLD_SECONDS: a queued run this old that is missing
-# from the Redis list lost its wake-up (Redis restarted) and is pushed again.
+# A queued run this old that is missing from the Redis list lost its wake-up (Redis restarted)
+# and is pushed again.
 _STUCK_QUEUED_SECONDS = 120
-# Aegra's lease timings (settings.py): 30 s lease renewed every 10 s, so it outlives two missed
-# heartbeats; swept every 15 s; a 5 s Postgres poll while Redis is unreachable.
+# A 30 s lease renewed every 10 s outlives two missed heartbeats; swept every 15 s; a 5 s
+# Postgres poll while Redis is unreachable.
 _LEASE_SECONDS = 30
 _HEARTBEAT_SECONDS = 10
 _REAPER_SECONDS = 15
@@ -58,8 +56,8 @@ class Workers:
         self.service = service
         self.name = f"{socket.gethostname()}-{os.getpid()}"
         self.tasks: list[asyncio.Task[None]] = []
-        # Aegra worker_executor.py _job_tasks: asyncio holds tasks weakly, and stop() must cancel the
-        # runs too, or one still claiming at shutdown starts executing after the pool is disposed.
+        # asyncio holds tasks weakly, and stop() must cancel the runs too, or one still claiming at
+        # shutdown starts executing after the pool is disposed.
         self.jobs: set[asyncio.Task[None]] = set()
         # Redis may be missing open ids (a refused enqueue or bus.OPEN write, or a restarted
         # Redis), so the next reaper pass reads Postgres without the bus.OPEN gate.
@@ -89,7 +87,7 @@ class Workers:
             run_id = await self.dequeue()
             if run_id is None or self.service.stopping:
                 if run_id is not None:
-                    # Aegra _push_back: dequeued during shutdown, hand it to the next process.
+                    # Dequeued during shutdown: hand it to the next process.
                     await self.enqueue(run_id)
                 slots.release()
                 continue
@@ -105,7 +103,7 @@ class Workers:
             item = await bus.client.blpop([bus.QUEUE], timeout=5)
             return item[1] if item else None
         except RedisError as exc:
-            # Aegra _dequeue: Redis down, so poll Postgres for the oldest queued run. A restarted Redis
+            # Redis down, so poll Postgres for the oldest queued run. A restarted Redis
             # has lost QUEUE and OPEN, so the reaper resyncs every open row from Postgres too.
             logger.warning("Redis dequeue failed, polling Postgres error_type=%s", type(exc).__name__)
             self.unsynced = True
@@ -116,7 +114,7 @@ class Workers:
                         select(Run.id).where(Run.status == "queued").order_by(Run.created_at).limit(1)
                     )
             except SQLAlchemyError as db_exc:
-                # Aegra _worker_loop logs and re-loops; a dead loop would stop this process taking runs.
+                # Log and re-loop: a dead loop would stop this process taking runs.
                 logger.warning("Queue poll failed error_type=%s", type(db_exc).__name__)
                 return None
 
@@ -151,7 +149,7 @@ class Workers:
 
     async def sync(self, cutoff: datetime) -> None:
         """Make Redis match Postgres: bus.OPEN holds exactly the open rows, and queued rows created before
-        cutoff that are missing from the queue are pushed again (Aegra lease_reaper.py _missing_from_queue).
+        cutoff that are missing from the queue are pushed again.
         bus.SYNCED then marks Redis complete. A refusal or a failed read leaves unsynced set."""
         # Cleared first, so a refusal during this pass, or a failed enqueue meanwhile, sets it again.
         self.unsynced = False
@@ -245,8 +243,8 @@ class Workers:
                 logger.warning("Lease renewal failed run_id=%s error_type=%s", live.id, type(exc).__name__)
                 continue
             if cancel_requested is None:
-                # Aegra _heartbeat_loop: the lease is gone, so stop before two owners write. A run
-                # already stopping has usually just saved its terminal state, which also ends the match.
+                # The lease is gone, so stop before two owners write. A run already stopping has
+                # usually just saved its terminal state, which also ends the match.
                 if not live.cancelling:
                     logger.warning("Lease lost, stopping run_id=%s", live.id)
                     self.service.interrupt(live)
@@ -255,16 +253,16 @@ class Workers:
                 self.service.interrupt(live)
 
     async def listen_commands(self) -> None:
-        # Aegra redis_broker.py _listen_for_cancel_commands: while Redis is down, retry with a doubling
-        # delay capped at 30 s, not every second. A lost command still lands through the heartbeat.
+        # While Redis is down, retry with a doubling delay capped at 30 s, not every second. A lost
+        # command still lands through the heartbeat.
         delay = 1
         while True:
             try:
                 async with bus.subscribe(bus.COMMANDS) as pubsub:
                     delay = 1
                     while True:
-                        # Aegra redis_broker.py _subscribe_and_handle_cancels: a bounded read returns
-                        # None when idle. timeout=None would read under socket_timeout and raise.
+                        # A bounded read returns None when idle. timeout=None would read under
+                        # socket_timeout and raise.
                         message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=0.5)
                         if message is None:
                             continue
@@ -294,7 +292,6 @@ class Workers:
                 if not self.unsynced and not await bus.client.scard(bus.OPEN):
                     continue  # Nothing open: leave Postgres alone so an idle Neon can suspend.
                 await self.reap()
-                # Aegra lease_reaper.py _find_recoverable: stuck queued runs straight from Postgres.
                 await self.sync(datetime.now(UTC) - timedelta(seconds=_STUCK_QUEUED_SECONDS))
             except (RedisError, SQLAlchemyError) as exc:
                 logger.warning("Lease reaper pass failed error_type=%s", type(exc).__name__)

@@ -1,8 +1,7 @@
 """Server-sent event streams: one run's events with resume, and a project's notices.
 
-Order from OpenHands' session socket (software-agent-sdk @ fad6377, session_socket.py): subscribe
-first, then backfill from the log, then live, dropping anything already sent. Aegra replays first
-and subscribes afterwards (streaming_service.py), which can lose an event published in between.
+Subscribe first, then backfill from the log, then live, dropping anything already sent.
+Replaying before subscribing could lose an event published in between.
 """
 
 import asyncio

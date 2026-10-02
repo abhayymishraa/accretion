@@ -1,8 +1,7 @@
 """Redis doorbells for runs: the job queue, live event fan-out and run commands.
 
 Postgres stays the record (runs, run_events). Anything here may be lost, and every reader
-recovers from Postgres. Pattern from Aegra @ 8cdf0b1 (services/redis_broker.py,
-services/worker_executor.py).
+recovers from Postgres.
 """
 
 import json
@@ -20,20 +19,20 @@ from .config import run_settings
 logger = logging.getLogger("webbuilder.runs")
 
 _PREFIX = "accretion:"
-# Aegra's job list (WORKER_QUEUE_KEY): RPUSH on admit, BLPOP in a worker.
+# Job list: RPUSH on admit, BLPOP in a worker.
 QUEUE = _PREFIX + "runs:queue"
 # Run ids that are queued or running. The reaper reads Postgres only while this is non-empty.
 OPEN = _PREFIX + "runs:open"
 # Set after a full resync from Postgres. Missing means Redis lost its data (no persistence in
 # deploy/compose.yaml), so QUEUE and OPEN are incomplete and the reaper resyncs before trusting them.
 SYNCED = _PREFIX + "runs:synced"
-# Aegra's cancel channel, widened to steer: every process hears it, the owner acts.
+# Cancel and steer: every process hears it, the owner acts.
 COMMANDS = _PREFIX + "runs:commands"
 
 # A hung Redis fails a command after socket_timeout instead of stalling the caller. It must exceed
 # the worker's BLPOP block (5 s). Pub/sub readers pass their own get_message timeout, which
-# replaces socket_timeout for that read. health_check_interval is Aegra's REDIS_HEALTH_CHECK_INTERVAL
-# (settings.py): an idle connection, the command listener's included, is PINGed before reuse.
+# replaces socket_timeout for that read. With health_check_interval an idle connection, the
+# command listener's included, is PINGed before reuse.
 client = redis.from_url(
     run_settings.REDIS_URL,
     decode_responses=True,
@@ -66,8 +65,8 @@ async def subscribe(*channels: str) -> AsyncIterator[PubSub]:
         await pubsub.subscribe(*channels)
         yield pubsub
     finally:
-        # Dify (_subscription.py) logs and drops cleanup errors: a failed close must not mask the
-        # caller's exit, e.g. GeneratorExit when a client disconnects. Aegra does not guard this.
+        # Log and drop cleanup errors: a failed close must not mask the caller's exit,
+        # e.g. GeneratorExit when a client disconnects.
         try:
             await pubsub.aclose()
         except RedisError as exc:
