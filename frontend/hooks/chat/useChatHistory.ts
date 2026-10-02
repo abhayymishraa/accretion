@@ -13,6 +13,11 @@ function mergeMessages(previous: Message[], incoming: Message[], older = false) 
     for (const message of incoming) {
         const existing = items.get(message.id);
         if (older && existing) continue;
+        // A run whose status and end are unchanged keeps its version, so its loaded steps are not
+        // fetched again on every refresh.
+        const changed =
+            existing?.run_status !== message.run_status ||
+            existing?.finished_at !== message.finished_at;
         items.set(
             message.id,
             existing && message.details_pending
@@ -20,7 +25,7 @@ function mergeMessages(previous: Message[], incoming: Message[], older = false) 
                       ...message,
                       activity: existing.activity,
                       tool_calls: existing.tool_calls,
-                      details_version: (existing.details_version || 0) + 1,
+                      details_version: (existing.details_version || 0) + (changed ? 1 : 0),
                   }
                 : message,
         );

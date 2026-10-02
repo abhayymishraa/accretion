@@ -40,14 +40,17 @@ export function RunActivity({
 }) {
     const running = isOpenRun(message.run_status);
     const [expanded, setExpanded] = useState(false);
+    // Opening the menu loads the steps too, so "Copy build steps" copies all of them.
+    const [menuOpened, setMenuOpened] = useState(false);
     const open = running || expanded;
-    // Loaded even while folded: the edited-files card under the reply is built from these steps.
-    const details = useRunDetails(message, true);
+    const details = useRunDetails(message, expanded || menuOpened);
     const failed = Boolean(message.run_status && !QUIET.includes(message.run_status));
     const steps = details.activity;
     const calls = details.calls;
     const blocks = useMemo(() => timelineBlocks(timelineEntries(steps, calls)), [steps, calls]);
-    const files = useMemo(() => editedFiles(calls), [calls]);
+    // Folded, the card comes from history's edit summary instead of the full steps.
+    const edits = details.loaded ? null : message.edits;
+    const files = useMemo(() => editedFiles(edits ?? calls), [edits, calls]);
     const transcript = blocks
         .flatMap((block) =>
             block.kind === "note"
@@ -107,7 +110,11 @@ export function RunActivity({
                 )}
                 <span className="ml-auto flex shrink-0 items-center gap-2">
                     {!running && <RelativeTime iso={message.finished_at || message.created_at} />}
-                    <RunMenu runId={message.id.replace(/^run:/, "")} transcript={transcript} />
+                    <RunMenu
+                        runId={message.id.replace(/^run:/, "")}
+                        transcript={details.loading ? null : transcript}
+                        onOpen={() => setMenuOpened(true)}
+                    />
                 </span>
             </div>
             {open && (

@@ -1,15 +1,72 @@
-"""Read-only, paginated conversation summaries; tool payloads load separately."""
+"""Read-only, paginated conversation summaries; full tool payloads load separately."""
 
 import base64
 import json
 from datetime import datetime
+from typing import Any
 
 from fastapi import HTTPException
-from sqlalchemy import exists, literal, select, tuple_, union_all
+from sqlalchemy import ColumnClause, exists, literal, literal_column, select, tuple_, union_all
 
-from db.models import Message, Run
+from db.models import Message, Run, RunEvent
 
+from ..run.worker import OPEN_STATUSES
 from ..run.workflow import public_workflow
+from ..tools.public_tools import EDIT_TOOLS
+
+# Each diff without its hunks: the edited-files card needs paths and counts, and the hunks are
+# most of the bytes. Postgres drops them so they never cross the network.
+_DIFF_HEADERS: ColumnClause[Any] = literal_column(
+    "(SELECT json_agg(json_build_object('path', d->'path', 'created', d->'created', 'added', d->'added',"
+    " 'removed', d->'removed', 'hunks', json_build_array()))"
+    " FROM json_array_elements(CASE WHEN json_typeof(run_events.payload->'details'->'diffs') = 'array'"
+    " THEN run_events.payload->'details'->'diffs' ELSE '[]'::json END) AS d)"
+)
+# Runs recorded before structured details kept the changed files in the output text.
+_LEGACY_OUTPUT: ColumnClause[Any] = literal_column(
+    "CASE WHEN run_events.payload->'details' IS NULL THEN run_events.payload->>'output' END"
+)
+
+
+async def finished_edits(db, run_ids):
+    """Each run's file-editing tool calls, enough for the client's edited-files card, in one query
+    for the page. The full steps load only when a run is expanded."""
+    if not run_ids:
+        return {}
+    payload = RunEvent.payload
+    rows = await db.execute(
+        select(
+            RunEvent.run_id,
+            payload["call_id"].as_string().label("call_id"),
+            payload["name"].as_string().label("name"),
+            payload["ok"].as_boolean().label("ok"),
+            payload["details"]["version"].label("version"),
+            payload["details"]["changed_files"].label("changed_files"),
+            _DIFF_HEADERS.label("diffs"),
+            _LEGACY_OUTPUT.label("output"),
+        )
+        .where(
+            RunEvent.run_id.in_(run_ids),
+            payload["e"].as_string() == "tool_completed",
+            payload["name"].as_string().in_(EDIT_TOOLS),
+        )
+        .order_by(RunEvent.run_id, RunEvent.sequence)
+    )
+    edits: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        details = None
+        if row.version is not None:
+            details = {"version": row.version, "changed_files": row.changed_files, "diffs": row.diffs}
+        edits.setdefault(row.run_id, []).append(
+            {
+                "id": row.call_id,
+                "name": row.name,
+                "status": "success" if row.ok else "error",
+                "details": details,
+                "output": row.output,
+            }
+        )
+    return edits
 
 
 def cursor_value(value):
@@ -66,6 +123,7 @@ async def conversation_page(db, chat_id, limit=50, before=None):
         if run_ids
         else []
     )
+    edits = await finished_edits(db, [r.id for r in summaries if r.status not in OPEN_STATUSES])
     items = {
         ("message", m.id): {
             "id": m.id,
@@ -89,6 +147,7 @@ async def conversation_page(db, chat_id, limit=50, before=None):
                 "finished_at": r.finished_at.isoformat() if r.finished_at else None,
                 "workflow": public_workflow(r.workflow),
                 "details_pending": True,
+                "edits": edits.get(r.id),
             }
             for r in summaries
         }

@@ -7,6 +7,8 @@ from ..events import redact
 # Room for a readable slice of command output in the chat's shell block.
 MAX_PUBLIC_BYTES = 4000
 MAX_COMMAND_CHARS = 600
+# Tools whose results list the files they changed.
+EDIT_TOOLS = ("write_files", "edit_file", "edit_files")
 
 
 def encode_public(details):
@@ -65,7 +67,7 @@ def public_tool_details(name, *, args=None, result=None, diffs=None, screenshots
         if name == "read_files" and isinstance(result.get("files"), (dict, list)):
             paths = [path for path in result["files"] if isinstance(path, str)]
             fields.update(files=paths, file_count=len(paths))
-        elif name in {"write_files", "edit_file", "edit_files"} and isinstance(result.get("changed_files"), list):
+        elif name in EDIT_TOOLS and isinstance(result.get("changed_files"), list):
             paths = [path for path in result["changed_files"] if isinstance(path, str)]
             fields.update(changed_files=paths, file_count=len(paths))
         elif name == "search_project_history":

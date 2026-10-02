@@ -7,15 +7,18 @@ import { isOpenRun } from "@/lib/chat/messages";
 import { applyRunEvent } from "@/socket/handleChatEvent";
 import type { Message, RunEvent } from "@/types/chat.type";
 
-export function useRunDetails(message: Message, expanded: boolean) {
+// A finished run's steps load when wanted (expanded, or about to be copied). An open run needs no
+// fetch: its stream replays every event from the first.
+export function useRunDetails(message: Message, wanted: boolean) {
     const [events, setEvents] = useState<RunEvent[] | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [attempt, setAttempt] = useState(0);
     const running = isOpenRun(message.run_status);
     const loadedVersion = useRef<string | null>(null);
-    const version = `${message.id}:${message.details_version || 0}:${running}`;
+    const version = `${message.id}:${message.details_version || 0}`;
+    const fetching = wanted && !running && Boolean(message.details_pending);
     useEffect(() => {
-        if (!expanded || !message.details_pending || loadedVersion.current === version) return;
+        if (!fetching || loadedVersion.current === version) return;
         const controller = new AbortController();
         const session = getSessionId();
         historyService
@@ -34,7 +37,7 @@ export function useRunDetails(message: Message, expanded: boolean) {
                     );
             });
         return () => controller.abort();
-    }, [message.id, message.details_pending, expanded, version, attempt]);
+    }, [message.id, fetching, version, attempt]);
     const details = useMemo(() => {
         // Restore older details first, then replay live items so completed tools stay completed.
         let restored: Message[] = [{ ...message, activity: [], tool_calls: [] }];
@@ -49,7 +52,8 @@ export function useRunDetails(message: Message, expanded: boolean) {
     }, [message, events]);
     return {
         ...details,
-        loading: expanded && message.details_pending && !events && !error,
+        loaded: events !== null,
+        loading: fetching && !events && !error,
         error,
         retry: () => {
             setError(null);
