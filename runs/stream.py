@@ -84,11 +84,17 @@ class ProjectStream:
 
     async def events(self, resume: str | None) -> AsyncIterator[ServerSentEvent]:
         if resume:
-            # Before the notices start, so the open run is followed from here, not from its start.
+            # Before the notices start. An open run is followed from here, not from its start. An
+            # ended run's remaining events are sent first and in full: were a later run's events
+            # interleaved, a second reconnect would resume that run and skip the rest of this one.
             run_id, after = resume.split(":")
             async with ReadSessionLocal() as db:
-                if await db.scalar(select(Run.id).where(Run.id == run_id, Run.chat_id == self.project_id)):
-                    self.follow(run_id, int(after))
+                status = await db.scalar(select(Run.status).where(Run.id == run_id, Run.chat_id == self.project_id))
+            if status in OPEN_STATUSES:
+                self.follow(run_id, int(after))
+            elif status is not None:
+                async for event in run_stream(run_id, int(after)):
+                    yield event
         notices = asyncio.create_task(self.notices())
         try:
             while (item := await self.queue.get()) is not None:
