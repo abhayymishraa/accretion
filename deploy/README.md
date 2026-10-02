@@ -27,7 +27,6 @@ Backend: `https://api.accretion.abhayymishraa.com`.
 
    ```text
    NEXT_PUBLIC_API_URL=https://BACKEND_DOMAIN
-   NEXT_PUBLIC_WS_URL=wss://BACKEND_DOMAIN
    NEXT_PUBLIC_BASE_URL=https://FRONTEND_DOMAIN
    ```
 
@@ -50,11 +49,15 @@ Docker's periodic check uses the process-only `/` endpoint so it does not keep
 Neon awake. Database readiness is checked during deployment and on demand, allowing
 an idle Neon database to suspend and conserve its free compute allowance.
 
-One API worker is required: execution ownership, WebSocket subscribers and sandbox
-handles are in memory. Run outcomes and bounded activity checkpoints are in PostgreSQL.
-Startup marks unfinished runs `interrupted`; it never replays mutations automatically.
-Restarting the API interrupts active generations. This setup does not provide
-zero-downtime failover, and adding workers would violate admission/ownership assumptions.
+Runs are claimed from a Redis-woken queue by leased workers (agent/run/worker.py). Postgres holds
+the queue row, the lease and every event; Redis on the same VM only wakes workers and fans events
+out. Browsers follow runs over resumable SSE (`GET /runs/{run_id}/stream`, `Last-Event-ID`), so a
+reload or reconnect loses no activity. A run whose worker dies, including on a deploy restart, ends
+as `interrupted` within about 45 s, by the reaper or at startup; model calls are never replayed.
+
+Workers run inside the API process (WORKER_COUNT=1, RUN_JOBS_PER_WORKER=10). Preview opening and
+sandbox handles are still held in that process, so keep one API process until those move to the
+database; splitting workers out is then WORKER_COUNT=0 on the API plus a worker service.
 
 ## Upgrade the sandbox template
 
@@ -70,9 +73,10 @@ The 12 September implementation has been checked locally with real OpenAI/E2B,
 but that does not establish deployment of this revision.
 
 1. Allow current generations to finish, then release backend and frontend together.
-   The workflow creates the additive `runs` table before API startup. The new first-frame
-   WebSocket authentication and HTTP follow-up protocol require both sides to be updated;
-   old browser tabs must reload. Independently completing Vercel/GitHub deploys can leave
+   The workflow runs `alembic upgrade head` before API startup, including migration
+   `0a9ff048c441` (run worker lease), and `deploy.sh` starts the Compose `redis` service before the API. Live
+   updates moved from the WebSocket to resumable SSE, so both sides must be updated;
+   open browser tabs must reload. Independently completing Vercel/GitHub deploys can leave
    a short incompatible interval. Use a maintenance window for this first transition.
 2. Confirm readiness, login, snapshot recovery and Stop. Generation checks use paid
    providers; the routine health check does not generate an application.

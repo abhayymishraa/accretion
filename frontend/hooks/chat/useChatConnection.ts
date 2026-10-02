@@ -2,114 +2,91 @@
 
 import { authService } from "@/services/service.auth";
 
-import { WS_URL } from "@/config/env";
 import { reloadProjects, showProjectTitle } from "@/hooks/projects/useProjectList";
 import { getSessionId } from "@/lib/auth/session";
+import { followEvents, retryDelay, StreamRefusedError } from "@/lib/http/eventStream";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
 type ConnectionOptions = {
     chatId: string;
-    receiveEvent: (event: MessageEvent) => void;
     refreshHistory: () => void;
     setError: (error: string | null) => void;
 };
-export function useChatConnection({
-    chatId,
-    receiveEvent,
-    refreshHistory,
-    setError,
-}: ConnectionOptions) {
+export function useChatConnection({ chatId, refreshHistory, setError }: ConnectionOptions) {
     const router = useRouter();
-    const [wsConnected, setWsConnected] = useState(false);
-    const wsRef = useRef<WebSocket | null>(null);
-    // The connection observes a durable run. Reconnect reloads its authoritative snapshot.
+    const [connected, setConnected] = useState(false);
+    // The project stream announces runs; each run's events arrive on its own stream (useRunStream).
     useEffect(() => {
-        let disposed = false;
+        const controller = new AbortController();
+        const { signal } = controller;
         let retry: ReturnType<typeof setTimeout>;
         let attempt = 0;
-        setWsConnected(false);
-        const connect = () => {
-            if (disposed) return;
+        setConnected(false);
+        const onEvent = (data: string) => {
+            let incoming;
+            try {
+                incoming = JSON.parse(data);
+            } catch {
+                return;
+            }
+            attempt = 0;
+            if (incoming.e === "ready" || incoming.e === "resync") {
+                if (incoming.e === "ready") {
+                    setConnected(true);
+                    setError(null);
+                }
+                // Catch up after subscription: history remains visible during reconnect.
+                refreshHistory();
+                reloadProjects();
+                return;
+            }
+            // The AI's name for a new project; not a run event, so the timeline never sees it.
+            if (incoming.e === "project_title" && typeof incoming.title === "string") {
+                showProjectTitle(chatId, incoming.title);
+                return;
+            }
+            // History then lists the run as open, and useRunStream follows it.
+            if (incoming.e === "run_created") refreshHistory();
+        };
+        const connect = async () => {
             const token = localStorage.getItem("auth_token");
             const sessionId = getSessionId();
             if (!token) {
                 router.push("/signin");
                 return;
             }
-            const ws = new WebSocket(`${WS_URL}/ws/${chatId}`);
-            wsRef.current = ws;
-            ws.onopen = () => {
-                if (disposed) {
-                    ws.close();
-                    return;
-                }
-                ws.send(JSON.stringify({ type: "auth", token, mode: "events" }));
-                attempt = 0;
-                setError(null);
-            };
-            ws.onmessage = (event) => {
-                if (disposed || wsRef.current !== ws) return;
-                let incoming;
-                try {
-                    incoming = JSON.parse(event.data);
-                } catch {
-                    return;
-                }
-                if (incoming.e === "ready" || incoming.e === "resync") {
-                    if (incoming.e === "ready") setWsConnected(true);
-                    // Catch up after subscription: history remains visible during reconnect.
-                    refreshHistory();
-                    reloadProjects();
-                    return;
-                }
-                // The AI's name for a new project; not a run event, so the timeline never sees it.
-                if (incoming.e === "project_title" && typeof incoming.title === "string") {
-                    showProjectTitle(chatId, incoming.title);
-                    return;
-                }
-                receiveEvent(event);
-                if (incoming.e === "run_started") refreshHistory();
-            };
-            ws.onclose = async (event) => {
-                if (disposed || wsRef.current !== ws) return;
-                setWsConnected(false);
-                if (event.code === 1008) {
-                    // HTTP can renew an expired token; a socket policy close alone cannot
-                    // distinguish expiry from a missing project or denied permission.
-                    try {
-                        await authService.getCurrentUser();
-                        if (disposed || wsRef.current !== ws) return;
-                        if (
-                            getSessionId() === sessionId &&
-                            localStorage.getItem("auth_token") !== token
-                        ) {
-                            connect();
-                            return;
-                        }
-                    } catch {
-                        if (disposed || wsRef.current !== ws) return;
+            try {
+                await followEvents(`/projects/${chatId}/stream`, { onEvent, signal });
+            } catch (error) {
+                if (signal.aborted) return;
+                if (error instanceof StreamRefusedError) {
+                    setConnected(false);
+                    // HTTP can renew an expired token; a refusal alone cannot distinguish
+                    // expiry from a missing project or denied permission.
+                    const renewed = await authService.tokenRenewed(token, sessionId);
+                    if (signal.aborted) return;
+                    if (renewed) {
+                        void connect();
+                        return;
                     }
                     setError(
                         "Could not reconnect. Check your connection and project access, then reload.",
                     );
                     return;
                 }
-                setError(
-                    "Connection lost. Reconnecting to check your run; it may still be working.",
-                );
-                retry = setTimeout(connect, Math.min(1000 * 2 ** attempt++, 10000));
-            };
-            ws.onerror = () => ws.close();
+            }
+            if (signal.aborted) return;
+            setConnected(false);
+            setError("Connection lost. Reconnecting to check your run; it may still be working.");
+            retry = setTimeout(() => void connect(), retryDelay(attempt++));
         };
-        connect();
+        void connect();
         return () => {
-            disposed = true;
+            controller.abort();
             clearTimeout(retry);
-            wsRef.current?.close();
-            wsRef.current = null;
         };
-    }, [chatId, router, receiveEvent, refreshHistory, setError]);
+    }, [chatId, router, refreshHistory, setError]);
 
-    return { wsConnected };
+    return { connected };
 }

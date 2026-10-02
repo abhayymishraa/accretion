@@ -1,4 +1,4 @@
-import type { Message, RunEvent, RunSnapshot, WebSocketHandlers } from "@/types/chat.type";
+import type { Message, RunEvent, RunEventHandlers } from "@/types/chat.type";
 
 export function applyRunEvent(messages: Message[], event: RunEvent): Message[] {
     if (!event.run_id) return messages;
@@ -94,61 +94,9 @@ export function applyRunEvent(messages: Message[], event: RunEvent): Message[] {
     return existing ? messages.map((m) => (m.id === id ? message : m)) : [...messages, message];
 }
 
-export function restoreRuns(messages: Message[], runs: RunSnapshot[]): Message[] {
-    let result = messages;
-    for (const run of runs) {
-        for (const event of run.events) result = applyRunEvent(result, event);
-        const missingTerminalEvent =
-            run.status !== "running" && !run.events.some((event) => event.e === "run_finished");
-        if (missingTerminalEvent) {
-            result = applyRunEvent(result, {
-                e: "run_finished",
-                run_id: run.id,
-                event_id: `${run.id}:terminal`,
-                created_at:
-                    run.events.at(-1)?.created_at || run.created_at || new Date(0).toISOString(),
-                status: run.status,
-                message: run.reason || `Run ${run.status}`,
-            });
-        }
-        // A resolved proposal keeps its original terminal event; the row is authoritative.
-        result = result.map((message) =>
-            message.id === `run:${run.id}`
-                ? {
-                      ...message,
-                      run_status: run.status,
-                      workflow: run.workflow,
-                      // A terminal snapshot without its event has no trustworthy completion time.
-                      ...(missingTerminalEvent ? { finished_at: undefined } : {}),
-                  }
-                : message,
-        );
-    }
-    return result.sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at));
-}
-
-export function handleWebSocketMessage(event: MessageEvent, handlers: WebSocketHandlers) {
+export function handleRunEvent(event: MessageEvent, handlers: RunEventHandlers) {
     try {
         const data = JSON.parse(event.data);
-        if (data.type === "history") {
-            const runs: RunSnapshot[] = data.runs || [];
-            for (const run of runs) if (run.status !== "running") handlers.terminalRuns.add(run.id);
-            // New runs render their own terminal summary; preserve legacy chat history.
-            const history = handlers.consolidateMessages(
-                (data.messages || []).filter(
-                    (m: Message) =>
-                        m.event_type !== "run_summary" || !runs.some((run) => run.id === m.id),
-                ),
-            );
-            handlers.setMessages(restoreRuns(history, runs));
-            const active = runs.find((run) => run.status === "running");
-            handlers.setRunId(active?.id || null);
-            handlers.setIsBuilding(Boolean(active));
-            handlers.setAppUrl(data.app_url || null);
-            // Run failures belong to their inline run card; this banner is for transport errors.
-            handlers.setError(null);
-            return;
-        }
         if (!data.run_id) return;
         if (handlers.terminalRuns.has(data.run_id)) return;
         if (data.e === "run_started") handlers.setPendingRunId(null);

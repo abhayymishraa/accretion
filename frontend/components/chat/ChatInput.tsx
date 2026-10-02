@@ -26,7 +26,7 @@ const modes = [
 interface ChatInputProps {
     files?: string[];
     input: string;
-    wsConnected: boolean;
+    connected: boolean;
     isBuilding: boolean;
     onInputChange: (value: string) => void;
     onSubmit: (e: React.FormEvent) => void;
@@ -43,7 +43,7 @@ interface ChatInputProps {
 export function ChatInput({
     files = [],
     input,
-    wsConnected,
+    connected,
     isBuilding,
     onInputChange,
     onSubmit,
@@ -57,7 +57,7 @@ export function ChatInput({
     onModelChoiceChange,
 }: ChatInputProps) {
     // Typing stays open while building: the message becomes a steering update (spec 5).
-    const canCompose = wsConnected && !awaitingInput;
+    const canCompose = connected && !awaitingInput;
     const prompt = useRef<HTMLTextAreaElement>(null);
     const menu = useComposerMenu({
         textarea: prompt,
@@ -242,7 +242,7 @@ export function ChatInput({
 
                             <div className="ml-auto flex items-center gap-2">
                                 <ConnectionPill
-                                    connected={wsConnected}
+                                    connected={connected}
                                     building={isBuilding}
                                     awaiting={awaitingInput}
                                 />

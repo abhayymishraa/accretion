@@ -11,7 +11,7 @@ npm install
 npm run dev
 ```
 
-The app opens at `http://localhost:3000`. Public API/WebSocket settings are read by `config/env.ts`; preserve the existing `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_WS_URL`, and `NEXT_PUBLIC_BASE_URL` deployment configuration. Never put private credentials in public environment variables.
+The app opens at `http://localhost:3000`. Public API settings are read by `config/env.ts`; preserve the existing `NEXT_PUBLIC_API_URL` and `NEXT_PUBLIC_BASE_URL` deployment configuration. Never put private credentials in public environment variables.
 
 ## Where code belongs
 

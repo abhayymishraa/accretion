@@ -1,3 +1,4 @@
+import { getSessionId } from "@/lib/auth/session";
 import { apiClient } from "@/lib/http/client";
 import {
     AuthOptions,
@@ -46,5 +47,19 @@ export const authService = {
     getCurrentUser: async (): Promise<UserData> => {
         const response = await apiClient.get<UserData>("/auth/me");
         return response.data;
+    },
+
+    /**
+     * After a stream refusal: true when this session renewed its token since `token` was read, so
+     * a retry can succeed. False for another session, an unchanged token, or a failed renewal.
+     */
+    tokenRenewed: async (token: string | null, sessionId: string | null): Promise<boolean> => {
+        try {
+            // The client's 401 interceptor renews the session on this request when it can.
+            await authService.getCurrentUser();
+        } catch {
+            return false;
+        }
+        return getSessionId() === sessionId && localStorage.getItem("auth_token") !== token;
     },
 };

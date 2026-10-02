@@ -79,6 +79,9 @@ trap 'false' INT TERM
 # Drain the old writer before migrating legacy event arrays into ordered rows.
 if [[ -n "$previous" ]]; then compose "$previous" stop api; fi
 docker run --rm --env-file "$root/runtime.env" "$image" alembic upgrade head
+# --no-deps skips depends_on, so Redis is started on its own. An unchanged service is left running,
+# so its queue and channels survive a normal deploy.
+compose "$release" up -d --no-deps redis
 compose "$release" up -d --no-deps api
 
 healthy=false

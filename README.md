@@ -6,7 +6,7 @@ it by chat, with a live preview the whole way.
 A Next.js frontend, a FastAPI backend, and one bounded agent loop that edits
 files inside an E2B sandbox. The backend runs a production build plus browser
 checks, allows two targeted repairs, then persists the outcome. Stop and
-reconnect work on a run independently of its WebSocket.
+reconnect work on a run independently of its event stream.
 
 ## Stack
 

@@ -36,7 +36,7 @@ def _bounded(fields):
 
 
 def public_tool_details(name, *, args=None, result=None, diffs=None, screenshots=None):
-    """Same projection feeds durable history, websocket updates and copy actions.
+    """Same projection feeds durable history, live updates and copy actions.
 
     `diffs` is the user's own project text, shown back to them in the chat; the command is published so
     the chat can show what ran. Both are redacted with the rest of the event (RunService.event).

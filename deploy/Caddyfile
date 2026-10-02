@@ -2,6 +2,14 @@
 # BACKEND_DOMAIN_ALT defaults to empty and Caddy drops it; each hostname gets
 # its own certificate, so one name failing ACME never blocks the other.
 {$BACKEND_DOMAIN} {$BACKEND_DOMAIN_ALT:} {
-    encode zstd gzip
+    encode zstd gzip {
+        # Replaces Caddy's default list, whose text/* also matches text/event-stream: a compressor
+        # holds events back until its block fills. The API answers JSON; HTML and plain text are errors.
+        match {
+            header Content-Type application/json*
+            header Content-Type text/html*
+            header Content-Type text/plain*
+        }
+    }
     reverse_proxy api:8000
 }

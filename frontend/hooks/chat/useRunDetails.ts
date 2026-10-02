@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { historyService } from "@/services/service.history";
 import { getSessionId } from "@/lib/auth/session";
+import { isOpenRun } from "@/lib/chat/messages";
 import { applyRunEvent } from "@/socket/handleChatEvent";
 import type { Message, RunEvent } from "@/types/chat.type";
 
@@ -10,7 +11,7 @@ export function useRunDetails(message: Message, expanded: boolean) {
     const [events, setEvents] = useState<RunEvent[] | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [attempt, setAttempt] = useState(0);
-    const running = message.run_status === "running";
+    const running = isOpenRun(message.run_status);
     const loadedVersion = useRef<string | null>(null);
     const version = `${message.id}:${message.details_version || 0}:${running}`;
     useEffect(() => {

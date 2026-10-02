@@ -9,9 +9,10 @@ from typing import Annotated
 
 from fastapi import Depends
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from auth.dependencies import CurrentUser
-from db.base import DbSession
+from auth.dependencies import CurrentUser, StreamedUser
+from db.base import DbSession, get_db
 from db.models import Chat, User
 from projects.exceptions import ProjectNotFound
 
@@ -31,3 +32,15 @@ async def owned_project(project_id: str, current_user: CurrentUser, db: DbSessio
 
 
 OwnedProject = Annotated[Chat, Depends(owned_project)]
+
+
+async def owned_project_released(
+    project_id: str,
+    current_user: StreamedUser,
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
+) -> Chat:
+    """owned_project for streams: the session closes before the stream starts."""
+    return await owned_chat(project_id, current_user, db)
+
+
+StreamedProject = Annotated[Chat, Depends(owned_project_released, scope="function")]

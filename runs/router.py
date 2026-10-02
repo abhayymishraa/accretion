@@ -1,14 +1,18 @@
-"""Runs: one editing request, its events, its logs and the live socket."""
+"""Runs: one editing request, its events, its logs and its live stream."""
 
-from fastapi import APIRouter, Depends, WebSocket
+from collections.abc import AsyncIterable
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, Header
 from fastapi.responses import Response
+from fastapi.sse import EventSourceResponse, ServerSentEvent
 
 from auth.dependencies import CurrentUser, get_current_user
 from db.base import DbSession
-from projects.dependencies import owned_project
+from projects.dependencies import StreamedProject, owned_project
 from projects.schemas import RunAdmission
-from runs import service, socket
-from runs.dependencies import OwnedRun
+from runs import service, stream
+from runs.dependencies import OwnedRun, StreamedRun
 from runs.schemas import ChatPayload, DecisionPayload, ModelList, RunEventsPage, RunList, SteerPayload
 
 router = APIRouter()
@@ -49,6 +53,21 @@ async def get_run_events(run: OwnedRun, db: DbSession, after_sequence: int = 0) 
     return await service.events_page(db, run, after_sequence)
 
 
+@router.get("/runs/{run_id}/stream", response_class=EventSourceResponse)
+async def stream_run(
+    run: StreamedRun, last_event_id: Annotated[int, Header(ge=0)] = 0
+) -> AsyncIterable[ServerSentEvent]:
+    # Validated by the parameter, not in the body: once this generator runs the 200 is already sent.
+    async for event in stream.run_stream(run.id, last_event_id):
+        yield event
+
+
+@router.get("/projects/{project_id}/stream", response_class=EventSourceResponse)
+async def stream_project(project: StreamedProject) -> AsyncIterable[ServerSentEvent]:
+    async for event in stream.project_stream(project.id):
+        yield event
+
+
 @router.get("/runs/{run_id}/logs")
 async def get_run_logs(run: OwnedRun):
     data = await service.run_log(run)
@@ -67,8 +86,3 @@ async def get_run_screenshot(run: OwnedRun, db: DbSession, screenshot_id: str):
     data, media_type = await service.screenshot(db, run, screenshot_id)
     # Stored once under a random id and never rewritten, so the browser may keep it.
     return Response(data, media_type=media_type, headers={"Cache-Control": "private, max-age=31536000, immutable"})
-
-
-@router.websocket("/ws/{project_id}")
-async def ws_listener(websocket: WebSocket, project_id: str):
-    await socket.listen(websocket, project_id)

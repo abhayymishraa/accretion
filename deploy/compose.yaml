@@ -2,6 +2,7 @@ services:
   api:
     image: ${BACKEND_IMAGE:?Set BACKEND_IMAGE}
     restart: unless-stopped
+    depends_on: [redis]
     env_file:
       - path: /opt/webbuilder/runtime.env
         format: raw
@@ -23,12 +24,32 @@ services:
     mem_limit: 512m
     memswap_limit: 768m
     pids_limit: 128
+    # Dockerfile's 5 s graceful timeout for open requests, then about 35 s for lifespan shutdown before SIGKILL.
     stop_grace_period: 40s
     logging:
       driver: json-file
       options:
         max-size: "10m"
         max-file: "3"
+  redis:
+    # Redis 7.4.11, pinned by its multi-arch index digest as the proxy image is.
+    image: redis:7-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
+    restart: unless-stopped
+    # The entrypoint starts as root and drops to redis, which needs CAP_SETUID/SETGID that cap_drop removes.
+    user: redis
+    # No persistence: Postgres is the record. noeviction makes a full Redis refuse writes
+    # (bus.py logs and falls back) rather than silently drop the job list.
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "48mb", "--maxmemory-policy", "noeviction"]
+    mem_limit: 64m
+    pids_limit: 64
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
   proxy:
     image: caddy:2-alpine@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648
     restart: unless-stopped

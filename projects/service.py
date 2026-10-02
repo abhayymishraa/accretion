@@ -12,7 +12,8 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent.context.history import conversation_page
-from agent.run.service import agent_service
+from agent.run.service import agent_service, open_run
+from agent.run.worker import OPEN_STATUSES
 from agent.storage.maintenance import attempt_cleanup, cleanup_project_storage
 from db.models import Chat, Message, ProjectRevision, Run, RunScreenshot, StorageDeletion, User
 from projects.constants import LIVE_RUN_STATUSES
@@ -43,7 +44,7 @@ async def message_page(db: AsyncSession, project_id: str, user: User, limit: int
     return MessagePage.model_validate(
         {
             **page,
-            "active_run_id": next((row.id for row in active if row.status == "running"), None),
+            "active_run_id": next((row.id for row in active if row.status in OPEN_STATUSES), None),
             "pending_run_id": next((row.id for row in active if row.status == "awaiting_input"), None),
             # ProjectRef sets from_attributes, so pydantic reads the row itself.
             "chat": chat,
@@ -79,7 +80,7 @@ async def delete_project(db: AsyncSession, project_id: str, user: User) -> Proje
     async with agent_service.admission:
         # Checkpoint creation locks this same row before inserting its object key.
         await owned_chat(project_id, user, db, for_update=True)
-        if project_id in agent_service.opening or any(r.chat_id == project_id for r in agent_service.active.values()):
+        if project_id in agent_service.opening or await open_run(db, project_id):
             raise ProjectBusy
         keys = set(
             (await db.scalars(select(ProjectRevision.object_key).where(ProjectRevision.chat_id == project_id))).all()
