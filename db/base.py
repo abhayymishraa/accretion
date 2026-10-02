@@ -36,7 +36,10 @@ engine = create_async_engine(
     pool_size=5,
     max_overflow=5,
     pool_timeout=5,
-    pool_recycle=300,
+    # Reconnecting costs a TLS handshake to the database region (~0.85 s measured in production),
+    # paid by whichever request takes the expired connection. 300 s put that on the first request
+    # after every few idle minutes.
+    pool_recycle=1800,
     connect_args=connect_args,
 )
 
