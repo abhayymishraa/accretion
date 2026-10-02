@@ -39,7 +39,7 @@ export function useAdminUsers() {
         return () => clearTimeout(timer);
     }, [query, search]);
 
-    const { data, error, mutate } = useSWR(
+    const { data, error, isLoading, mutate } = useSWR(
         hasSession ? (["/users", status, search, page] as const) : null,
         ([, s, q, p]) => usersService.list(s, q, p),
         { keepPreviousData: true },
@@ -52,11 +52,13 @@ export function useAdminUsers() {
 
     const items = data?.items ?? [];
     // Fall back to the first row only when no one was asked for: a linked account that is
-    // not on this page must not leave someone else's approve button showing.
-    const selected =
-        selectedId === null
-            ? (items[0] ?? null)
-            : (items.find((user) => user.id === selectedId) ?? null);
+    // not on this page must not leave someone else's approve button showing. While a new
+    // filter loads, `keepPreviousData` still shows the old list, so select nobody until then.
+    const selected = isLoading
+        ? null
+        : selectedId === null
+          ? (items[0] ?? null)
+          : (items.find((user) => user.id === selectedId) ?? null);
 
     function changeStatus(next: AccountStatus) {
         setStatus(next);
