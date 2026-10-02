@@ -89,7 +89,7 @@ export function RunMenu({
                 aria-label="Run options"
                 onClick={() => {
                     if (!open) onOpen();
-                    setOpen(!open);
+                    setOpen((value) => !value);
                 }}
             >
                 <DotsHorizontalIcon aria-hidden="true" />
