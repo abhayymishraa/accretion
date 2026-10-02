@@ -74,7 +74,7 @@ but that does not establish deployment of this revision.
 
 1. Allow current generations to finish, then release backend and frontend together.
    The workflow runs `alembic upgrade head` before API startup, including migration
-   `0a9ff048c441` (run worker lease), and the Compose `redis` service must be up. Live
+   `0a9ff048c441` (run worker lease), and `deploy.sh` starts the Compose `redis` service before the API. Live
    updates moved from the WebSocket to resumable SSE, so both sides must be updated;
    open browser tabs must reload. Independently completing Vercel/GitHub deploys can leave
    a short incompatible interval. Use a maintenance window for this first transition.
