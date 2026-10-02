@@ -3,7 +3,7 @@
 from fastapi import APIRouter
 
 from auth.dependencies import CurrentUser
-from db.base import DbSession
+from db.base import DbSession, ReadOnly
 from projects import service
 from projects.constants import DEFAULT_MESSAGE_PAGE
 from projects.dependencies import OwnedProject
@@ -14,7 +14,7 @@ from runs.schemas import ChatPayload
 router = APIRouter()
 
 
-@router.get("/projects/{project_id}/messages")
+@router.get("/projects/{project_id}/messages", dependencies=[ReadOnly])
 @timed("history")
 async def get_chat_messages(
     project_id: str,
@@ -32,7 +32,7 @@ async def create_project(payload: ChatPayload, current_user: CurrentUser) -> Run
     return await service.start_project(current_user, payload.prompt, payload.mode, payload.model_choice)
 
 
-@router.get("/projects")
+@router.get("/projects", dependencies=[ReadOnly])
 async def list_user_projects(current_user: CurrentUser, db: DbSession) -> ProjectList:
     """List projects by the latest accepted prompt, falling back to creation."""
     return await service.list_projects(db, current_user)

@@ -8,11 +8,11 @@ from fastapi.responses import Response
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 
 from auth.dependencies import CurrentUser, get_current_user
-from db.base import DbSession
+from db.base import DbSession, ReadOnly
 from projects.dependencies import StreamedProject, owned_project
 from projects.schemas import RunAdmission
 from runs import service, stream
-from runs.dependencies import OwnedRun, StreamedRun
+from runs.dependencies import OwnedRun
 from runs.schemas import ChatPayload, DecisionPayload, ModelList, RunEventsPage, RunList, SteerPayload
 
 router = APIRouter()
@@ -23,7 +23,7 @@ async def create_run(project_id: str, payload: ChatPayload, current_user: Curren
     return await service.start_run(current_user, project_id, payload.prompt, payload.mode, payload.model_choice)
 
 
-@router.get("/models", dependencies=[Depends(get_current_user)])
+@router.get("/models", dependencies=[ReadOnly, Depends(get_current_user)])
 async def list_models() -> ModelList:
     return service.model_options()
 
@@ -48,23 +48,18 @@ async def cancel_run(run: OwnedRun) -> RunList:
     return await service.cancel(run)
 
 
-@router.get("/runs/{run_id}/events")
+@router.get("/runs/{run_id}/events", dependencies=[ReadOnly])
 async def get_run_events(run: OwnedRun, db: DbSession, after_sequence: int = 0) -> RunEventsPage:
     return await service.events_page(db, run, after_sequence)
 
 
-@router.get("/runs/{run_id}/stream", response_class=EventSourceResponse)
-async def stream_run(
-    run: StreamedRun, last_event_id: Annotated[int, Header(ge=0)] = 0
+@router.get("/projects/{project_id}/stream", response_class=EventSourceResponse)
+async def stream_project(
+    project: StreamedProject,
+    last_event_id: Annotated[str | None, Header(pattern=r"^[0-9a-f-]{36}:\d+$")] = None,
 ) -> AsyncIterable[ServerSentEvent]:
     # Validated by the parameter, not in the body: once this generator runs the 200 is already sent.
-    async for event in stream.run_stream(run.id, last_event_id):
-        yield event
-
-
-@router.get("/projects/{project_id}/stream", response_class=EventSourceResponse)
-async def stream_project(project: StreamedProject) -> AsyncIterable[ServerSentEvent]:
-    async for event in stream.project_stream(project.id):
+    async for event in stream.ProjectStream(project.id).events(last_event_id):
         yield event
 
 

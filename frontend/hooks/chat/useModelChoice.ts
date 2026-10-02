@@ -5,6 +5,10 @@ import type { ModelOption } from "@/types/models.type";
 import axios from "axios";
 import { useEffect, useState } from "react";
 
+// The offered models change only with a deploy, so one request serves every page until a reload.
+// A rejected pick (attempt > 0) asks again.
+let listed: Promise<ModelOption[]> | null = null;
+
 // The picker's options and the current choice (spec 4.2). "auto" is always offered.
 export function useModelChoice(remembered: string | undefined) {
     const [models, setModels] = useState<ModelOption[] | null>(null);
@@ -12,12 +16,14 @@ export function useModelChoice(remembered: string | undefined) {
     const [attempt, setAttempt] = useState(0);
     useEffect(() => {
         let disposed = false;
-        modelService
-            .list()
+        if (!listed || attempt > 0) listed = modelService.list();
+        const request = listed;
+        request
             .then((list) => {
                 if (!disposed) setModels(list);
             })
             .catch(() => {
+                if (listed === request) listed = null;
                 // Without the list the picker offers Auto only; the server still validates a pick.
             });
         return () => {

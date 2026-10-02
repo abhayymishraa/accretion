@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import Response
 
 from agent.sandbox.archive import safe_path
-from db.base import DbSession
+from db.base import DbSession, ReadOnly
 from files import service
 from files.exceptions import InvalidProjectPath
 from files.schemas import FileList, RevisionList
@@ -15,12 +15,12 @@ from projects.dependencies import OwnedProject, owned_project
 router = APIRouter()
 
 
-@router.get("/projects/{project_id}/files", dependencies=[Depends(owned_project)])
+@router.get("/projects/{project_id}/files", dependencies=[ReadOnly, Depends(owned_project)])
 async def get_project_files(project_id: str, db: DbSession) -> FileList:
     return await service.file_list(db, project_id)
 
 
-@router.get("/projects/{project_id}/files/{file_path:path}", dependencies=[Depends(owned_project)])
+@router.get("/projects/{project_id}/files/{file_path:path}", dependencies=[ReadOnly, Depends(owned_project)])
 async def get_file_content(
     project_id: str,
     file_path: str,

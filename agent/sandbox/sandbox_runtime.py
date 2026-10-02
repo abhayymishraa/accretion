@@ -15,7 +15,7 @@ from e2b import (AsyncSandbox, AuthenticationException, InvalidArgumentException
 from e2b.exceptions import RateLimitException, ServiceBusyException
 from sqlalchemy import delete, or_, select, update
 
-from db.base import AsyncSessionLocal
+from db.base import AsyncSessionLocal, ReadSessionLocal
 from db.models import Chat, SandboxRuntime
 from ..storage.storage import StorageError
 from ..budget.sandbox_budget import reserve_runtime, confirm_runtime, settle_runtime
@@ -38,7 +38,7 @@ class SandboxRuntimes:
 
     async def running_for(self, user_id, except_chat):
         """The user's running sandboxes other than except_chat: what one-active-per-user pauses."""
-        async with AsyncSessionLocal() as db:
+        async with ReadSessionLocal() as db:
             return list((await db.scalars(select(SandboxRuntime)
                 .join(Chat, Chat.id == SandboxRuntime.chat_id)
                 .where(Chat.user_id == user_id, SandboxRuntime.chat_id != except_chat,

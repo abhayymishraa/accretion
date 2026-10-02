@@ -5,7 +5,7 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Query, status
 
 from auth import service
-from db.base import DbSession
+from db.base import DbSession, ReadOnly
 
 from .dependencies import AdminUser, ClientIp, SignedInUser
 from .schemas import (
@@ -43,7 +43,7 @@ async def refresh_token(token_data: RefreshTokenRequest, db: DbSession) -> Token
     return await service.refresh_token(token_data=token_data, db=db)
 
 
-@router.get("/me")
+@router.get("/me", dependencies=[ReadOnly])
 async def get_me(current_user: SignedInUser, db: DbSession) -> UserResponse:
     return await service.get_me(current_user=current_user, db=db)
 

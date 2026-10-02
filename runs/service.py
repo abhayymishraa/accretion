@@ -4,7 +4,7 @@ import hashlib
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from agent.events import run_events
+from agent.events import EVENT_PAGE, run_events
 from agent.routing import providers as routing_providers
 from agent.run.service import agent_service
 from agent.storage.persistence import archive_slots, read_object
@@ -73,10 +73,14 @@ async def cancel(run: Run) -> RunList:
 async def events_page(db: AsyncSession, run: Run, after_sequence: int) -> RunEventsPage:
     if after_sequence < 0:
         raise InvalidEventCursor
-    events = await run_events(db, run.id, after_sequence)
+    # One extra row says whether another page exists, so a client never asks for an empty one.
+    events = await run_events(db, run.id, after_sequence, limit=EVENT_PAGE + 1)
+    has_more = len(events) > EVENT_PAGE
+    events = events[:EVENT_PAGE]
     return RunEventsPage.model_validate(
         {
             "events": events,
+            "has_more": has_more,
             "status": run.status,
             "reason": run.reason,
             "next_sequence": events[-1].get("sequence", after_sequence) if events else after_sequence,

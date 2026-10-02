@@ -26,26 +26,37 @@ async def message_page(db: AsyncSession, project_id: str, user: User, limit: int
     """One page of a project's conversation, plus which run is live."""
     # Not `owned_chat`: this route separates "no such chat" from "not yours",
     # and both messages are part of the published behaviour.
-    chat = await db.scalar(select(Chat).where(Chat.id == project_id))
-    if not chat:
+    # The project and its live runs in one query: of the two newest live runs, the open one and
+    # the one awaiting input.
+    live = (
+        select(Run.id, Run.status, Run.created_at)
+        .where(Run.chat_id == project_id, Run.status.in_(LIVE_RUN_STATUSES))
+        .order_by(Run.created_at.desc())
+        .limit(2)
+        .subquery()
+    )
+    newest_live = select(live.c.id).order_by(live.c.created_at.desc()).limit(1)
+    row = (
+        await db.execute(
+            select(
+                Chat,
+                newest_live.where(live.c.status.in_(OPEN_STATUSES)).scalar_subquery(),
+                newest_live.where(live.c.status == "awaiting_input").scalar_subquery(),
+            ).where(Chat.id == project_id)
+        )
+    ).first()
+    if not row:
         raise ChatNotFound
+    chat, active_run_id, pending_run_id = row
     if chat.user_id != user.id:
         raise NotChatOwner
 
     page = await conversation_page(db, project_id, limit, before)
-    active = (
-        await db.execute(
-            select(Run.id, Run.status)
-            .where(Run.chat_id == project_id, Run.status.in_(LIVE_RUN_STATUSES))
-            .order_by(Run.created_at.desc())
-            .limit(2)
-        )
-    ).all()
     return MessagePage.model_validate(
         {
             **page,
-            "active_run_id": next((row.id for row in active if row.status in OPEN_STATUSES), None),
-            "pending_run_id": next((row.id for row in active if row.status == "awaiting_input"), None),
+            "active_run_id": active_run_id,
+            "pending_run_id": pending_run_id,
             # ProjectRef sets from_attributes, so pydantic reads the row itself.
             "chat": chat,
         }

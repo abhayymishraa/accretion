@@ -46,6 +46,8 @@ class MessageItem(CustomModel):
     finished_at: UtcDatetime | None = None
     workflow: dict[str, Any] | None = None
     details_pending: bool | None = None
+    # A finished run's file-editing tool calls, diffs without hunks, for its edited-files card.
+    edits: list[dict[str, Any]] | None = None
 
 
 class MessagePage(CustomModel):

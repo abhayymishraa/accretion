@@ -40,7 +40,18 @@ export function RelativeTime({ iso }: { iso: string }) {
     );
 }
 
-export function RunMenu({ runId, transcript }: { runId: string; transcript: string }) {
+export function RunMenu({
+    runId,
+    transcript,
+    loadFailed,
+    onOpen,
+}: {
+    runId: string;
+    // null until the run's steps have loaded, so a partial transcript is never copied.
+    transcript: string | null;
+    loadFailed: boolean;
+    onOpen: () => void;
+}) {
     const [open, setOpen] = useState(false);
     const box = useRef<HTMLDivElement>(null);
 
@@ -76,7 +87,10 @@ export function RunMenu({ runId, transcript }: { runId: string; transcript: stri
                 aria-haspopup="menu"
                 aria-expanded={open}
                 aria-label="Run options"
-                onClick={() => setOpen((value) => !value)}
+                onClick={() => {
+                    if (!open) onOpen();
+                    setOpen((value) => !value);
+                }}
             >
                 <DotsHorizontalIcon aria-hidden="true" />
             </Button>
@@ -100,10 +114,17 @@ export function RunMenu({ runId, transcript }: { runId: string; transcript: stri
                 <button
                     role="menuitem"
                     type="button"
-                    onClick={() => void copy(transcript, "Build steps copied")}
-                    className="flex min-h-9 w-full cursor-pointer items-center px-3 text-left text-[12.5px] text-foreground pointer-fine:hover:bg-surface-1"
+                    disabled={transcript === null}
+                    onClick={() =>
+                        transcript !== null && void copy(transcript, "Build steps copied")
+                    }
+                    className="flex min-h-9 w-full cursor-pointer items-center px-3 text-left text-[12.5px] text-foreground pointer-fine:hover:bg-surface-1 disabled:cursor-default disabled:text-muted-foreground"
                 >
-                    Copy build steps
+                    {transcript !== null
+                        ? "Copy build steps"
+                        : loadFailed
+                          ? "Build steps did not load"
+                          : "Loading build steps…"}
                 </button>
             </div>
         </div>
