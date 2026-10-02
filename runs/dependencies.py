@@ -19,11 +19,13 @@ async def owned_run(run_id: str, current_user: CurrentUser, db: DbSession) -> Ru
     The run is found first so an unknown id reports "Run not found" rather
     than leaking whether some other user owns it.
     """
-    run = await db.get(Run, run_id)
-    if not run:
+    row = (
+        await db.execute(select(Run, Chat.user_id).join(Chat, Chat.id == Run.chat_id).where(Run.id == run_id))
+    ).first()
+    if not row:
         raise RunNotFound
-    owner = await db.scalar(select(Chat.id).where(Chat.id == run.chat_id, Chat.user_id == current_user.id))
-    if not owner:
+    run, owner_id = row
+    if owner_id != current_user.id:
         raise ProjectNotFound
     return run
 
