@@ -91,7 +91,7 @@ class Message(Base):
 
 
 class Run(Base):
-    """Bounded activity log and durable outcome; execution stays in one API worker."""
+    """A run's queue row, owner lease, bounded activity log and durable outcome."""
 
     __tablename__ = "runs"
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
@@ -108,6 +108,13 @@ class Run(Base):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     log_key: Mapped[str | None] = mapped_column(String(512), nullable=True)
     log_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # The worker holding this run (agent/run/worker.py) and when its lease lapses.
+    claimed_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Durable stop request; every heartbeat reads it, the Redis command only makes it immediate.
+    cancel_requested: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
+    # The user message that started the run; the worker needs it to build the run's context.
+    message_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
 
 
 class RunEvent(Base):
