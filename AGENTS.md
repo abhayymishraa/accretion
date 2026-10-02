@@ -12,6 +12,7 @@
 
 Every change reaches `main` through a pull request. Only a hotfix goes to `main` direct.
 
+- Never commit, push or open a pull request until the user explicitly asks for it. Edit freely; leave changes uncommitted and report them. Approval covers only what was asked: a request to commit is not a request to push.
 - One branch per request, cut from fresh `origin/main`. Name: `<type>/<short-kebab-topic>`, e.g. `feat/at-file-mentions`, `fix/preview-proxy-tmp`.
 - Types match commit types: `feat` feature, `fix` bug fix, `refactor` no behaviour change, `perf`, `docs`, `chore` tooling or deps, `hotfix` production down or broken now.
 - `hotfix/*` only: may push to `main` direct. Still open a PR after, so the change has a record.
