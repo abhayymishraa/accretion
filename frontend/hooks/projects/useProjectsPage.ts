@@ -1,20 +1,17 @@
 "use client";
 
-import { clearSession, subscribeSession } from "@/lib/auth/session";
+import { useHasSession } from "@/hooks/auth/useHasSession";
+import { clearSession } from "@/lib/auth/session";
 
 import { authService } from "@/services/service.auth";
 import { type UserData } from "@/types/auth.type";
 import { useRouter } from "next/navigation";
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useState } from "react";
 
 export function useProjectsPage() {
     const router = useRouter();
     const [ready, setReady] = useState(false);
-    const hasSession = useSyncExternalStore(
-        subscribeSession,
-        () => Boolean(localStorage.getItem("auth_token")),
-        () => false,
-    );
+    const hasSession = useHasSession();
     const [user, setUser] = useState<UserData | null>(null);
     useEffect(() => {
         if (!localStorage.getItem("auth_token")) {

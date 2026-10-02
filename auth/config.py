@@ -10,6 +10,8 @@ class AuthConfig(BaseConfig):
 
     RESEND_API_KEY: str = ""
     RESEND_FROM: str = ""
+    # The one admin account: it skips the waitlist and receives each new signup.
+    ADMIN_EMAIL: str = "grabhaymishra@gmail.com"
 
     GOOGLE_CLIENT_ID: str = ""
     GOOGLE_CLIENT_SECRET: str = ""

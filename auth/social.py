@@ -13,6 +13,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.middleware.sessions import SessionMiddleware
 
+from auth import emails
 from auth.config import auth_settings
 from auth.constants import PROVIDERS
 from auth.exceptions import (
@@ -24,7 +25,7 @@ from config import settings
 from db.base import DbSession
 from db.models import User
 
-from .dependencies import CurrentUser
+from .dependencies import SignedInUser
 from .schemas import Token, TokenRequest
 from .utils import (
     SECRET_KEY,
@@ -32,6 +33,7 @@ from .utils import (
     create_access_token,
     create_refresh_token,
     get_password_hash,
+    initial_access,
 )
 from .verification import consume_token, email_configured, frontend_url, issue_token
 
@@ -104,7 +106,7 @@ async def auth_options():
 @social_router.post("/oauth/{provider}/link")
 async def link_provider(
     provider: str,
-    user: CurrentUser,
+    user: SignedInUser,
     db: DbSession,
 ):
     if not provider_enabled(provider):
@@ -166,7 +168,9 @@ async def resolve_identity(
     email: str,
     name: str,
     link_user: int | None,
-) -> User:
+) -> tuple[User, bool]:
+    """The account this identity signs in to, and whether it was just created."""
+    created = False
     identity = await db.get(AuthIdentity, (provider, subject))
     if identity:
         if link_user is not None and identity.user_id != link_user:
@@ -187,16 +191,18 @@ async def resolve_identity(
             name=name,
             hashed_password=get_password_hash(secrets.token_urlsafe(48)),
             email_verified=True,
+            **initial_access(email),
         )
         db.add(user)
         await db.flush()
         db.add(AuthIdentity(provider=provider, subject=subject, user_id=user.id))
+        created = True
     if not user:
         raise ValueError("account_conflict")
     if canonical_email(user.email) == email:
         user.email_verified = True
     await db.flush()
-    return user
+    return user, created
 
 
 @social_router.get("/oauth/{provider}/callback")
@@ -206,13 +212,15 @@ async def oauth_callback(provider: str, request: Request, db: DbSession):
         token = await client.authorize_access_token(request)
         subject, email, name = await verified_identity(provider, client, token)
         link_user = request.session.pop("link_user", None)
-        user = await resolve_identity(db, provider, subject, email, name, link_user)
+        user, created = await resolve_identity(db, provider, subject, email, name, link_user)
         if link_user is not None:
             destination = f"{frontend_url()}/profile#connected={provider}"
         else:
             ticket = await issue_token(db, user.id, "oauth_exchange", minutes=1)
             destination = f"{frontend_url()}/auth/callback#ticket={ticket}"
         await db.commit()
+        if created and user.waitlisted:
+            await emails.enrolled(user)
     except (OAuthError, JoseError, httpx.HTTPError, ValueError, IntegrityError) as exc:
         await db.rollback()
         code = (

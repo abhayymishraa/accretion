@@ -39,6 +39,34 @@ class UserResponse(CustomModel):
     created_at: UtcDatetime
     cost_allowance: CostAllowance | None = None
     default_model_choice: str = "auto"
+    waitlisted: bool = True
+
+
+class AccountRow(CustomModel):
+    """One account as the admin's waitlist page lists it."""
+
+    id: int
+    email: EmailStr
+    name: str
+    email_verified: bool
+    created_at: UtcDatetime
+    approved_at: UtcDatetime | None
+
+
+class AccountCounts(CustomModel):
+    waiting: int
+    approved: int
+    unconfirmed: int
+
+
+class AccountPage(CustomModel):
+    """One page of the admin's account list, with totals across every account."""
+
+    items: list[AccountRow]
+    total: int
+    page: int
+    page_size: int
+    counts: AccountCounts
 
 
 class RefreshTokenRequest(BaseModel):
@@ -47,7 +75,7 @@ class RefreshTokenRequest(BaseModel):
 
 class RegisterResponse(CustomModel):
     verification_required: bool = True
-    message: str = "Check your email to verify your account."
+    message: str = "You're on the waitlist. Check your email to confirm your spot."
 
 
 class VerificationRequested(CustomModel):

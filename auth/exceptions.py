@@ -8,6 +8,7 @@ from exceptions import (
     BadRequest,
     Conflict,
     DetailedHTTPException,
+    NotFound,
     PermissionDenied,
     ServiceUnavailable,
     TooManyRequests,
@@ -50,6 +51,18 @@ class UserNotFound(NotAuthenticated):
 
 class EmailNotVerified(PermissionDenied):
     DETAIL = "Verify your email before continuing."
+
+
+class OnWaitlist(PermissionDenied):
+    DETAIL = "You're on the waitlist. We'll email you when your access is ready."
+
+
+class AdminOnly(PermissionDenied):
+    DETAIL = "Only an admin can do this."
+
+
+class ApplicantNotFound(NotFound):
+    DETAIL = "No account with that ID."
 
 
 class EmailNotVerifiedForSignIn(PermissionDenied):

@@ -1,6 +1,11 @@
 import { clearFileContentCache } from "@/lib/files/contentCache";
 import { clearHistoryCache } from "@/lib/chat/historyCache";
-import type { LoginResponse } from "@/types/auth.type";
+import type { LoginResponse, UserData } from "@/types/auth.type";
+
+/** Where a freshly signed-in user lands: the waitlist until an admin lets them in. */
+export function homePath(user: UserData) {
+    return user.waitlisted ? "/waitlist" : "/chat";
+}
 
 export function getSessionId(): string | null {
     if (!localStorage.getItem("auth_token")) return null;

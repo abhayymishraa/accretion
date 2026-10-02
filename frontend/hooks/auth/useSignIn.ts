@@ -1,6 +1,6 @@
 "use client";
 
-import { clearSession, getSessionId, saveSession } from "@/lib/auth/session";
+import { clearSession, getSessionId, homePath, saveSession } from "@/lib/auth/session";
 import { authService } from "@/services/service.auth";
 import { useRouter } from "next/navigation";
 import type React from "react";
@@ -30,7 +30,7 @@ export function useSignIn() {
                         } catch {
                             // Caching profile data is optional after validating the session.
                         }
-                        router.replace("/chat");
+                        router.replace(homePath(user));
                         return;
                     }
                 }
@@ -58,9 +58,11 @@ export function useSignIn() {
             saveSession(data);
 
             // Fetch user data after login since login doesn't return it
+            let destination = "/chat";
             try {
                 const userData = await authService.getCurrentUser();
                 localStorage.setItem("user_data", JSON.stringify(userData));
+                destination = homePath(userData);
             } catch (err) {
                 console.warn("Failed to fetch user data after login:", err);
                 // Continue anyway, user data will be fetched on chat page
@@ -73,7 +75,7 @@ export function useSignIn() {
             }
 
             setIsLoading(false);
-            router.replace("/chat");
+            router.replace(destination);
         } catch (error: unknown) {
             console.error("Error signing in:", error);
             setError(error instanceof Error ? error.message : "Failed to sign in");

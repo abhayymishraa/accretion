@@ -18,6 +18,28 @@ export interface UserData {
     created_at?: string;
     providers?: string[];
     default_model_choice?: string;
+    waitlisted?: boolean;
+}
+
+/** One account on the admin's waitlist page. `approved_at` is null while it waits. */
+export interface AccountRow {
+    id: number;
+    email: string;
+    name: string;
+    email_verified: boolean;
+    created_at: string;
+    approved_at: string | null;
+}
+
+export type AccountStatus = "waiting" | "approved" | "all";
+
+/** One page of accounts, with totals across every account. */
+export interface AccountPage {
+    items: AccountRow[];
+    total: number;
+    page: number;
+    page_size: number;
+    counts: { waiting: number; approved: number; unconfirmed: number };
 }
 
 export interface LoginResponse {
