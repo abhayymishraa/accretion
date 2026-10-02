@@ -82,9 +82,9 @@ async def get_current_user_released(
     credentials: Annotated[HTTPAuthorizationCredentials, Depends(security)],
     db: Annotated[AsyncSession, Depends(get_db, scope="function")],
 ) -> User:
-    """get_current_user for streams: its session closes before the stream starts, instead of
+    """The approved user for streams: its session closes before the stream starts, instead of
     sitting idle in transaction on a pooled connection for as long as the stream is open."""
-    return await get_current_user(credentials, db)
+    return await get_approved_user(await get_current_user(credentials, db))
 
 
 StreamedUser = Annotated[User, Depends(get_current_user_released, scope="function")]
