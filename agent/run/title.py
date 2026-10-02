@@ -47,10 +47,7 @@ async def _generate(prompt: str, metrics: dict[str, Any]) -> str | None:
     """The cheapest Auto model names it, as Vercel keeps a separate fast title model."""
     try:
         response = await asyncio.wait_for(
-            providers.invoke_auto(
-                [SystemMessage(content=_PROMPT), HumanMessage(content=prompt)],
-                lambda model_id: providers.limit_output(providers.chat_model(model_id), _MAX_OUTPUT_TOKENS),
-            ),
+            providers.invoke_auto([SystemMessage(content=_PROMPT), HumanMessage(content=prompt)], _MAX_OUTPUT_TOKENS),
             timeout=_TIMEOUT_SECONDS,
         )
     except Exception:

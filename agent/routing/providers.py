@@ -12,7 +12,6 @@ provider-specific kwargs directly.
 """
 
 import functools
-from collections.abc import Callable
 from typing import Any
 
 import httpx
@@ -167,22 +166,20 @@ class NoModelAvailable(Exception):
     """Every Auto model failed, replied empty, or is benched."""
 
 
-async def invoke_auto(
-    messages: list[BaseMessage], prepare: Callable[[str], BaseChatModel] = chat_model, **kwargs: Any
-) -> AIMessage:
+async def invoke_auto(messages: list[BaseMessage], max_tokens: int) -> AIMessage:
     """Call the cheapest Auto model; on a provider failure bench it and try the next.
     An empty reply also moves on, unbenched: it is this call's output cap, not an outage.
     A budget refusal or a bad request is not the model's fault and propagates."""
     for entry in auto_models():
         try:
-            response = await invoke_with_usage(prepare(entry.id), messages, **kwargs)
+            response = await invoke_with_usage(limit_output(chat_model(entry.id), max_tokens), messages)
         except Exception as exc:
             if not failures.is_transient(exc):
                 raise
             failures.cool_down(entry.id)
             continue
         assert isinstance(response, AIMessage)
-        if response.text.strip() or response.tool_calls:
+        if response.text.strip():
             return response
     raise NoModelAvailable
 
