@@ -4,13 +4,12 @@ import hashlib
 import secrets
 from datetime import UTC, datetime, timedelta
 
-import httpx
 from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from auth import emails
 from auth.config import auth_settings
 from auth.exceptions import (
-    VerificationEmailFailed,
     VerificationLinkUsed,
     VerificationNotConfigured,
     VerificationThrottled,
@@ -101,24 +100,6 @@ async def send_verification(db: AsyncSession, user: User, request_ip: str) -> No
         return
     token = await issue_token(db, user.id, "verify_email", 30, request_ip)
     link = f"{frontend_url()}/verify-email#token={token}"
-    try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            response = await client.post(
-                "https://api.resend.com/emails",
-                headers={
-                    "Authorization": f"Bearer {auth_settings.RESEND_API_KEY}",
-                    "Idempotency-Key": f"verify-{token_digest(token)}",
-                },
-                json={
-                    "from": auth_settings.RESEND_FROM,
-                    "to": [user.email],
-                    "subject": "Verify your Accretion email",
-                    "text": (
-                        f"Verify your email to continue in Accretion:\n\n{link}\n\nThis link expires in"
-                        " 30 minutes. If you did not request it, ignore this email."
-                    ),
-                },
-            )
-            response.raise_for_status()
-    except httpx.HTTPError:
-        raise VerificationEmailFailed from None
+    # Unverified accounts are waitlisted (the migration approved only verified ones),
+    # so the confirmation link travels inside the waitlist note.
+    await emails.send(user.email, *emails.waitlist(user.name, link), f"verify-{token_digest(token)}")
