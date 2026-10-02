@@ -2,7 +2,7 @@
 
 import { fileService } from "@/services/service.files";
 import type { OpenedFile } from "@/hooks/chat/useWorkspaceLayout";
-import { downloadBlob, useProjectDownload } from "@/hooks/files/useProjectDownload";
+import { downloadBlob } from "@/hooks/files/useProjectDownload";
 
 import { getSessionId } from "@/lib/auth/session";
 import { cacheFile, getCachedFile } from "@/lib/files/contentCache";
@@ -25,8 +25,7 @@ export function useFileViewer({ files, projectId, revisionId, openedFile }: File
         setHandled(openedFile);
         if (files.includes(openedFile.path)) setSelectedFile(openedFile.path);
     }
-    const { isDownloading, downloadError, setDownloadError, handleDownloadAll } =
-        useProjectDownload(projectId, revisionId);
+    const [downloadError, setDownloadError] = useState("");
     const revisionQuery = revisionId ? `revision_id=${encodeURIComponent(revisionId)}` : "";
     // Derived, not synced in an effect: a missing or vanished selection falls back to the first file.
     const current =
@@ -86,10 +85,8 @@ export function useFileViewer({ files, projectId, revisionId, openedFile }: File
         setSelectedFile,
         fileContent: isLoadingFile ? "" : (loaded?.content ?? ""),
         isLoadingFile,
-        isDownloading,
         downloadError,
         binary: !isLoadingFile && Boolean(loaded?.binary),
         handleDownloadFile,
-        handleDownloadAll,
     };
 }

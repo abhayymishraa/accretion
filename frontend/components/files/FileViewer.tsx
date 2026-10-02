@@ -3,10 +3,9 @@
 import { FileIcon } from "./FileIcon";
 
 import { ErrorBox } from "@/components/ui/ErrorBox";
-import { IconSwap } from "@/components/ui/IconSwap";
 import { Tree } from "@/components/ui/file-tree";
 import Editor from "@monaco-editor/react";
-import { Download, FileCode, FolderArchive, Loader2 } from "lucide-react";
+import { Download, FileCode, Loader2 } from "lucide-react";
 
 import type { OpenedFile } from "@/hooks/chat/useWorkspaceLayout";
 import { useFileViewer } from "@/hooks/files/useFileViewer";
@@ -25,11 +24,9 @@ export function FileViewer({ files, projectId, revisionId, openedFile }: FileVie
         setSelectedFile,
         fileContent,
         isLoadingFile,
-        isDownloading,
         downloadError,
         binary,
         handleDownloadFile,
-        handleDownloadAll,
     } = useFileViewer({ files, projectId, revisionId, openedFile });
     const fileTree = buildFileTree(files);
     if (files.length === 0) {
@@ -47,30 +44,7 @@ export function FileViewer({ files, projectId, revisionId, openedFile }: FileVie
             {/* File Tree Sidebar */}
             <div className="ember-file-tree w-47.5 min-w-30 max-w-[38%] shrink-0 max-md:w-[135px] border-r border-border overflow-y-auto bg-surface-1">
                 <div className="sticky top-0 z-10 border-b border-border bg-surface-1 p-3">
-                    <div className="flex items-center justify-between mb-2">
-                        <h3 className="text-foreground font-semibold text-sm">Files</h3>
-                        <button
-                            onClick={handleDownloadAll}
-                            disabled={isDownloading}
-                            className="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-[6px] bg-accent px-2 text-[11.5px] text-accent-foreground [transition:opacity_130ms_ease] disabled:opacity-50 pointer-fine:hover:opacity-85"
-                            title="Download all files as ZIP"
-                        >
-                            <IconSwap
-                                swapped={isDownloading}
-                                from={<FolderArchive className="w-3 h-3" />}
-                                to={
-                                    <Loader2
-                                        className={
-                                            isDownloading
-                                                ? "w-3 h-3 animate-spin motion-reduce:animate-none"
-                                                : "w-3 h-3"
-                                        }
-                                    />
-                                }
-                            />
-                            ZIP
-                        </button>
-                    </div>
+                    <h3 className="mb-2 text-sm font-semibold text-foreground">Files</h3>
                     <p className="text-muted-foreground text-xs">
                         {files.length} file{files.length !== 1 ? "s" : ""}
                     </p>
