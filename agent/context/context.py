@@ -46,20 +46,26 @@ def record(row):
     }
 
 
-def mentioned_files(prompt: str, paths: list[str]) -> list[str]:
-    """Project files the user named as "@path", in order: existing, not hidden, each once.
+def mentions(prompt: str, paths: list[str]) -> tuple[list[str], list[str]]:
+    """Project files and folders the user named as "@path", in order: existing, not hidden, each once.
 
     Like Cline's @-mentions (cline/cline@8eee168 core/mentions/index.ts), whose content goes to the
-    model in full; "@tailwindcss" and other words that are not project files are left alone.
+    model in full; "@tailwindcss" and other words that are not project paths are left alone. A folder
+    is returned as "dir/", with or without the slash typed.
     """
     known = set(paths)
-    found: list[str] = []
+    files: list[str] = []
+    folders: list[str] = []
     for raw in _MENTION.findall(prompt):
         path = raw.rstrip(".,;:!?)]}'\"")
-        hidden = any(part.startswith(".") for part in path.split("/"))
-        if path in known and not hidden and path not in found:
-            found.append(path)
-    return found
+        if any(part.startswith(".") for part in path.split("/")):
+            continue
+        folder = path.rstrip("/") + "/"
+        if path in known and path not in files:
+            files.append(path)
+        elif folder != "/" and folder not in folders and any(known_path.startswith(folder) for known_path in known):
+            folders.append(folder)
+    return files, folders
 
 
 def choose_files(paths, prompt, evidence, limit=8):

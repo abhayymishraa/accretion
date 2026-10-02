@@ -27,6 +27,7 @@ export interface MenuChoice {
     insert: string;
     // Where the query matched inside the label, for highlighting.
     match?: [number, number];
+    folder?: boolean;
 }
 
 interface Trigger {
@@ -47,22 +48,34 @@ function detect(value: string, caret: number): Trigger | null {
 }
 
 // A path with a dot-folder or dot-file in it (.accretion/, .env): never offered; the backend
-// ignores such mentions too (agent/context/context.py mentioned_files).
+// ignores such mentions too (agent/context/context.py mentions).
 const hidden = (path: string) => path.split("/").some((part) => part.startsWith("."));
+
+/** Every file and folder the user can mention: folders end in "/", hidden paths are left out. */
+export function mentionTargets(files: string[]): string[] {
+    const targets = new Set<string>();
+    for (const path of files) {
+        if (hidden(path)) continue;
+        targets.add(path);
+        for (let cut = path.indexOf("/"); cut > 0; cut = path.indexOf("/", cut + 1))
+            targets.add(path.slice(0, cut + 1));
+    }
+    return [...targets];
+}
 
 const MENTION = /(^|\s)@([^\s@]+)/g;
 const TRAILING = /[.,;:!?)\]}'"]+$/;
 
 /**
- * The prompt cut around "@path" mentions of real project files, by the backend's rule
- * (agent/context/context.py mentioned_files), so the composer can highlight them.
+ * The prompt cut around "@path" mentions of real project files and folders, by the backend's rule
+ * (agent/context/context.py mentions), so the composer can highlight them.
  */
-export function splitMentions(text: string, files: Set<string>): (string | { path: string })[] {
+export function splitMentions(text: string, targets: Set<string>): (string | { path: string })[] {
     const parts: (string | { path: string })[] = [];
     let last = 0;
     for (const match of text.matchAll(MENTION)) {
         const path = match[2].replace(TRAILING, "");
-        if (!files.has(path) || hidden(path)) continue;
+        if (!targets.has(path)) continue;
         const at = match.index + match[1].length;
         parts.push(text.slice(last, at), { path });
         last = at + 1 + path.length;
@@ -72,15 +85,14 @@ export function splitMentions(text: string, files: Set<string>): (string | { pat
 }
 
 /**
- * Files ranked like an editor's quick open: names starting with the query, then names containing
- * it, then paths containing it; shorter paths first within each rank.
+ * Files and folders ranked like an editor's quick open: names starting with the query, then names
+ * containing it, then paths containing it; shorter paths first within each rank.
  */
-function fileChoices(query: string, files: string[]): MenuChoice[] {
+function fileChoices(query: string, targets: string[]): MenuChoice[] {
     const needle = query.toLowerCase();
     const ranked: { rank: number; path: string; at: number }[] = [];
-    for (const path of files) {
-        if (hidden(path)) continue;
-        const name = path.slice(path.lastIndexOf("/") + 1).toLowerCase();
+    for (const path of targets) {
+        const name = path.slice(path.lastIndexOf("/", path.length - 2) + 1).toLowerCase();
         const at = name.indexOf(needle);
         const rank = at === 0 ? 0 : at > 0 ? 1 : path.toLowerCase().includes(needle) ? 2 : -1;
         if (rank >= 0) ranked.push({ rank, path, at });
@@ -89,19 +101,20 @@ function fileChoices(query: string, files: string[]): MenuChoice[] {
         (a, b) => a.rank - b.rank || a.path.length - b.path.length || a.path.localeCompare(b.path),
     );
     return ranked.slice(0, MAX_CHOICES).map(({ path, at }) => {
-        const cut = path.lastIndexOf("/") + 1;
+        const cut = path.lastIndexOf("/", path.length - 2) + 1;
         return {
             id: path,
             label: path.slice(cut),
             detail: path.slice(0, cut),
             insert: `@${path} `,
             match: needle && at >= 0 ? [at, at + needle.length] : undefined,
+            folder: path.endsWith("/"),
         };
     });
 }
 
 function buildChoices(kind: MenuKind, query: string, files: string[]): MenuChoice[] {
-    if (kind === "files") return fileChoices(query, files);
+    if (kind === "files") return fileChoices(query, mentionTargets(files));
     const needle = query.toLowerCase();
     return promptCommands
         .filter((command) => command.name.toLowerCase().includes(needle))
