@@ -121,6 +121,7 @@ export function useChatWorkspace(chatId: string) {
     const { connected } = useChatConnection({
         chatId,
         refreshHistory: history.refreshHistory,
+        syncHistory: history.syncHistory,
         setError,
     });
     const openRunId =

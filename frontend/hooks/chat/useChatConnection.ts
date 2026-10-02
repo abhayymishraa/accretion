@@ -11,9 +11,15 @@ import { useEffect, useState } from "react";
 type ConnectionOptions = {
     chatId: string;
     refreshHistory: () => void;
+    syncHistory: (latestRunId: string | null) => void;
     setError: (error: string | null) => void;
 };
-export function useChatConnection({ chatId, refreshHistory, setError }: ConnectionOptions) {
+export function useChatConnection({
+    chatId,
+    refreshHistory,
+    syncHistory,
+    setError,
+}: ConnectionOptions) {
     const router = useRouter();
     const [connected, setConnected] = useState(false);
     // The project stream announces runs; each run's events arrive on its own stream (useRunStream).
@@ -36,7 +42,15 @@ export function useChatConnection({ chatId, refreshHistory, setError }: Connecti
                     setConnected(true);
                     setError(null);
                 }
-                // Catch up after subscription: history remains visible during reconnect.
+                // A ready that names the newest run and the title says what this tab may have
+                // missed: reload only when that run is not loaded. Without them, or on resync,
+                // catch up in full. History stays visible either way.
+                if (incoming.e === "ready" && "latest_run_id" in incoming) {
+                    syncHistory(incoming.latest_run_id);
+                    if (typeof incoming.title === "string")
+                        showProjectTitle(chatId, incoming.title);
+                    return;
+                }
                 refreshHistory();
                 reloadProjects();
                 return;
@@ -86,7 +100,7 @@ export function useChatConnection({ chatId, refreshHistory, setError }: Connecti
             controller.abort();
             clearTimeout(retry);
         };
-    }, [chatId, router, refreshHistory, setError]);
+    }, [chatId, router, refreshHistory, syncHistory, setError]);
 
     return { connected };
 }

@@ -44,6 +44,7 @@ export function useChatHistory(options: Options) {
     const [pendingRunId, setPendingRunId] = useState<string | null>(null);
     const control = useRef<{
         refresh: () => void;
+        ready: (latestRunId: string | null) => void;
         receive: (event: MessageEvent) => void;
         older: (cursor: string) => void;
     } | null>(null);
@@ -59,6 +60,8 @@ export function useChatHistory(options: Options) {
         let olderLoaded = false;
         let latestIds = new Set(cached?.messages.map((message) => message.id));
         let buffered: MessageEvent[] = [];
+        // The project's newest run as of the stream's subscription, until a loaded page settles it.
+        let mark: string | null | undefined;
         const abort = new AbortController();
         const terminalRuns = new Set<string>();
         const handlers = {
@@ -72,6 +75,15 @@ export function useChatHistory(options: Options) {
         };
         const valid = () => !disposed && getSessionId() === session;
         const applyEvent = (event: MessageEvent) => handleRunEvent(event, handlers);
+        // History already holds everything up to the mark unless the newest run is missing from it:
+        // only then reload. A page in flight may predate the subscription, so it is checked once
+        // it lands instead.
+        const settle = () => {
+            if (mark === undefined || loading) return;
+            const missing = mark !== null && !latestIds.has(`run:${mark}`);
+            mark = undefined;
+            if (missing) void refresh();
+        };
         setMessages(cached?.messages || []);
         setNextCursor(cached?.next_cursor || null);
         setIsLoading(!cached);
@@ -129,6 +141,7 @@ export function useChatHistory(options: Options) {
                 loading = false;
                 if (valid()) setIsLoading(false);
             }
+            if (valid()) settle();
         };
         const older = async (cursor: string) => {
             if (olderLoading || !valid()) return;
@@ -154,6 +167,11 @@ export function useChatHistory(options: Options) {
             refresh: () => {
                 void refresh();
             },
+            ready: (latestRunId) => {
+                if (!valid()) return;
+                mark = latestRunId;
+                settle();
+            },
             older: (cursor) => {
                 void older(cursor);
             },
@@ -177,6 +195,10 @@ export function useChatHistory(options: Options) {
     }, [chatId, setAppUrl, setError, setIsBuilding, setMessages, setRunId]);
 
     const refreshHistory = useCallback(() => control.current?.refresh(), []);
+    const syncHistory = useCallback(
+        (latestRunId: string | null) => control.current?.ready(latestRunId),
+        [],
+    );
     const receiveEvent = useCallback((event: MessageEvent) => control.current?.receive(event), []);
     const loadOlder = useCallback(() => {
         if (nextCursor) control.current?.older(nextCursor);
@@ -188,6 +210,7 @@ export function useChatHistory(options: Options) {
         hasOlder: Boolean(nextCursor),
         loadOlder,
         refreshHistory,
+        syncHistory,
         receiveEvent,
     };
 }

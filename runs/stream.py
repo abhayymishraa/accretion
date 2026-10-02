@@ -13,12 +13,13 @@ from fastapi.sse import ServerSentEvent
 from redis import RedisError
 from redis.asyncio.client import PubSub
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 
 from agent.events import EVENT_PAGE, run_events
 from agent.run import bus
 from agent.run.worker import OPEN_STATUSES
-from db.base import AsyncSessionLocal
-from db.models import Run
+from db.base import AsyncSessionLocal, ReadSessionLocal
+from db.models import Chat, Run
 from runs.constants import STREAM_IDLE_SECONDS
 
 
@@ -69,15 +70,31 @@ async def run_stream(run_id: str, after: int) -> AsyncIterator[ServerSentEvent]:
                     return
 
 
+async def ready_frame(project_id: str) -> ServerSentEvent:
+    """`ready`, carrying the project's newest run and its title. Read after subscribing: a run or
+    title committed before the read is in this frame, one committed after it arrives as a notice.
+    The client reloads history only when it lacks that run, so a reconnect costs one query here
+    instead of a history load per tab. Without the read it reloads everything, as before."""
+    newest = select(Run.id).where(Run.chat_id == project_id).order_by(Run.created_at.desc()).limit(1).scalar_subquery()
+    try:
+        async with ReadSessionLocal() as db:
+            row = (await db.execute(select(Chat.title, newest).where(Chat.id == project_id))).first()
+    except SQLAlchemyError:
+        row = None
+    if row is None:
+        return ServerSentEvent(data={"e": "ready"})
+    title, latest_run_id = row
+    return ServerSentEvent(data={"e": "ready", "latest_run_id": latest_run_id, "title": title})
+
+
 async def project_stream(project_id: str) -> AsyncIterator[ServerSentEvent]:
     ready = False
     while True:
         try:
             async with bus.subscribe(bus.project_channel(project_id)) as pubsub:
-                # The client refetches history on ready, exactly as it did on the socket's ready frame.
                 # Sent after every subscribe, so notices missed while Redis was down are caught up.
                 ready = True
-                yield ServerSentEvent(data={"e": "ready"})
+                yield await ready_frame(project_id)
                 while True:
                     message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=STREAM_IDLE_SECONDS)
                     if message is not None:
