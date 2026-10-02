@@ -15,15 +15,13 @@ export function downloadBlob(blob: Blob, filename: string) {
     document.body.removeChild(a);
 }
 
-/** The whole project as a ZIP, shared by the Code tab and the panel's ••• menu. */
+/** The whole project as a ZIP, shared by the project title menu and the panel's ••• menu. */
 export function useProjectDownload(projectId: string, revisionId?: string | null) {
     const [isDownloading, setIsDownloading] = useState(false);
-    const [downloadError, setDownloadError] = useState("");
     const revisionQuery = revisionId ? `revision_id=${encodeURIComponent(revisionId)}` : "";
 
     const handleDownloadAll = async () => {
         setIsDownloading(true);
-        setDownloadError("");
         try {
             const blob = await fileService.downloadProject(projectId, revisionQuery);
 
@@ -33,12 +31,11 @@ export function useProjectDownload(projectId: string, revisionId?: string | null
             });
             return true;
         } catch {
-            setDownloadError("Could not download the project ZIP. Please try again.");
             return false;
         } finally {
             setIsDownloading(false);
         }
     };
 
-    return { isDownloading, downloadError, setDownloadError, handleDownloadAll };
+    return { isDownloading, handleDownloadAll };
 }

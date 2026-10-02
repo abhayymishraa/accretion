@@ -1,7 +1,6 @@
 import type { MenuChoice, MenuKind } from "@/hooks/chat/useComposerMenu";
 import styles from "@/components/chat/menu.module.css";
 import { FileIcon } from "@/components/files/FileIcon";
-import { Folder } from "lucide-react";
 
 /** The label with the typed query picked out, as editors' quick-open lists do. */
 function Label({ choice }: { choice: MenuChoice }) {
@@ -57,12 +56,7 @@ export function ComposerMenu({
                             onClick={() => onPick(choice)}
                             className="flex w-full min-w-0 items-center gap-2.5 rounded-[7px] px-2.5 py-1.5 text-left aria-selected:bg-surface-1"
                         >
-                            {kind === "files" &&
-                                (choice.folder ? (
-                                    <Folder className="size-4 text-muted-foreground" />
-                                ) : (
-                                    <FileIcon filename={choice.label} />
-                                ))}
+                            {kind === "files" && <FileIcon filename={choice.label} />}
                             <span className="shrink-0 text-[13px] text-foreground">
                                 <Label choice={choice} />
                             </span>
