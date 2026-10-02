@@ -472,7 +472,11 @@ async def run_editor(
         fatal_error = None
         try:
             if call["name"] not in tools:
-                raise ValueError("Unknown tool")
+                # An older run in this chat's transcript may have called a tool that has since been
+                # removed (inspect_preview), and the model copies it; name what exists instead.
+                raise ValueError(
+                    f"Unknown tool {call['name']!r}: it does not exist. Available tools: {', '.join(sorted(tools))}"
+                )
             result = await tools[call["name"]].ainvoke(call["args"])
         except Exception as exc:
             result = {"ok": False, "error": str(exc)[:2000]}

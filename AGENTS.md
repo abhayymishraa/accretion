@@ -41,6 +41,7 @@ Every change reaches `main` through a pull request. Only a hotfix goes to `main`
 - Never separate a tool call from its result. Every `AIMessage.tool_calls` entry must keep its matching `ToolMessage.tool_call_id`. An orphan is a provider 400, so each cut path rechecks the pairing.
 - Summarize with `model.model_copy(...)`, never `bind()` or a call kwarg: both put `reasoning: null` on the wire. `model_copy` also leaves the caller's model untouched, so a failed summary cannot misconfigure the live loop.
 - Constants trace to named upstream harnesses and carry that attribution in comments. Change a value and change its comment with it.
+- Old transcripts still hold calls to removed tools, and the model copies them. The unknown-tool error lists the tools that exist. Never rewrite a transcript to remove them: it is append-only and the provider caches its prefix.
 
 ## Changing runtime code
 
