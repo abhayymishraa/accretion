@@ -18,7 +18,7 @@ Backend: `https://api.accretion.abhayymishraa.com`.
    rebuilt, so no existing data is dropped. Generate a strong
    `SECRET_KEY`; never use the application's development fallback in production.
 3. Create a DNS A record for the backend domain pointing at the VM. Caddy obtains and
-   renews its certificate. Keep the API's port 8000 private.
+   renews its certificate. The API publishes no host port; Caddy reaches it on the compose network.
 4. Configure GitHub repository secrets `DEPLOY_HOST`, `DEPLOY_SSH_KEY` (a dedicated
    deployment key for Ubuntu), and `DEPLOY_KNOWN_HOSTS` (the host key verified against
    the VM). Configure repository variable `BACKEND_DOMAIN` with the backend hostname.
@@ -55,9 +55,17 @@ out. Browsers follow runs over resumable SSE (`GET /runs/{run_id}/stream`, `Last
 reload or reconnect loses no activity. A run whose worker dies, including on a deploy restart, ends
 as `interrupted` within about 45 s, by the reaper or at startup; model calls are never replayed.
 
+Deploys have no downtime. `deploy.sh` migrates while the running API still serves, starts the new
+API container beside it, waits for it to be healthy and reachable through Caddy, and only then
+stops the old one; Caddy holds and retries a request that reaches a stopping container. A failed
+rollout removes the new container and the old one keeps serving. Migrations must therefore work
+with the previous release still running. Runs active in the old container still end as
+`interrupted` when it stops.
+
 Workers run inside the API process (WORKER_COUNT=1, RUN_JOBS_PER_WORKER=10). Preview opening and
-sandbox handles are still held in that process, so keep one API process until those move to the
-database; splitting workers out is then WORKER_COUNT=0 on the API plus a worker service.
+sandbox handles are still held in that process, so run one API process outside a deploy; during the
+seconds two overlap, a preview being opened may need a retry. Splitting workers out is
+WORKER_COUNT=0 on the API plus a worker service, once those move to the database.
 
 ## Upgrade the sandbox template
 
