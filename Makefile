@@ -1,9 +1,12 @@
-.PHONY: backend frontend template-build format format-check lint typecheck check
+.PHONY: redis backend frontend template-build format format-check lint typecheck check
 
-backend:
+redis:
+	redis-cli -h 127.0.0.1 ping >/dev/null 2>&1 || docker start accretion-redis 2>/dev/null || docker run -d --name accretion-redis -p 127.0.0.1:6379:6379 redis:7-alpine --save "" --appendonly no
+
+backend: redis
 	uv run --env-file .env alembic upgrade head
 	uv run --env-file .env python -m agent.storage.init_storage
-	uv run --env-file .env uvicorn main:app --reload --port 8000
+	uv run --env-file .env uvicorn main:app --reload --port 8000 --timeout-graceful-shutdown 5
 
 frontend:
 	npm --prefix frontend run dev -- --port 3000

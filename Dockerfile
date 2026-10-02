@@ -30,4 +30,7 @@ USER app
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=6s --start-period=60s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/', timeout=5)"
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", "--no-access-log", "--timeout-graceful-shutdown", "30"]
+# Open SSE streams never close by themselves, so uvicorn would wait out the whole graceful timeout on
+# every deploy. Clients resume from Last-Event-ID, so cutting them after 5 s loses nothing. Lifespan
+# shutdown (stop runs, pause sandboxes) still runs in full after it; compose stop_grace_period covers both.
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", "--no-access-log", "--timeout-graceful-shutdown", "5"]
