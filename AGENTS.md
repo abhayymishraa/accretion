@@ -1,5 +1,17 @@
 # Repository rules
 
+## Karpathy guidelines (MUST)
+
+Every change MUST follow the Karpathy guidelines (`karpathy-guidelines` skill, source `forrestchang/andrej-karpathy-skills`).
+
+- Skill not installed: agent MUST tell the user before starting work, and give the install command: `npx skills add forrestchang/andrej-karpathy-skills --skill karpathy-guidelines -g`. Until installed, follow the summary below.
+- **Think before coding.** State assumptions. Several readings: list them, don't pick silently. Unclear: stop and ask. Simpler way exists: say so.
+- **Simplicity first.** Minimum code that solves the ask. No speculative features, single-use abstractions, unasked config, or handling for impossible cases.
+- **Surgical changes.** Touch only what the ask needs. Match existing style. No drive-by refactors. Remove orphans your change made. Dead code outside the change: mention, don't delete.
+- **Goal-driven.** Define success first; verify within the approval rule under No test suites.
+
+Exception, for now: skip the skill's test-first step; no test suites here.
+
 ## No test suites
 
 - No tests in repo: Python, TypeScript, JavaScript, or other languages.
@@ -67,6 +79,16 @@ API and database sit in different regions: each database round trip costs ~120 m
 
 - Read `frontend/AGENTS.md` before changing frontend code. It defines the feature folders, request boundaries, naming, formatting, and enforced file limits.
 - Keep frontend restructuring scoped to the frontend; do not transplant backend controller classes, change API contracts, or add state libraries solely to match a folder layout.
+
+## Mobile and webviews first (MUST)
+
+Most users on phone, often inside app browser (Instagram, X, LinkedIn, Gmail), not Safari/Chrome. Every user-facing feature MUST be built and checked there first. Desktop = wider case, not default.
+
+- MUST start 390px wide, then widen. Full-height = `dvh`, not `vh`. Clear notch and home bar: `env(safe-area-inset-*)`.
+- MUST be touch-first. Targets ≥44px. No action or label hover-only. No keyboard shortcut as only path.
+- MUST NOT rely on what webviews block: popups/new windows (`window.open`), file downloads, third-party cookies. Google sign-in refuses embedded webviews: every sign-in path MUST have a webview-safe fallback.
+- Heavy editors/canvases (Monaco, previews) MUST stay usable on phone, or degrade to readable view.
+- UI work is NOT done until checked, after approval, at phone width + in an in-app webview, beside the device and theme checks in `frontend/AGENTS.md`.
 
 ## Bundled skills
 
