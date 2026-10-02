@@ -1,6 +1,7 @@
 import { ComposerMenu } from "@/components/chat/ComposerMenu";
 import { ConnectionPill } from "@/components/chat/ConnectionPill";
 import { ModelPicker } from "@/components/chat/ModelPicker";
+import { FileIcon } from "@/components/files/FileIcon";
 import { Button } from "@/components/ui/button";
 import { useLightTheme } from "@/components/layout/ThemeProvider";
 import { mentionTargets, splitMentions, useComposerMenu } from "@/hooks/chat/useComposerMenu";
@@ -68,7 +69,7 @@ export function ChatInput({
     });
     const light = useLightTheme();
     const mirror =
-        "col-start-1 row-start-1 text-[14.5px] leading-[1.65] max-md:text-[16px] wrap-anywhere";
+        "col-start-1 row-start-1 pl-[0.2em] text-[14.5px] leading-[1.65] max-md:text-[16px] wrap-anywhere";
 
     const tools = [
         <Button
@@ -140,9 +141,26 @@ export function ChatInput({
                                         ) : (
                                             <mark
                                                 key={index}
-                                                className="rounded-[3px] bg-primary/15 text-primary [box-shadow:0_0_0_0.5px_color-mix(in_srgb,var(--primary)_15%,transparent)]"
+                                                className={`rounded-[5px] bg-primary/15 text-[color-mix(in_oklab,var(--primary)_78%,var(--foreground))] ${part.path.endsWith("/") ? "[box-shadow:-0.15em_0_0_0_color-mix(in_oklab,var(--primary)_15%,transparent)]" : "[box-shadow:-0.15em_0_0_0_color-mix(in_oklab,var(--primary)_15%,transparent),0.12em_0_0_0_color-mix(in_oklab,var(--primary)_15%,transparent)]"}`}
                                             >
-                                                @{part.path}
+                                                {/* Visual only: the mirror must keep the textarea's exact
+                                                    widths or the caret drifts. Shadows widen the pill into the
+                                                    spaces around it, the icon sits left in the "@" slot with a
+                                                    gap before the name, and a folder's "/" is hidden but sent. */}
+                                                <span className="relative">
+                                                    <span className="invisible">@</span>
+                                                    <span className="absolute inset-y-0 left-[-0.05em] flex items-center [&_img]:size-[0.68em]">
+                                                        <FileIcon filename={part.path} />
+                                                    </span>
+                                                </span>
+                                                {part.path.endsWith("/") ? (
+                                                    <>
+                                                        {part.path.slice(0, -1)}
+                                                        <span className="text-transparent">/</span>
+                                                    </>
+                                                ) : (
+                                                    part.path
+                                                )}
                                             </mark>
                                         ),
                                 )}{" "}
