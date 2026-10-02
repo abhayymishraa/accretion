@@ -112,6 +112,16 @@ apiClient.interceptors.response.use(
         if (request.sessionId && request.sessionId !== getSessionId()) {
             throw new Error("Your session changed. Try again.");
         }
+        // Every page checks the session through /auth/me, which a waitlisted account may
+        // still call. Sending it to /waitlist here closes pages like /profile that call
+        // nothing else.
+        if (
+            request.url === "/auth/me" &&
+            response.data?.waitlisted &&
+            window.location.pathname !== "/waitlist"
+        ) {
+            window.location.replace("/waitlist");
+        }
         return response;
     },
     async (error) => {

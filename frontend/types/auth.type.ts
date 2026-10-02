@@ -18,6 +18,7 @@ export interface UserData {
     created_at?: string;
     providers?: string[];
     default_model_choice?: string;
+    waitlisted?: boolean;
 }
 
 export interface LoginResponse {

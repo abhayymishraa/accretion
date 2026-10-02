@@ -1,6 +1,6 @@
 "use client";
 
-import { saveSession } from "@/lib/auth/session";
+import { homePath, saveSession } from "@/lib/auth/session";
 import { authService } from "@/services/service.auth";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -29,7 +29,7 @@ export function useEmailVerification() {
             saveSession(session);
             const user = await authService.getCurrentUser();
             localStorage.setItem("user_data", JSON.stringify(user));
-            router.replace("/profile");
+            router.replace(homePath(user));
         } catch (err) {
             setError(err instanceof Error ? err.message : "We could not verify this link.");
             setToken("");

@@ -29,7 +29,8 @@ export default function SignUpPage() {
         return (
             <AuthFrame signup>
                 <p role="status">
-                    We sent a verification link to {email}. Open it within 30 minutes to continue.
+                    You&apos;re on the waitlist. We sent a link to {email}: open it within 30
+                    minutes to confirm your spot. We&apos;ll email you again when you&apos;re in.
                 </p>
                 <p className={AUTH_SWITCH_LINK}>
                     <Link href="/verify-email">Resend verification email</Link>
@@ -89,7 +90,7 @@ export default function SignUpPage() {
                     id="password-hint"
                     className="ember-helper text-[12px] leading-[1.6] text-muted-foreground"
                 >
-                    Use at least 8 characters. Verify your email to open your workspace.
+                    Use at least 8 characters. New accounts join the waitlist automatically.
                 </p>
                 <ErrorBox message={error} />
                 <Button

@@ -1,6 +1,6 @@
 "use client";
 
-import { saveSession } from "@/lib/auth/session";
+import { homePath, saveSession } from "@/lib/auth/session";
 
 import { authService } from "@/services/service.auth";
 import type { LoginResponse } from "@/types/auth.type";
@@ -42,7 +42,7 @@ export function useOAuthCallback() {
                 const user = await authService.getCurrentUser();
                 if (disposed) return;
                 localStorage.setItem("user_data", JSON.stringify(user));
-                router.replace("/chat");
+                router.replace(homePath(user));
             })
             .catch(() => {
                 if (!disposed) setError(errors[callbackError.current] || errors.oauth_failed);

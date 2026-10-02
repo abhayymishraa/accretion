@@ -18,9 +18,9 @@ export default function VerifyEmailPage() {
                 <p role="status">Opening verification…</p>
             ) : token ? (
                 <div className="ember-form flex flex-col gap-[21px] mt-7.5 [&_.ember-helper]:-mt-3">
-                    <p>Confirm your email to finish setting up your account.</p>
+                    <p>Confirm your email and sign in to Accretion.</p>
                     <Button type="button" variant="default" disabled={busy} onClick={confirm}>
-                        {busy ? "Verifying…" : "Verify email"}
+                        {busy ? "Signing in…" : "Continue"}
                     </Button>
                 </div>
             ) : (
