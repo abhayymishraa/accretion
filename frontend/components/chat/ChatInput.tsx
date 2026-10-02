@@ -3,7 +3,7 @@ import { ConnectionPill } from "@/components/chat/ConnectionPill";
 import { ModelPicker } from "@/components/chat/ModelPicker";
 import { Button } from "@/components/ui/button";
 import { useLightTheme } from "@/components/layout/ThemeProvider";
-import { splitMentions, useComposerMenu } from "@/hooks/chat/useComposerMenu";
+import { mentionTargets, splitMentions, useComposerMenu } from "@/hooks/chat/useComposerMenu";
 // Composer structure adapted from Beautiful UI ChatComposer, MIT © 2026 Shane Levine.
 // See ../ember/BEAUTIFUL-UI-LICENSE. The parent owns the real run lifecycle.
 import { ArrowUpIcon, StopIcon } from "@radix-ui/react-icons";
@@ -127,29 +127,31 @@ export function ChatInput({
                         </label>
                         <div className="grid max-h-44 overflow-y-auto overscroll-contain">
                             {/* Mirrors the text so the grid cell, and with it the textarea, grows to fit;
-                                @file mentions get a highlight box behind the textarea's text. */}
+                                it is also the text you see, with @ mentions in the brand blue, under a
+                                transparent textarea that keeps the caret. */}
                             <div
                                 aria-hidden="true"
-                                className={`${mirror} whitespace-pre-wrap text-transparent`}
+                                className={`${mirror} whitespace-pre-wrap text-foreground`}
                             >
-                                {splitMentions(input, new Set(files)).map((part, index) =>
-                                    typeof part === "string" ? (
-                                        part
-                                    ) : (
-                                        <mark
-                                            key={index}
-                                            className="rounded-[3px] bg-[color-mix(in_srgb,var(--foreground)_30%,transparent)] text-transparent [box-shadow:0_0_0_0.5px_color-mix(in_srgb,var(--foreground)_30%,transparent)]"
-                                        >
-                                            @{part.path}
-                                        </mark>
-                                    ),
+                                {splitMentions(input, new Set(mentionTargets(files))).map(
+                                    (part, index) =>
+                                        typeof part === "string" ? (
+                                            part
+                                        ) : (
+                                            <mark
+                                                key={index}
+                                                className="rounded-[3px] bg-primary/15 text-primary [box-shadow:0_0_0_0.5px_color-mix(in_srgb,var(--primary)_15%,transparent)]"
+                                            >
+                                                @{part.path}
+                                            </mark>
+                                        ),
                                 )}{" "}
                             </div>
                             <textarea
                                 id="chat-prompt"
                                 ref={prompt}
                                 rows={1}
-                                className={`${mirror} w-full resize-none overflow-hidden border-0 bg-transparent p-0 text-foreground outline-none placeholder:text-muted-foreground focus-visible:outline-none disabled:cursor-not-allowed`}
+                                className={`${mirror} w-full resize-none overflow-hidden border-0 bg-transparent p-0 text-transparent caret-foreground outline-none placeholder:text-muted-foreground focus-visible:outline-none disabled:cursor-not-allowed`}
                                 value={input}
                                 disabled={!canCompose}
                                 role="combobox"

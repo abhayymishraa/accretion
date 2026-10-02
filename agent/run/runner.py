@@ -18,7 +18,7 @@ from pydantic import Field
 
 from ..budget.usage import invoke_with_usage, prompt_cache_key, record_usage
 from ..context.compaction import MASK_TRIGGER_TOKENS, backoff_growth, compact, context_limit, hard_limit, mask_stale
-from ..context.context import CONTEXT_RULES, choose_files, mentioned_files
+from ..context.context import CONTEXT_RULES, choose_files, mentions
 from ..context.transcript import append as append_transcript
 from ..context.transcript import load as load_transcript
 from ..context.transcript import replace as replace_transcript
@@ -241,8 +241,11 @@ async def run_editor(
     context = await memory.build(prompt, metrics) if memory is not None else {}
     paths = await list_files(sandbox)
     # Files the user named with "@" go to the model whole, as Cline sends them; excerpts skip them.
+    # A named folder goes as its file list, capped, so one "@src/" cannot flood the context.
+    mentioned_paths, mentioned_dirs = mentions(prompt, paths)
+    folders = {folder: [path for path in paths if path.startswith(folder)][:200] for folder in mentioned_dirs}
     mentioned = {}
-    for path in mentioned_files(prompt, paths):
+    for path in mentioned_paths:
         try:
             mentioned[path] = await workspace.read(path)
         except Exception:
@@ -315,6 +318,7 @@ async def run_editor(
                     **({"agents_md": agents_md} if agents_md and agents_md != _last_sent_agents_md(prior) else {}),
                     "request": prompt,
                     **({"mentioned_files": mentioned} if mentioned else {}),
+                    **({"mentioned_folders": folders} if folders else {}),
                     "request_context": request_context,
                     "workspace": workspace_map(stack, paths),
                     "files": initial,
