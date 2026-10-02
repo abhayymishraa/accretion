@@ -69,3 +69,10 @@ def decode_token(token: str, token_type: str = "access") -> dict[str, Any] | Non
         return payload if payload.get("type") == token_type else None
     except PyJWTError:
         return None
+
+
+def initial_access(email: str) -> dict[str, Any]:
+    """Columns for a new account: the admin skips the waitlist, everyone else joins it."""
+    if email == canonical_email(auth_settings.ADMIN_EMAIL):
+        return {"role": "admin", "approved_at": datetime.now(UTC)}
+    return {}

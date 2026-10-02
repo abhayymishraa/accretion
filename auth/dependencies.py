@@ -6,9 +6,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth.exceptions import (
+    AdminOnly,
     CredentialsUnverifiable,
     EmailNotVerified,
     MalformedUserId,
+    OnWaitlist,
     UserNotFound,
 )
 from db.base import DbSession, get_db
@@ -53,8 +55,27 @@ async def get_current_user(
     return user
 
 
+# Signed in, possibly still waitlisted: enough to read and edit one's own account.
+SignedInUser = Annotated[User, Depends(get_current_user)]
+
+
+async def get_approved_user(user: SignedInUser) -> User:
+    if user.waitlisted:
+        raise OnWaitlist
+    return user
+
+
 # The modern injection form: `user: CurrentUser` instead of a default argument.
-CurrentUser = Annotated[User, Depends(get_current_user)]
+CurrentUser = Annotated[User, Depends(get_approved_user)]
+
+
+async def get_admin_user(user: CurrentUser) -> User:
+    if user.role != "admin":
+        raise AdminOnly
+    return user
+
+
+AdminUser = Annotated[User, Depends(get_admin_user)]
 
 
 async def get_current_user_released(

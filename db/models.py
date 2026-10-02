@@ -29,6 +29,10 @@ class User(Base):
     email_verified: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    # Null while the account waits on the waitlist; set once an admin lets it in.
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # "admin" opens the waitlist page. It grants no budget: that is `plan`.
+    role: Mapped[str] = mapped_column(String(16), nullable=False, default="user", server_default="user")
 
     # The monthly model budget (agent/budget) applies unless the plan is unlimited.
     plan: Mapped[str] = mapped_column(String(32), nullable=False, default=DEFAULT_PLAN, server_default=DEFAULT_PLAN)
@@ -39,6 +43,10 @@ class User(Base):
     # back_populates="user" links back to the user field in the Chat model.
     # cascade="all, delete-orphan" → if a user is deleted, all their chats are deleted too (prevents orphaned chats).
     chats: Mapped[list["Chat"]] = relationship("Chat", back_populates="user", cascade="all, delete-orphan")
+
+    @property
+    def waitlisted(self) -> bool:
+        return self.approved_at is None
 
     @property
     def unlimited(self) -> bool:

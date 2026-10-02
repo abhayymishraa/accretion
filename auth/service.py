@@ -5,15 +5,18 @@ email send happens here.
 """
 
 from datetime import UTC, datetime
+from typing import Literal
 
 from disposable_email_domains import blocklist
-from sqlalchemy import func, select, update
+from sqlalchemy import ColumnElement, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent.budget.budget import allowance
+from auth import emails
 from auth.exceptions import (
     AccountUnavailable,
+    ApplicantNotFound,
     DisposableEmail,
     EmailNotVerifiedForSignIn,
     EmailTaken,
@@ -29,6 +32,9 @@ from auth.models import AuthIdentity, AuthToken
 from db.models import User
 
 from .schemas import (
+    AccountCounts,
+    AccountPage,
+    AccountRow,
     CostAllowance,
     EmailRequest,
     ProfileUpdate,
@@ -47,9 +53,17 @@ from .utils import (
     create_refresh_token,
     decode_token,
     get_password_hash,
+    initial_access,
     verify_password,
 )
-from .verification import consume_token, email_configured, send_verification
+from .verification import (
+    consume_token,
+    email_configured,
+    frontend_url,
+    issue_token,
+    send_verification,
+    token_digest,
+)
 
 
 async def register_user(user: UserRegister, request_ip: str, db: AsyncSession) -> RegisterResponse:
@@ -71,6 +85,7 @@ async def register_user(user: UserRegister, request_ip: str, db: AsyncSession) -
         email=email,
         hashed_password=get_password_hash(user.password),
         name=user.name.strip(),
+        **initial_access(email),
     )
     db.add(new_user)
     try:
@@ -165,6 +180,8 @@ async def confirm_verification(data: TokenRequest, db: AsyncSession) -> Token:
     user = await db.get(User, user_id)
     if not user:
         raise AccountUnavailable
+    # The admin hears about a signup once its address is proven, not before.
+    newly_waiting = user.waitlisted and not user.email_verified
     user.email_verified = True
     await db.execute(
         update(AuthToken)
@@ -176,7 +193,68 @@ async def confirm_verification(data: TokenRequest, db: AsyncSession) -> Token:
         .values(consumed_at=datetime.now(UTC))
     )
     await db.commit()
+    if newly_waiting:
+        await emails.notify_admin(user)
     return Token(
         access_token=create_access_token({"sub": str(user_id)}),
         refresh_token=create_refresh_token({"sub": str(user_id)}),
     )
+
+
+async def list_users(
+    status: Literal["waiting", "approved", "all"], search: str, page: int, db: AsyncSession
+) -> AccountPage:
+    page_size = 25
+    waiting, approved = User.approved_at.is_(None), User.approved_at.is_not(None)
+    filters: list[ColumnElement[bool]] = []
+    if status == "waiting":
+        filters.append(waiting)
+    elif status == "approved":
+        filters.append(approved)
+    term = search.strip()
+    if term:
+        filters.append(or_(User.name.icontains(term, autoescape=True), User.email.icontains(term, autoescape=True)))
+    total = await db.scalar(select(func.count()).select_from(User).where(*filters)) or 0
+    # Waitlisted first, newest first within each group.
+    users = await db.scalars(
+        select(User)
+        .where(*filters)
+        .order_by(approved, User.created_at.desc())
+        .limit(page_size)
+        .offset((page - 1) * page_size)
+    )
+    counts = (
+        await db.execute(
+            select(
+                func.count().filter(waiting),
+                func.count().filter(approved),
+                func.count().filter(waiting, User.email_verified.is_(False)),
+            )
+        )
+    ).one()
+    return AccountPage(
+        items=[AccountRow.model_validate(user) for user in users],
+        total=total,
+        page=page,
+        page_size=page_size,
+        counts=AccountCounts(waiting=counts[0], approved=counts[1], unconfirmed=counts[2]),
+    )
+
+
+async def approve_user(user_id: int, db: AsyncSession) -> AccountRow:
+    user = await db.get(User, user_id, with_for_update=True)
+    if not user:
+        raise ApplicantNotFound
+    if user.waitlisted:
+        user.approved_at = datetime.now(UTC)
+        # A verify_email token doubles as the one-click sign-in: consuming it proves the
+        # address and returns a session, so the approval link needs no endpoint of its own.
+        token = await issue_token(db, user.id, "verify_email", minutes=7 * 24 * 60)
+        link = f"{frontend_url()}/verify-email#token={token}"
+        await emails.send(
+            user.email,
+            *emails.approved(user.name, link),
+            f"approved-{token_digest(token)}",
+        )
+    await db.commit()
+    return AccountRow.model_validate(user)
