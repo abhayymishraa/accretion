@@ -55,10 +55,7 @@ def is_transient(exc: BaseException) -> bool:
 
 def out_of_credits(exc: BaseException) -> bool:
     """The account behind this model has no credit left: switch now, retrying cannot help."""
-    if isinstance(exc, openai.APIStatusError):
-        body = exc.body if isinstance(exc.body, dict) else {}
-        return exc.code in _OUT_OF_CREDITS or body.get("type") in _OUT_OF_CREDITS
-    return False
+    return isinstance(exc, openai.APIStatusError) and exc.code in _OUT_OF_CREDITS
 
 
 def cool_down(model_id: str) -> None:
