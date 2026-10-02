@@ -58,6 +58,9 @@ class Workers:
         self.service = service
         self.name = f"{socket.gethostname()}-{os.getpid()}"
         self.tasks: list[asyncio.Task[None]] = []
+        # Aegra worker_executor.py _job_tasks: asyncio holds tasks weakly, and stop() must cancel the
+        # runs too, or one still claiming at shutdown starts executing after the pool is disposed.
+        self.jobs: set[asyncio.Task[None]] = set()
         # Redis may be missing open ids (a refused enqueue or bus.OPEN write, or a restarted
         # Redis), so the next reaper pass reads Postgres without the bus.OPEN gate.
         self.unsynced = False
@@ -73,9 +76,11 @@ class Workers:
         self.tasks.append(asyncio.create_task(self.listen_commands(), name="run-commands"))
 
     async def stop(self) -> None:
-        for task in self.tasks:
+        # A cancelled job cancels its execute task; execute then records interrupted (stopping is set)
+        # and the job's finally releases the lease.
+        for task in [*self.tasks, *self.jobs]:
             task.cancel()
-        await asyncio.gather(*self.tasks, return_exceptions=True)
+        await asyncio.gather(*self.tasks, *self.jobs, return_exceptions=True)
 
     async def loop(self) -> None:
         slots = asyncio.Semaphore(run_settings.RUN_JOBS_PER_WORKER)
@@ -89,6 +94,8 @@ class Workers:
                 slots.release()
                 continue
             task = asyncio.create_task(self.run(run_id), name=f"job:{run_id}")
+            self.jobs.add(task)
+            task.add_done_callback(self.jobs.discard)
             task.add_done_callback(lambda _: slots.release())
 
     async def dequeue(self) -> str | None:
