@@ -91,13 +91,18 @@ async def wait_for_uploads(key):
 
 async def latest_revision(chat_id):
     async with AsyncSessionLocal() as db:
-        chat = await db.get(Chat, chat_id)
-        if not chat or not chat.latest_saved_revision_id:
-            return None
-        revision = await db.get(ProjectRevision, chat.latest_saved_revision_id)
-        if not revision or revision.chat_id != chat_id or revision.status != "ready":
-            raise StorageError("Saved revision metadata is unavailable")
-        return revision
+        return await latest_revision_in(db, chat_id)
+
+
+async def latest_revision_in(db, chat_id):
+    """latest_revision on the caller's session; a Chat it already loaded costs no query."""
+    chat = await db.get(Chat, chat_id)
+    if not chat or not chat.latest_saved_revision_id:
+        return None
+    revision = await db.get(ProjectRevision, chat.latest_saved_revision_id)
+    if not revision or revision.chat_id != chat_id or revision.status != "ready":
+        raise StorageError("Saved revision metadata is unavailable")
+    return revision
 
 
 async def revision_bytes(revision) -> bytes:

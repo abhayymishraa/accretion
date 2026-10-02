@@ -5,7 +5,6 @@ import { runService } from "@/services/service.runs";
 
 import { usePreviewLifecycle } from "@/hooks/preview/usePreviewLifecycle";
 import { clearSession, subscribeSession } from "@/lib/auth/session";
-import { isOpenRun } from "@/lib/chat/messages";
 import type { UserData } from "@/types/auth.type";
 import type { Message } from "@/types/chat.type";
 import { useRouter } from "next/navigation";
@@ -22,7 +21,6 @@ import {
 import { useProjectFiles } from "@/hooks/files/useProjectFiles";
 import { useChatHistory } from "./useChatHistory";
 import { useChatConnection } from "./useChatConnection";
-import { useRunStream } from "./useRunStream";
 import { useModelChoice } from "./useModelChoice";
 import { useWorkspaceLayout } from "./useWorkspaceLayout";
 export function useChatWorkspace(chatId: string) {
@@ -121,14 +119,9 @@ export function useChatWorkspace(chatId: string) {
     const { connected } = useChatConnection({
         chatId,
         refreshHistory: history.refreshHistory,
-        setError,
-    });
-    const openRunId =
-        messages.findLast((m) => isOpenRun(m.run_status))?.id.replace(/^run:/, "") ?? null;
-    useRunStream({
-        runId: openRunId,
+        syncHistory: history.syncHistory,
         receiveEvent: history.receiveEvent,
-        refreshHistory: history.refreshHistory,
+        setError,
     });
 
     useLayoutEffect(() => {

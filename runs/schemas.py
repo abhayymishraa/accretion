@@ -76,5 +76,6 @@ class RunEventsPage(CustomModel):
     status: str
     reason: str | None = None
     next_sequence: int
+    has_more: bool
     detail_retention_days: int
     event_retention_days: int

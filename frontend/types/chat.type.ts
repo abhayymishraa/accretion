@@ -52,6 +52,8 @@ export interface Message {
     finished_at?: string;
     details_pending?: boolean;
     details_version?: number;
+    // A finished run's file-editing calls from history, for its edited-files card while folded.
+    edits?: ToolCall[] | null;
     workflow?: WorkflowProposal | null;
 }
 export interface HistoryPage {

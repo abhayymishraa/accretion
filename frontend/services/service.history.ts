@@ -10,8 +10,21 @@ export const historyService = {
             })
         ).data;
     },
+    // Every page of a run's steps: one page stops at the server's page size, which a long run passes.
     async details(runId: string, signal: AbortSignal) {
-        return (await apiClient.get<{ events: RunEvent[] }>(`/runs/${runId}/events`, { signal }))
-            .data;
+        const events: RunEvent[] = [];
+        let after = 0;
+        for (;;) {
+            const page = (
+                await apiClient.get<{
+                    events: RunEvent[];
+                    next_sequence: number;
+                    has_more: boolean;
+                }>(`/runs/${runId}/events`, { params: { after_sequence: after }, signal })
+            ).data;
+            events.push(...page.events);
+            if (!page.has_more) return { events };
+            after = page.next_sequence;
+        }
     },
 };

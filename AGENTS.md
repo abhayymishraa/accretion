@@ -49,6 +49,20 @@ Every change reaches `main` through a pull request. Only a hotfix goes to `main`
 - Before deleting a call, list everything it did. `state()` reads as a status check and also reconciles rows and settles spend.
 - Edit Python with exact string replacement, not regex. Removing a statement that is the sole body of an `if` leaves an orphaned block and an `IndentationError`.
 
+## Round trips and chat loading
+
+API and database sit in different regions: each database round trip costs ~120 ms. Count trips, not queries. Measure through a delay proxy in front of local Postgres; local timing hides the cost.
+
+- `pool_pre_ping` off: saves one trip per request. A database or pooler restart fails one request, then SQLAlchemy replaces the pool. `pool_recycle` retires idle connections first.
+- Route that never writes: `dependencies=[ReadOnly, ...]`, `ReadOnly` first. Session runs in autocommit, no `BEGIN`/`COMMIT`. Background reads use `ReadSessionLocal`. A route that writes, even quota, keeps `DbSession`.
+- Reuse rows the ownership dependency already loaded: same session, identity map, no query. Never close the session and reopen one to load them again (`latest_revision_in`).
+- History never ships run steps. Folded run carries `edits` (Postgres strips diff hunks) for its edited-files card. Steps load on expand or menu open. Open run: its stream replays every event, no `/events` fetch.
+- `/runs/{id}/events` is paged at `EVENT_PAGE`. Client follows `has_more`. One page truncates long runs.
+- Refresh bumps a run's `details_version` only when its status or end changed. Bumping every run refetches every loaded log.
+- One stream per project (`/projects/{id}/stream`) carries its notices and the events of its runs. A run event's id is `run_id:sequence`; a reconnect sends it and that run resumes after it, even if it ended meanwhile. No per-run stream.
+- Project stream `ready` carries `latest_run_id` and `title`, read after subscribing. Client reloads history only when that run is missing. Read before subscribing opens a gap. `resync`, or Redis down: full reload.
+- After a deploy every tab reconnects at once. Catch-up must cost one query per tab, not a history load per tab.
+
 ## Frontend architecture
 
 - Read `frontend/AGENTS.md` before changing frontend code. It defines the feature folders, request boundaries, naming, formatting, and enforced file limits.

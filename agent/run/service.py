@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent.sandbox.config import sandbox_settings
 from agent.storage.config import storage_settings
-from db.base import AsyncSessionLocal
+from db.base import AsyncSessionLocal, ReadSessionLocal
 from db.models import Chat, Message, Run, RunEvent, RunScreenshot, SandboxRuntime, User
 
 from ..budget.budget import BudgetLimitError, BudgetSpentError, remaining_nanos, require_allowance
@@ -219,7 +219,7 @@ class Service:
     async def preview_status(self, chat) -> dict[str, Any]:
         # Viewing a project is what makes it the user's active one, even when its sandbox is already up
         # and nothing is acquired. Outside admission: parking calls the provider.
-        await self.park_others(chat.id)
+        await self.park_others(chat.id, chat.user_id)
         async with self.admission:
             if any(r.chat_id == chat.id for r in self.active.values()):
                 return {"url": None, "state": "building"}
@@ -227,7 +227,7 @@ class Service:
                 return {"url": None, "state": "opening"}
             # Ownership was checked by the route. Refresh revision and runtime together
             # after acquiring admission; its original Chat snapshot may predate a build.
-            async with AsyncSessionLocal() as db:
+            async with ReadSessionLocal() as db:
                 current = (
                     await db.execute(
                         select(Chat, SandboxRuntime)
@@ -468,12 +468,14 @@ class Service:
         async with AsyncSessionLocal.begin() as db:
             await db.execute(update(Run).where(Run.id == live.id).values(metrics=redact(live.metrics)))
 
-    async def park_others(self, chat_id):
+    async def park_others(self, chat_id, user_id=None):
         """One active sandbox per user, as open-lovable keeps one (firecrawl/open-lovable@69bd93b), but
         per user and paused, not killed: switching to this project parks the user's other idle sandboxes.
         One with a build or an open in progress keeps running; a build parks its own when it ends."""
-        async with AsyncSessionLocal() as db:
-            user_id = await db.scalar(select(Chat.user_id).where(Chat.id == chat_id))
+        if user_id is None:
+            # A caller holding the project row passes its owner and skips this round trip.
+            async with ReadSessionLocal() as db:
+                user_id = await db.scalar(select(Chat.user_id).where(Chat.id == chat_id))
         if user_id is None:
             return
         self.focus[user_id] = chat_id
