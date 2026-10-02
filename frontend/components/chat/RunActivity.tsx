@@ -112,7 +112,12 @@ export function RunActivity({
                     {!running && <RelativeTime iso={message.finished_at || message.created_at} />}
                     <RunMenu
                         runId={message.id.replace(/^run:/, "")}
-                        transcript={details.loading ? null : transcript}
+                        transcript={
+                            running || details.loaded || !message.details_pending
+                                ? transcript
+                                : null
+                        }
+                        loadFailed={Boolean(details.error)}
                         onOpen={() => setMenuOpened(true)}
                     />
                 </span>

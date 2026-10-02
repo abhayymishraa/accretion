@@ -43,11 +43,13 @@ export function RelativeTime({ iso }: { iso: string }) {
 export function RunMenu({
     runId,
     transcript,
+    loadFailed,
     onOpen,
 }: {
     runId: string;
-    // null while the run's steps are still loading.
+    // null until the run's steps have loaded, so a partial transcript is never copied.
     transcript: string | null;
+    loadFailed: boolean;
     onOpen: () => void;
 }) {
     const [open, setOpen] = useState(false);
@@ -118,7 +120,11 @@ export function RunMenu({
                     }
                     className="flex min-h-9 w-full cursor-pointer items-center px-3 text-left text-[12.5px] text-foreground pointer-fine:hover:bg-surface-1 disabled:cursor-default disabled:text-muted-foreground"
                 >
-                    {transcript === null ? "Loading build steps…" : "Copy build steps"}
+                    {transcript !== null
+                        ? "Copy build steps"
+                        : loadFailed
+                          ? "Build steps did not load"
+                          : "Loading build steps…"}
                 </button>
             </div>
         </div>
