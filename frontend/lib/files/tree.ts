@@ -30,7 +30,18 @@ export function buildFileTree(files: string[]): FileNode[] {
         });
     });
 
+    sortTree(root);
     return root;
+}
+
+// Like an IDE: folders before files, then by name, ignoring case, with numbers in order.
+const byName = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+
+function sortTree(nodes: FileNode[]) {
+    nodes.sort((a, b) =>
+        a.isDirectory === b.isDirectory ? byName.compare(a.name, b.name) : a.isDirectory ? -1 : 1,
+    );
+    for (const node of nodes) if (node.children) sortTree(node.children);
 }
 
 export function getLanguageFromPath(filePath: string): string {
