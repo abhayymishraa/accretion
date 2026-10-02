@@ -12,12 +12,21 @@ import { RelativeTime, RunMenu } from "./RunMenu";
 import { EditedFiles } from "./ToolList";
 import { RunTimeline } from "./RunTimeline";
 import { useRunDetails } from "@/hooks/chat/useRunDetails";
+import { isOpenRun } from "@/lib/chat/messages";
 import { timelineEntries } from "@/lib/chat/run-timeline";
 import { editedFiles, timelineBlocks, workedFor } from "@/lib/chat/tool-lines";
 import { Button } from "@/components/ui/button";
 import { ErrorBox } from "@/components/ui/ErrorBox";
 
-const QUIET = ["running", "succeeded", "cancelled", "stopped", "awaiting_input", "answered"];
+const QUIET = [
+    "queued",
+    "running",
+    "succeeded",
+    "cancelled",
+    "stopped",
+    "awaiting_input",
+    "answered",
+];
 
 /** `children` is the reply: it sits between the trace and the edited-files card, as Codex lays out a turn. */
 export function RunActivity({
@@ -29,7 +38,7 @@ export function RunActivity({
     connected: boolean;
     children?: ReactNode;
 }) {
-    const running = message.run_status === "running";
+    const running = isOpenRun(message.run_status);
     const [expanded, setExpanded] = useState(false);
     const open = running || expanded;
     // Loaded even while folded: the edited-files card under the reply is built from these steps.

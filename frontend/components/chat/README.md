@@ -4,14 +4,14 @@ Tool activity lives in each assistant run, using the existing Ember theme. There
 
 The loading grid, collapsible steps, tool rows, file context, and searchable composer adapt interaction patterns from [Beautiful UI](https://www.beautifului.dev/) ([source](https://github.com/slev12397/beautiful-ui)). MIT attribution is in `../ember/BEAUTIFUL-UI-LICENSE`.
 
-- Run status, elapsed time, tool results, and verification details come from websocket events and their persisted replay.
+- Run status, elapsed time, tool results, and verification details come from SSE events and their persisted replay.
 - Build steps display public stage messages, never invented model reasoning.
 - File cards display paths returned by tools. They do not claim to contain retrieved document chunks.
 - The backend currently sends complete answers. Content updates render as received; there is no simulated token streaming.
 - File references and prompt commands insert editable text without starting a run. Expanded tool results now provide copy-result and stable plain-text run/call reference actions. Model selection, attachments, and dictation are not exposed by this implementation.
 - Motion respects reduced-motion settings. Live timers clean up on completion and unmount. Updates follow the conversation only while the user remains near the bottom.
 
-The focused browser check uses intercepted HTTP/websocket fixtures in an isolated context. It does not authenticate to the backend, generate apps, or resume E2B sandboxes.
+The focused browser check uses intercepted HTTP/SSE fixtures in an isolated context. It does not authenticate to the backend, generate apps, or resume E2B sandboxes.
 
 ## Tool presentation research (2026-09-13)
 
@@ -31,4 +31,4 @@ The backend publishes command text only for a small exact allowlist of commands.
 
 `agent/tools/public_tools.py` projects an allowlist and bounds the serialized details to 4,000 UTF-8 bytes; events are redacted when emitted. `truncated_fields` identifies shortened values. Commands publish the command text; edits publish a bounded line diff (`diffs`); agent-browser commands publish the ids of stored screenshots (`screenshots`, served by `GET /runs/{run_id}/screenshots/{id}`). A valid JSON `output` string, without diffs, is retained for legacy clients. Read bodies and skill text are never copied to public events.
 
-The existing service persists each event before publishing it to its authenticated WebSocket subscribers. The frontend updates as start/completion/stage/verification events arrive; reconnecting replays those saved events. This adds no provider requests and no new broker or database schema. It does not stream terminal chunks or model tokens. Tool completion is distinct from checkpoint persistence and final build verification.
+The existing service persists each event before publishing it to Redis, which fans it out to authenticated SSE streams (`/projects/{id}/stream`, `/runs/{id}/stream`). The frontend updates as start/completion/stage/verification events arrive; reconnecting resumes from `Last-Event-ID` and replays the saved events. This adds no provider requests and no database schema; Redis only fans events out. It does not stream terminal chunks or model tokens. Tool completion is distinct from checkpoint persistence and final build verification.

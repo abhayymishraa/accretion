@@ -5,6 +5,7 @@ import { runService } from "@/services/service.runs";
 
 import { usePreviewLifecycle } from "@/hooks/preview/usePreviewLifecycle";
 import { clearSession, subscribeSession } from "@/lib/auth/session";
+import { isOpenRun } from "@/lib/chat/messages";
 import type { UserData } from "@/types/auth.type";
 import type { Message } from "@/types/chat.type";
 import { useRouter } from "next/navigation";
@@ -21,6 +22,7 @@ import {
 import { useProjectFiles } from "@/hooks/files/useProjectFiles";
 import { useChatHistory } from "./useChatHistory";
 import { useChatConnection } from "./useChatConnection";
+import { useRunStream } from "./useRunStream";
 import { useModelChoice } from "./useModelChoice";
 import { useWorkspaceLayout } from "./useWorkspaceLayout";
 export function useChatWorkspace(chatId: string) {
@@ -116,11 +118,17 @@ export function useChatWorkspace(chatId: string) {
         setError,
     });
 
-    const { wsConnected } = useChatConnection({
+    const { connected } = useChatConnection({
         chatId,
-        receiveEvent: history.receiveEvent,
         refreshHistory: history.refreshHistory,
         setError,
+    });
+    const openRunId =
+        messages.findLast((m) => isOpenRun(m.run_status))?.id.replace(/^run:/, "") ?? null;
+    useRunStream({
+        runId: openRunId,
+        receiveEvent: history.receiveEvent,
+        refreshHistory: history.refreshHistory,
     });
 
     useLayoutEffect(() => {
@@ -198,8 +206,8 @@ export function useChatWorkspace(chatId: string) {
                 localStorage.setItem("user_data", JSON.stringify(updated));
                 setUserData(updated);
             }
-            // The run_started event fetches the accepted prompt for connected observers.
-            if (!wsConnected) history.refreshHistory();
+            // The run_created notice fetches the accepted prompt for connected observers.
+            if (!connected) history.refreshHistory();
         } catch (err) {
             setIsBuilding(false);
             modelChoice.rejected(err);
@@ -227,7 +235,7 @@ export function useChatWorkspace(chatId: string) {
     return {
         router,
         signOut,
-        wsConnected,
+        connected,
         messages,
         error,
         input,

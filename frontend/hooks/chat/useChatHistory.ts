@@ -4,9 +4,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { historyService } from "@/services/service.history";
 import { getSessionId } from "@/lib/auth/session";
 import { cacheHistory, getHistoryCache } from "@/lib/chat/historyCache";
-import { consolidateMessages } from "@/lib/chat/messages";
-import { handleWebSocketMessage } from "@/socket/handleChatEvent";
-import type { Message, WebSocketHandlers } from "@/types/chat.type";
+import { isOpenRun } from "@/lib/chat/messages";
+import { handleRunEvent } from "@/socket/handleChatEvent";
+import type { Message, RunEventHandlers } from "@/types/chat.type";
 
 function mergeMessages(previous: Message[], incoming: Message[], older = false) {
     const items = new Map(previous.map((message) => [message.id, message]));
@@ -30,10 +30,7 @@ function mergeMessages(previous: Message[], incoming: Message[], older = false) 
     );
 }
 
-type Options = Omit<
-    WebSocketHandlers,
-    "terminalRuns" | "consolidateMessages" | "setPendingRunId"
-> & { chatId: string };
+type Options = Omit<RunEventHandlers, "terminalRuns" | "setPendingRunId"> & { chatId: string };
 export function useChatHistory(options: Options) {
     const { chatId, setMessages, setIsBuilding, setRunId, setAppUrl, setError } = options;
     const [isLoading, setIsLoading] = useState(true);
@@ -67,10 +64,9 @@ export function useChatHistory(options: Options) {
             setAppUrl,
             setError,
             terminalRuns,
-            consolidateMessages,
         };
         const valid = () => !disposed && getSessionId() === session;
-        const applyEvent = (event: MessageEvent) => handleWebSocketMessage(event, handlers);
+        const applyEvent = (event: MessageEvent) => handleRunEvent(event, handlers);
         setMessages(cached?.messages || []);
         setNextCursor(cached?.next_cursor || null);
         setIsLoading(!cached);
@@ -102,7 +98,7 @@ export function useChatHistory(options: Options) {
                         olderLoaded = false;
                     latestIds = new Set(page.messages.map((message) => message.id));
                     for (const message of page.messages) {
-                        if (message.run_status && message.run_status !== "running")
+                        if (message.run_status && !isOpenRun(message.run_status))
                             terminalRuns.add(message.id.replace(/^run:/, ""));
                     }
                     setMessages((previous) => mergeMessages(previous, page.messages));

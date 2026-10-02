@@ -1,5 +1,7 @@
+import type { RunStatus } from "./chat.type";
+
 export interface ChatResponse {
-    status: "running";
+    status: RunStatus;
     run_id: string;
     chat_id: string;
 }

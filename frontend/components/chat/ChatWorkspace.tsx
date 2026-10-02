@@ -18,7 +18,7 @@ import { useState } from "react";
 export default function ChatWorkspace({ chatId }: { chatId: string }) {
     const {
         router,
-        wsConnected,
+        connected,
         messages,
         error,
         input,
@@ -173,7 +173,7 @@ export default function ChatWorkspace({ chatId }: { chatId: string }) {
                                         <MessageBubble
                                             key={message.id}
                                             message={message}
-                                            connected={wsConnected}
+                                            connected={connected}
                                             onWorkflowChanged={refreshHistory}
                                             canRespond={message.id === `run:${pendingDecisionId}`}
                                         />
@@ -199,7 +199,7 @@ export default function ChatWorkspace({ chatId }: { chatId: string }) {
                             <ChatInput
                                 files={projectFiles}
                                 input={input}
-                                wsConnected={wsConnected}
+                                connected={connected}
                                 isBuilding={isBuilding}
                                 onInputChange={setInput}
                                 onSubmit={handleSendMessage}

@@ -1,4 +1,5 @@
 export type RunStatus =
+    | "queued"
     | "running"
     | "succeeded"
     | "failed"
@@ -77,15 +78,7 @@ export interface RunEvent {
     compacted?: boolean;
     workflow?: WorkflowProposal | null;
 }
-export interface RunSnapshot {
-    id: string;
-    created_at?: string;
-    status: RunStatus;
-    reason?: string;
-    events: RunEvent[];
-    workflow?: WorkflowProposal | null;
-}
-export interface WebSocketHandlers {
+export interface RunEventHandlers {
     terminalRuns: Set<string>;
     setIsBuilding: (value: boolean) => void;
     setRunId: (id: string | null) => void;
@@ -93,5 +86,4 @@ export interface WebSocketHandlers {
     setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
     setAppUrl: (url: string | null) => void;
     setError: (error: string | null) => void;
-    consolidateMessages: (messages: Message[]) => Message[];
 }
