@@ -6,21 +6,24 @@ same operation can be reached from a second caller without going through HTTP.
 """
 
 import asyncio
+from datetime import UTC, datetime
 
+from fastapi import BackgroundTasks
 from fastapi.encoders import jsonable_encoder
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, func, insert, literal, select, union, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent.context.history import conversation_page, transcript
-from agent.run.service import agent_service, open_run
+from agent.run.service import agent_service
 from agent.run.worker import OPEN_STATUSES
 from agent.storage.maintenance import attempt_cleanup, cleanup_project_storage
 from auth.schemas import TokenUser
+from db.base import bound
 from db.models import Chat, Message, ProjectRevision, Run, RunScreenshot, StorageDeletion
 from projects.constants import LIVE_RUN_STATUSES
 from projects.dependencies import owned_chat
 from projects.exceptions import ChatNotFound, NotChatOwner, ProjectBusy, ProjectNotFound
-from projects.schemas import MessagePage, ProjectDeletion, ProjectList, ProjectRef, ProjectSummary, RunAdmission
+from projects.schemas import MessagePage, ProjectList, ProjectRef, ProjectSummary, RunAdmission
 
 
 async def message_page(
@@ -100,38 +103,48 @@ async def rename_project(db: AsyncSession, project_id: str, user: TokenUser, tit
     return ProjectRef.model_validate(chat)
 
 
-async def delete_project(db: AsyncSession, project_id: str, user: TokenUser) -> ProjectDeletion:
-    """Revoke access and commit the retry intent before calling any provider."""
+async def delete_project(db: AsyncSession, project_id: str, user: TokenUser, background: BackgroundTasks) -> None:
+    """Revoke access and commit the retry intent before calling any provider; the provider calls run
+    after the reply, and the intents retry whatever they leave behind."""
     async with agent_service.admission:
         # Checkpoint creation locks this same row before inserting its object key.
         await owned_chat(project_id, user, db, for_update=True)
-        if project_id in agent_service.opening or await open_run(db, project_id):
+        # After the lock, in one query: whether a build is open, and every stored object of the
+        # project (revisions, screenshots, run logs, and each run's archive key even while its
+        # upload is still running).
+        stored = union(
+            select(ProjectRevision.object_key).where(ProjectRevision.chat_id == project_id),
+            select(RunScreenshot.object_key).join(Run).where(Run.chat_id == project_id),
+            select(Run.log_key).where(Run.chat_id == project_id, Run.log_key.is_not(None)),
+            select(literal("logs/") + Run.id + literal(".jsonl.gz")).where(Run.chat_id == project_id),
+        ).subquery()
+        building, found = (
+            await db.execute(
+                select(
+                    select(Run.id).where(Run.chat_id == project_id, Run.status.in_(OPEN_STATUSES)).exists(),
+                    select(func.array_agg(stored.c[0])).scalar_subquery(),
+                )
+            )
+        ).one()
+        if project_id in agent_service.opening or building:
             raise ProjectBusy
-        keys = set(
-            (await db.scalars(select(ProjectRevision.object_key).where(ProjectRevision.chat_id == project_id))).all()
+        keys = {*(found or []), f"legacy/{project_id}"}
+        # One statement records the retry intents and deletes the project, which revokes access
+        # before any provider call.
+        now = datetime.now(UTC)
+        intents = insert(StorageDeletion).values(
+            [bound(StorageDeletion, object_key=key, created_at=now) for key in keys]
         )
-        keys.update(
-            (await db.scalars(select(RunScreenshot.object_key).join(Run).where(Run.chat_id == project_id))).all()
+        await db.execute(delete(Chat).where(Chat.id == project_id).add_cte(intents.cte("intents")))
+        await db.commit()
+
+    async def cleanup():
+        await asyncio.gather(
+            attempt_cleanup(cleanup_project_storage(keys)),
+            attempt_cleanup(agent_service.retire_sandbox(project_id)),
         )
-        runs = (await db.execute(select(Run.id, Run.log_key).where(Run.chat_id == project_id))).all()
-        for run_id, log_key in runs:
-            keys.add(f"logs/{run_id}.jsonl.gz")  # Include archives still being uploaded.
-            if log_key:
-                keys.add(log_key)
-        keys.add(f"legacy/{project_id}")
-        for key in keys:
-            db.add(StorageDeletion(object_key=key))
-        await db.execute(delete(Chat).where(Chat.id == project_id))
-        await db.commit()  # Persist retry intent and revoke access before provider calls.
-    storage_done, sandbox_done = await asyncio.gather(
-        attempt_cleanup(cleanup_project_storage(keys)),
-        attempt_cleanup(agent_service.retire_sandbox(project_id)),
-    )
-    return ProjectDeletion(
-        deleted=True,
-        storage_cleanup="completed" if storage_done else "queued",
-        sandbox_cleanup="completed" if sandbox_done else "queued",
-    )
+
+    background.add_task(cleanup)
 
 
 async def start_project(user: TokenUser, prompt: str, mode: str, model_choice: str) -> RunAdmission:

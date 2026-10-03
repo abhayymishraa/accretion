@@ -61,17 +61,11 @@ export function useProjectCollection(compact: boolean, onOpen?: () => void) {
         setDeletingId(project.id);
         setDeleteError("");
         try {
-            const result = await projectService.deleteProject(project.id);
+            await projectService.deleteProject(project.id);
             setProjects((current) => current.filter((item) => item.id !== project.id));
             reloadProjects();
             setPendingDelete(null);
-            const cleanupPending =
-                result.storage_cleanup !== "completed" || result.sandbox_cleanup !== "completed";
-            toast.success(cleanupPending ? "Project removed; cleanup pending" : "Project deleted", {
-                description: cleanupPending
-                    ? "Some files or the preview are still being removed. Cleanup will retry automatically."
-                    : "Saved files were removed and the preview was stopped.",
-            });
+            toast.success("Project deleted");
             if (pathname === `/chat/${project.id}`) {
                 onOpen?.();
                 router.replace("/projects");

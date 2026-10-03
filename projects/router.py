@@ -1,12 +1,12 @@
 """Projects: the chat that owns a generated app, its history and its lifecycle."""
 
-from fastapi import APIRouter
+from fastapi import APIRouter, BackgroundTasks
 
 from auth.dependencies import CurrentUser
 from db.base import Autocommit, DbSession
 from projects import service
 from projects.constants import DEFAULT_MESSAGE_PAGE
-from projects.schemas import MessagePage, ProjectDeletion, ProjectList, ProjectRef, ProjectRename, RunAdmission
+from projects.schemas import MessagePage, ProjectList, ProjectRef, ProjectRename, RunAdmission
 from request_timing import timed
 from runs.schemas import ChatPayload
 
@@ -44,6 +44,8 @@ async def rename_project(
     return await service.rename_project(db, project_id, current_user, payload.title)
 
 
-@router.delete("/projects/{project_id}")
-async def delete_project(project_id: str, current_user: CurrentUser, db: DbSession) -> ProjectDeletion:
-    return await service.delete_project(db, project_id, current_user)
+@router.delete("/projects/{project_id}", status_code=204)
+async def delete_project(
+    project_id: str, current_user: CurrentUser, background: BackgroundTasks, db: DbSession
+) -> None:
+    await service.delete_project(db, project_id, current_user, background)
