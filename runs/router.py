@@ -31,14 +31,14 @@ async def respond_to_run(run_id: str, payload: DecisionPayload, current_user: Cu
     return await service.answer_run(current_user, run_id, payload.action, payload.text)
 
 
-@router.post("/runs/{run_id}/steer", status_code=204, dependencies=[Autocommit])
-async def steer_run(run_id: str, payload: SteerPayload, current_user: CurrentUser, db: DbSession) -> None:
-    await service.steer(db, run_id, current_user, payload.text)
+@router.post("/runs/{run_id}/steer", status_code=204)
+async def steer_run(run_id: str, payload: SteerPayload, current_user: CurrentUser) -> None:
+    await service.steer(run_id, current_user, payload.text)
 
 
-@router.post("/runs/{run_id}/cancel", status_code=204, dependencies=[Autocommit])
-async def cancel_run(run_id: str, current_user: CurrentUser, db: DbSession) -> None:
-    await service.cancel(db, run_id, current_user)
+@router.post("/runs/{run_id}/cancel", status_code=204)
+async def cancel_run(run_id: str, current_user: CurrentUser) -> None:
+    await service.cancel(run_id, current_user)
 
 
 @router.get("/runs/{run_id}/events", dependencies=[Autocommit])

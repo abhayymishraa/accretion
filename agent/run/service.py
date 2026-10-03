@@ -17,7 +17,7 @@ from sqlalchemy import JSON, DateTime, Insert, String, Update, cast, exists, fun
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import aliased, joinedload
 
 from agent.sandbox.config import sandbox_settings
 from agent.storage.config import storage_settings
@@ -351,30 +351,42 @@ class Service:
                 raise HTTPException(503, "Project storage is not configured.")
             if chat_id and chat_id in self.opening:
                 raise HTTPException(409, "This project already has a running request.")
-            open_runs = select(func.count()).select_from(Run).where(Run.status.in_(OPEN_STATUSES)).scalar_subquery()
-            spend = month_spend(user_id, *month).scalar_subquery()
+            new_project = not chat_id
+            # Every input an admission check reads, as one row: the write is gated on it and returns it,
+            # so a refused prompt names its reason with no second read.
             in_chat = select(Run.id).where(Run.chat_id == chat_id)
+            facts = (
+                select(
+                    User,
+                    select(func.count())
+                    .select_from(Run)
+                    .where(Run.status.in_(OPEN_STATUSES))
+                    .scalar_subquery()
+                    .label("running_total"),
+                    month_spend(user_id, *month).scalar_subquery().label("used"),
+                    select(Chat.id).where(Chat.id == chat_id, Chat.user_id == user_id).scalar_subquery().label("owned"),
+                    in_chat.where(Run.status.in_(OPEN_STATUSES)).limit(1).scalar_subquery().label("running"),
+                    in_chat.where(Run.status == "awaiting_input").limit(1).scalar_subquery().label("pending"),
+                )
+                .where(User.id == user_id)
+                .cte("facts")
+            )
+            read = select(
+                aliased(User, facts),
+                facts.c.running_total,
+                facts.c.used,
+                facts.c.owned,
+                facts.c.running,
+                facts.c.pending,
+            )
 
-            async def refuse():
-                """Every admission check, read in one query, raising the first that fails. A prompt
-                pays for it only when its write was refused; answering a decision checks first."""
-                row = (
-                    await check_db.execute(
-                        select(
-                            User,
-                            open_runs,
-                            spend,
-                            select(Chat.id).where(Chat.id == chat_id, Chat.user_id == user_id).scalar_subquery(),
-                            in_chat.where(Run.status.in_(OPEN_STATUSES)).limit(1).scalar_subquery(),
-                            in_chat.where(Run.status == "awaiting_input").limit(1).scalar_subquery(),
-                        ).where(User.id == user_id)
-                    )
-                ).first()
+            def refuse(row):
+                """Raise the first admission check that fails in a facts row; return its pending question."""
                 if row is None:
                     # A missing account cannot hold a valid token.
                     raise HTTPException(401, "User not found")
-                user, running_total, used, owned, running, pending = row
-                if chat_id and not owned:
+                user, running_total, used, owned, running, pending = row[:6]
+                if not new_project and not owned:
                     raise HTTPException(404, "Project not found")
                 if not user.email_verified:
                     raise HTTPException(403, "Verify your email before continuing.")
@@ -384,32 +396,27 @@ class Service:
                     require_left(user, used, month)
                 except BudgetLimitError as exc:
                     raise HTTPException(429, str(exc)) from None
-                if chat_id and running:
+                if not new_project and running:
                     raise HTTPException(409, "This project already has a running request.")
                 return pending
 
             check_db = await stack.enter_async_context(AutocommitSessionLocal())
-            new_project = not chat_id
             chat_id = chat_id or str(uuid.uuid4())
             message_id, run_id = str(uuid.uuid4()), str(uuid.uuid4())
             try:
                 if response is None:
-                    # One statement, committed by itself, carrying every admission check (the `ok` row):
+                    # One statement, committed by itself, gated on every admission check (the `ok` row):
                     # the remembered model choice (dyad's selectedModel, spec 4.2), the project when
                     # new, the user's message and the queued run, all or none. Postgres also refuses a
                     # second open build (uq_runs_one_open_per_chat) and a project deleted meanwhile.
                     checks = [
-                        User.id == user_id,
-                        User.email_verified,
-                        open_runs + len(self.opening) < run_settings.MAX_CONCURRENT_RUNS,
-                        has_budget_left(User.plan, spend),
+                        facts.c.email_verified,
+                        facts.c.running_total + len(self.opening) < run_settings.MAX_CONCURRENT_RUNS,
+                        has_budget_left(facts.c.plan, facts.c.used),
                     ]
                     if not new_project:
-                        checks += [
-                            exists().where(Chat.id == chat_id, Chat.user_id == user_id),
-                            ~in_chat.where(Run.status.in_(OPEN_STATUSES) | (Run.status == "awaiting_input")).exists(),
-                        ]
-                    ok = select(User.id).where(*checks).cte("ok")
+                        checks += [facts.c.owned.is_not(None), facts.c.running.is_(None), facts.c.pending.is_(None)]
+                    ok = select(facts.c.id).where(*checks).cte("ok")
                     ctes = [
                         ok,
                         update(User)
@@ -443,14 +450,18 @@ class Service:
                         cancel_requested=False,
                         created_at=now,
                     )
-                    admitted = await check_db.scalar(queued.returning(Run.id).add_cte(*ctes))
-                    if admitted is None:
-                        # Refused: one more read names the reason. A check that passes now lost a race.
-                        if await refuse():
-                            raise HTTPException(409, "Answer or dismiss the pending question or plan first.")
-                        raise HTTPException(409, "This project already has a running request.")
+                    queued = queued.returning(Run.id).cte("queued")
+                    row = (
+                        await check_db.execute(read.add_columns(select(queued.c.id).scalar_subquery()).add_cte(*ctes))
+                    ).first()
+                    if row is None or row[-1] is None:
+                        # Refused: the same row says why. ok and refuse read one snapshot, so a refused
+                        # write has a failing check, the pending question at the latest.
+                        pending = refuse(row)
+                        assert pending, "a refused admission fails a check"
+                        raise HTTPException(409, "Answer or dismiss the pending question or plan first.")
                 else:
-                    pending = await refuse()
+                    pending = refuse((await check_db.execute(read)).first())
                     # The decision's transaction, opened above with its parent locked, resolves the
                     # parent with the new run.
                     if pending and pending != parent.id:
@@ -1237,48 +1248,66 @@ class Service:
         await self.emit(live, "approach", message=question, workflow=public_workflow(live.workflow))
         return "awaiting_input", question
 
-    async def steer(self, run_id: str, user_id: int, text: str) -> bool:
+    async def steer(self, run_id: str, user_id: int, text: str) -> tuple[int | None, bool]:
         """Queue a user message for a running build (Pi's steering queue), in one statement: it is
-        stored only if the run is the user's, running and not stopping. False if nothing matched."""
-        running = (
-            select(literal(str(uuid.uuid4())), Run.chat_id, literal("user"), literal(text))
+        stored only if the run is the user's, running and not stopping. Returns the run's owner (None:
+        no such run) and whether it was stored, so a refusal needs no second read."""
+        target = (
+            select(Run.chat_id, Run.status, Run.cancel_requested, Chat.user_id)
             .join(Chat, Chat.id == Run.chat_id)
-            .where(Run.id == run_id, Chat.user_id == user_id, Run.status == "running", Run.cancel_requested.is_(False))
+            .where(Run.id == run_id)
+            .cte("target")
+        )
+        message = bound(Message, id=str(uuid.uuid4()), role="user", content=text, created_at=datetime.now(UTC))
+        stored = (
+            insert(Message)
+            .from_select(
+                [*message, "chat_id"],
+                select(*message.values(), target.c.chat_id).where(
+                    target.c.user_id == user_id, target.c.status == "running", target.c.cancel_requested.is_(False)
+                ),
+            )
+            .returning(Message.chat_id)
+            .cte("stored")
         )
         async with AutocommitSessionLocal() as db:
-            chat_id = await db.scalar(
-                insert(Message).from_select(["id", "chat_id", "role", "content"], running).returning(Message.chat_id)
-            )
+            row = (await db.execute(select(target.c.user_id, select(stored.c.chat_id).scalar_subquery()))).first()
+        owner, chat_id = row if row else (None, None)
         if chat_id is None:
-            return False
+            return owner, False
         await bus.publish(bus.COMMANDS, {"type": "steer", "run_id": run_id, "text": text})
         await self.notify(chat_id, {"e": "resync"})
-        return True
+        return owner, True
 
-    async def cancel(self, run_id: str, user_id: int) -> bool:
-        """Request a stop in one statement, only for the user's open run. False if nothing matched."""
-        async with AutocommitSessionLocal() as db:
-            status = await db.scalar(
-                update(Run)
-                .where(
-                    Run.id == run_id,
-                    Run.status.in_(OPEN_STATUSES),
-                    Run.chat_id.in_(select(Chat.id).where(Chat.user_id == user_id)),
-                )
-                .values(cancel_requested=True)
-                .returning(Run.status)
+    async def cancel(self, run_id: str, user_id: int) -> int | None:
+        """Request a stop in one statement, only for the user's open run. Returns the run's owner (None:
+        no such run), so a refusal needs no second read; a finished run of the user's is a no-op."""
+        target = select(Chat.user_id).join(Run, Run.chat_id == Chat.id).where(Run.id == run_id).cte("target")
+        requested = (
+            update(Run)
+            .where(
+                Run.id == run_id,
+                Run.status.in_(OPEN_STATUSES),
+                Run.chat_id.in_(select(Chat.id).where(Chat.user_id == user_id)),
             )
+            .values(cancel_requested=True)
+            .returning(Run.status)
+            .cte("requested")
+        )
+        async with AutocommitSessionLocal() as db:
+            row = (await db.execute(select(target.c.user_id, select(requested.c.status).scalar_subquery()))).first()
+        owner, status = row if row else (None, None)
         if status == "queued":
             # Never executed: take it off the queue by claiming it, then record the stop.
             live = await self.workers.claim(run_id)
             if live is not None:
                 await self.workers.finish_unstarted(live)
-                return True
+                return owner
         if status is not None:
             # Running, or a worker claimed it between our update and claim. The command is
             # immediate; the flag reaches the owner at its next heartbeat if the command is lost.
             await bus.publish(bus.COMMANDS, {"type": "cancel", "run_id": run_id})
-        return status is not None
+        return owner
 
 
 agent_service = Service()

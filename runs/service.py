@@ -20,7 +20,6 @@ from runs.constants import (
     EVENT_RETENTION_DAYS,
     MAX_RUN_LOG_BYTES,
 )
-from runs.dependencies import owned_run
 from runs.exceptions import (
     InvalidEventCursor,
     RunLogExpired,
@@ -56,17 +55,24 @@ async def answer_run(user: TokenUser, run_id: str, action: str, text: str) -> Ru
     return RunAdmission.model_validate(await agent_service.admit(user.id, prompt, response=(run_id, action, text)))
 
 
-async def steer(db: AsyncSession, run_id: str, user: TokenUser, text: str) -> None:
-    if not await agent_service.steer(run_id, user.id, text.strip()):
-        # Only when nothing was stored: owned_run's errors for an unknown or someone else's run.
-        await owned_run(run_id, user, db)
+def require_owner(owner: int | None, user: TokenUser) -> None:
+    """owned_run's errors from the owner a write returned: an unknown run, then someone else's."""
+    if owner is None:
+        raise RunNotFound
+    if owner != user.id:
+        raise ProjectNotFound
+
+
+async def steer(run_id: str, user: TokenUser, text: str) -> None:
+    owner, stored = await agent_service.steer(run_id, user.id, text.strip())
+    require_owner(owner, user)
+    if not stored:
         raise RunNotRunning
 
 
-async def cancel(db: AsyncSession, run_id: str, user: TokenUser) -> None:
-    if not await agent_service.cancel(run_id, user.id):
-        # A finished run of the user's is a no-op; an unknown or someone else's keeps owned_run's errors.
-        await owned_run(run_id, user, db)
+async def cancel(run_id: str, user: TokenUser) -> None:
+    # A finished run of the user's is a no-op.
+    require_owner(await agent_service.cancel(run_id, user.id), user)
 
 
 async def events_page(db: AsyncSession, run_id: str, user: TokenUser, after_sequence: int) -> RunEventsPage:
