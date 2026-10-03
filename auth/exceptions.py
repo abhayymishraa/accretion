@@ -73,10 +73,6 @@ class EmailTakenConflict(Conflict):
     DETAIL = "Email already registered."
 
 
-class AccountUnavailable(BadRequest):
-    DETAIL = "This account is no longer available."
-
-
 class DisposableEmail(UnprocessableEntity):
     DETAIL = "Disposable email addresses are not accepted. Use a permanent address."
 

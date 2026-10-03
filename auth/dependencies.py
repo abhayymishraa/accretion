@@ -12,7 +12,7 @@ from auth.exceptions import (
     UserNotFound,
 )
 from auth.schemas import TokenUser
-from db.base import DbSession, ReadSessionLocal
+from db.base import AutocommitSessionLocal, DbSession
 from db.models import User
 from request_timing import timed
 
@@ -51,7 +51,7 @@ SignedInUser = Annotated[User, Depends(get_current_user)]
 async def get_approved_user(user: Annotated[TokenUser, Depends(get_token_user)]) -> TokenUser:
     if not user.approved:
         # Approved since this token was issued: let it in until it renews carrying the approval.
-        async with ReadSessionLocal() as db:
+        async with AutocommitSessionLocal() as db:
             approved = await db.scalar(select(User.approved_at.is_not(None)).where(User.id == user.id))
         if not approved:
             raise OnWaitlist

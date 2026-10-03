@@ -8,7 +8,8 @@ from datetime import UTC, datetime
 from typing import Literal
 
 from disposable_email_domains import blocklist
-from sqlalchemy import ColumnElement, func, or_, select, true, update
+from fastapi import BackgroundTasks
+from sqlalchemy import ColumnElement, DateTime, func, insert, literal, or_, select, true, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
@@ -16,7 +17,6 @@ from sqlalchemy.orm import aliased
 from agent.budget.budget import allowance, month_spend
 from auth import emails
 from auth.exceptions import (
-    AccountUnavailable,
     ApplicantNotFound,
     DisposableEmail,
     EmailNotVerified,
@@ -29,9 +29,11 @@ from auth.exceptions import (
     InvalidTokenPayload,
     NameRequired,
     UserNotFound,
+    VerificationLinkUsed,
     VerificationNotConfigured,
 )
 from auth.models import AuthIdentity, AuthToken
+from db.base import bound
 from db.models import User
 from plans import month_window
 
@@ -60,16 +62,19 @@ from .utils import (
     verify_password,
 )
 from .verification import (
-    consume_token,
     email_configured,
     frontend_url,
     issue_token,
-    send_verification,
+    may_send,
+    send_link,
     token_digest,
+    token_insert,
 )
 
 
-async def register_user(user: UserRegister, request_ip: str, db: AsyncSession) -> RegisterResponse:
+async def register_user(
+    user: UserRegister, request_ip: str, background: BackgroundTasks, db: AsyncSession
+) -> RegisterResponse:
     if not email_configured():
         raise VerificationNotConfigured
     email = canonical_email(str(user.email))
@@ -79,25 +84,33 @@ async def register_user(user: UserRegister, request_ip: str, db: AsyncSession) -
     labels = email.rsplit("@", 1)[-1].split(".")
     if any(".".join(labels[i:]) in blocklist for i in range(len(labels) - 1)):
         raise DisposableEmail
-    existing = await db.scalar(select(User).where(func.lower(User.email) == email))
-    if existing:
-        raise EmailTaken
-    if not user.name.strip():
+    name = user.name.strip()
+    if not name:
         raise NameRequired
-    new_user = User(
+    # A new address has no link out yet, so only the caller's limit applies.
+    await may_send(request_ip, email)
+    # One statement: the account, unless the address is taken (older rows may differ in case), and
+    # its link. Column defaults are not applied to an INSERT ... SELECT: every value is given.
+    values = bound(
+        User,
         email=email,
         hashed_password=get_password_hash(user.password),
-        name=user.name.strip(),
+        name=name,
+        created_at=datetime.now(UTC),
         **initial_access(email),
     )
-    db.add(new_user)
+    taken = select(User.id).where(func.lower(User.email) == email).exists()
+    account = (
+        insert(User).from_select(list(values), select(*values.values()).where(~taken)).returning(User.id).cte("account")
+    )
+    statement, token = token_insert(account.c.id, "verify_email", 30, request_ip)
     try:
-        await db.flush()
+        created = await db.scalar(statement.returning(AuthToken.user_id))
     except IntegrityError:
-        await db.rollback()
         raise EmailTakenConflict from None
-    await send_verification(db, new_user, request_ip)
-    await db.commit()
+    if created is None:
+        raise EmailTaken
+    background.add_task(send_link, email, name, token)
     return RegisterResponse()
 
 
@@ -175,36 +188,66 @@ async def update_me(profile: ProfileUpdate, user_id: int, db: AsyncSession) -> U
     return await get_me(user_id, db, {"name": profile.name.strip(), "bio": profile.bio.strip()})
 
 
-async def request_verification(data: EmailRequest, request_ip: str, db: AsyncSession) -> VerificationRequested:
+async def request_verification(
+    data: EmailRequest, request_ip: str, background: BackgroundTasks, db: AsyncSession
+) -> VerificationRequested:
     if not email_configured():
         raise VerificationNotConfigured
-    user = await db.scalar(select(User).where(func.lower(User.email) == canonical_email(str(data.email))))
-    if user and not user.email_verified:
-        await send_verification(db, user, request_ip)
-        await db.commit()
+    email = canonical_email(str(data.email))
+    if not await may_send(request_ip, email):
+        return VerificationRequested()
+    # One statement: a link for the account at this address, only while it is unverified.
+    account = (
+        select(User.id, User.email, User.name)
+        .where(func.lower(User.email) == email, User.email_verified.is_(False))
+        .cte("account")
+    )
+    statement, token = token_insert(account.c.id, "verify_email", 30, request_ip)
+    issued = statement.returning(AuthToken.user_id).cte("issued")
+    found = (
+        await db.execute(select(account.c.email, account.c.name).join(issued, issued.c.user_id == account.c.id))
+    ).first()
+    if found:
+        background.add_task(send_link, found.email, found.name, token)
     return VerificationRequested()
 
 
-async def confirm_verification(data: TokenRequest, db: AsyncSession) -> Token:
-    user_id = await consume_token(db, data.token, "verify_email")
-    user = await db.get(User, user_id)
-    if not user:
-        raise AccountUnavailable
-    # The admin hears about a signup once its address is proven, not before.
-    newly_waiting = user.waitlisted and not user.email_verified
-    user.email_verified = True
-    await db.execute(
+async def confirm_verification(data: TokenRequest, background: BackgroundTasks, db: AsyncSession) -> Token:
+    # One statement: the link consumed, the account's other links retired, the account verified, and
+    # whether it was verified before. `now` is an anonymous bind: two SETs of consumed_at share it.
+    now = literal(datetime.now(UTC), DateTime(timezone=True))
+    digest = token_digest(data.token)
+    links = (AuthToken.purpose == "verify_email", AuthToken.consumed_at.is_(None))
+    consumed = (
         update(AuthToken)
-        .where(
-            AuthToken.user_id == user_id,
-            AuthToken.purpose == "verify_email",
-            AuthToken.consumed_at.is_(None),
-        )
-        .values(consumed_at=datetime.now(UTC))
+        .where(AuthToken.digest == digest, AuthToken.expires_at > now, *links)
+        .values(consumed_at=now)
+        .returning(AuthToken.user_id)
+        .cte("consumed")
     )
-    await db.commit()
-    if newly_waiting:
-        await emails.notify_admin(user)
+    retired = (
+        update(AuthToken)
+        .where(AuthToken.user_id.in_(select(consumed.c.user_id)), AuthToken.digest != digest, *links)
+        .values(consumed_at=now)
+        .cte("retired")
+    )
+    before = aliased(User)
+    row = (
+        await db.execute(
+            update(User)
+            .where(User.id == before.id, User.id.in_(select(consumed.c.user_id)))
+            .values(email_verified=True)
+            .returning(User, before.email_verified)
+            .add_cte(retired),
+            execution_options={"synchronize_session": False},
+        )
+    ).first()
+    if row is None:
+        raise VerificationLinkUsed
+    user, was_verified = row
+    # The admin hears about a signup once its address is proven, not before.
+    if user.waitlisted and not was_verified:
+        background.add_task(emails.notify_admin, user)
     return issue_tokens(user)
 
 

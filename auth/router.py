@@ -2,7 +2,7 @@
 
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Query, status
 
 from auth import service
 from db.base import Autocommit, DbSession
@@ -27,18 +27,20 @@ from .schemas import (
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-@router.post("/register", status_code=status.HTTP_201_CREATED)
-async def register_user(user: UserRegister, request_ip: ClientIp, db: DbSession) -> RegisterResponse:
-    return await service.register_user(user=user, request_ip=request_ip, db=db)
+@router.post("/register", status_code=status.HTTP_201_CREATED, dependencies=[Autocommit])
+async def register_user(
+    user: UserRegister, request_ip: ClientIp, background: BackgroundTasks, db: DbSession
+) -> RegisterResponse:
+    return await service.register_user(user=user, request_ip=request_ip, background=background, db=db)
 
 
-@router.post("/login")
+@router.post("/login", dependencies=[Autocommit])
 async def login_user(user_data: UserLogin, db: DbSession) -> Token:
     """Authenticate user and return jwt"""
     return await service.login_user(user_data=user_data, db=db)
 
 
-@router.post("/refresh")
+@router.post("/refresh", dependencies=[Autocommit])
 async def refresh_token(token_data: RefreshTokenRequest, db: DbSession) -> Token:
     """refresh access token using refresh token"""
     return await service.refresh_token(token_data=token_data, db=db)
@@ -58,14 +60,16 @@ async def update_me(
     return await service.update_me(profile, current_user.id, db)
 
 
-@router.post("/verification/request", status_code=202)
-async def request_verification(data: EmailRequest, request_ip: ClientIp, db: DbSession) -> VerificationRequested:
-    return await service.request_verification(data=data, request_ip=request_ip, db=db)
+@router.post("/verification/request", status_code=202, dependencies=[Autocommit])
+async def request_verification(
+    data: EmailRequest, request_ip: ClientIp, background: BackgroundTasks, db: DbSession
+) -> VerificationRequested:
+    return await service.request_verification(data=data, request_ip=request_ip, background=background, db=db)
 
 
-@router.post("/verification/confirm")
-async def confirm_verification(data: TokenRequest, db: DbSession) -> Token:
-    return await service.confirm_verification(data=data, db=db)
+@router.post("/verification/confirm", dependencies=[Autocommit])
+async def confirm_verification(data: TokenRequest, background: BackgroundTasks, db: DbSession) -> Token:
+    return await service.confirm_verification(data=data, background=background, db=db)
 
 
 users_router = APIRouter(prefix="/users", tags=["users"])
