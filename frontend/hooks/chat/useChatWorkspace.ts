@@ -86,7 +86,7 @@ export function useChatWorkspace(chatId: string) {
         authService
             .getCurrentUser()
             .then((user) => {
-                if (disposed) return;
+                if (disposed || getSessionId() !== session) return;
                 // Only a load that landed counts: a failed or abandoned one is retried next time.
                 balanceSession = session;
                 buildSeen.current = false;
