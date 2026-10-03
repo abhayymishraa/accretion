@@ -194,7 +194,7 @@ export function PreviewPanel({
                                     {previewError ? "Retry" : "Resume preview"}
                                 </Button>
                             )}
-                            <div className="[&>[data-error-box]]:text-left">
+                            <div className="empty:hidden [&>[data-error-box]]:text-left">
                                 <ErrorBox message={!building && previewError ? previewError : ""} />
                             </div>
                         </div>
