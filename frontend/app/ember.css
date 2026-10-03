@@ -58,6 +58,10 @@
     .animate-spin {
         animation-duration: 2s;
     }
+    /* The comet spinner animates inline; it reads its pace from --duration. */
+    [role="status"] {
+        --duration: 3.4s;
+    }
     [data-slot="sheet-content"],
     [data-slot="sheet-overlay"] {
         animation: none !important;
