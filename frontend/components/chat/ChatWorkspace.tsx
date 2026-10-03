@@ -1,6 +1,7 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
+import { CometSpinner } from "@/components/ui/comet-spinner";
 import { ErrorBox } from "@/components/ui/ErrorBox";
 
 import { ChatIdHeader } from "@/components/chat/ChatIdHeader";
@@ -10,7 +11,7 @@ import { OpenFileContext } from "@/components/chat/OpenFileContext";
 import { PreviewPanel } from "@/components/chat/PreviewPanel";
 import { ProjectTitle } from "@/components/chat/ProjectTitle";
 import { WorkspaceSidebar } from "@/components/layout/WorkspaceSidebar";
-import { Loader2, Sparkles } from "lucide-react";
+import { Sparkles } from "lucide-react";
 import { ThinkingOrb } from "thinking-orbs";
 
 import { useChatWorkspace } from "@/hooks/chat/useChatWorkspace";
@@ -117,7 +118,7 @@ export default function ChatWorkspace({ chatId }: { chatId: string }) {
                                 <ProjectTitle projectId={chatId} revisionId={revisionId} />
                             </div>
                             <div
-                                className="ember-message-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 py-8 [overflow-anchor:none] max-md:px-4 max-md:py-5"
+                                className="ember-message-scroll relative min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 py-8 [overflow-anchor:none] max-md:px-4 max-md:py-5"
                                 ref={conversationRef}
                                 onScroll={handleConversationScroll}
                             >
@@ -127,10 +128,13 @@ export default function ChatWorkspace({ chatId }: { chatId: string }) {
                                 >
                                     {isLoading && (
                                         <div
-                                            className="flex items-center gap-2.5 text-[12.5px] text-muted-foreground"
+                                            className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-[13px] text-muted-foreground"
                                             role="status"
                                         >
-                                            <Loader2 size={15} className="animate-spin" />
+                                            <CometSpinner
+                                                aria-hidden
+                                                className="size-7 text-primary"
+                                            />
                                             Loading messages…
                                         </div>
                                     )}
