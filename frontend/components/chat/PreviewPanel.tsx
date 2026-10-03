@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import type { OpenedFile } from "@/hooks/chat/useWorkspaceLayout";
 import { Button } from "@/components/ui/button";
 import { ErrorBox } from "@/components/ui/ErrorBox";
+import { TetrisLoader } from "@/components/ui/loader-tetris";
 import type { PreviewPhase } from "@/types/preview.type";
 import { Eye } from "lucide-react";
 import { usePreviewHistory } from "@/hooks/preview/usePreviewHistory";
@@ -32,6 +33,8 @@ interface PreviewPanelProps {
 const PreviewReveal = dynamic(() => import("@/components/effects/PreviewReveal"), { ssr: false });
 
 type TabType = "preview" | "files";
+// Decorative: the text beside it announces the state.
+const BUILD_LOADER = <TetrisLoader aria-hidden rows={12} cellSize={3} gap={1} />;
 
 export function PreviewPanel({
     appUrl,
@@ -56,6 +59,9 @@ export function PreviewPanel({
     const frame = useRef<HTMLIFrameElement>(null);
     const previewHistory = usePreviewHistory(frame, appUrl);
     const [refresh, setRefresh] = useState(0);
+    const frameKey = `${projectId}-${refresh}`;
+    // The frame that last painted; a refresh re-mounts it under a new key and shows the loader again.
+    const [paintedKey, setPaintedKey] = useState<string | null>(null);
     const [retainPreview, setRetainPreview] = useState(false);
     const building = isBuilding || phase === "building";
     const live = Boolean(appUrl) && phase === "active" && !building;
@@ -76,9 +82,9 @@ export function PreviewPanel({
 
     let emptyTitle = "Your canvas is ready.";
     if (building) {
-        emptyTitle = "Your app is building.";
+        emptyTitle = "Building your app…";
     } else if (preparing) {
-        emptyTitle = "Preparing your preview…";
+        emptyTitle = "Loading your app…";
     } else if (previewError) {
         emptyTitle = "Preview unavailable.";
     } else if (revisionId) {
@@ -131,29 +137,43 @@ export function PreviewPanel({
             {visible && (activeTab === "preview" || retainPreview) && (
                 // Every state fills the pane edge to edge under the address bar; only phone width is framed.
                 <div
-                    className={`ember-preview-stage flex min-h-0 flex-1 justify-center overflow-auto [&_iframe]:h-full [&_iframe]:w-full [&_iframe]:opacity-0 [&_iframe[data-loaded]]:opacity-100 [&_iframe]:min-h-70 [&_iframe]:bg-white [&>.ember-empty]:w-full [&>.ember-empty]:justify-center ${live && mobile ? "p-4 max-md:p-2 [&_iframe]:border [&_iframe]:border-border" : ""}`}
+                    className={`ember-preview-stage relative flex min-h-0 flex-1 justify-center overflow-auto [&_iframe]:h-full [&_iframe]:w-full [&_iframe]:opacity-0 [&_iframe[data-loaded]]:opacity-100 [&_iframe]:min-h-70 [&_iframe]:bg-white [&>.ember-empty]:w-full [&>.ember-empty]:justify-center ${live && mobile ? "p-4 max-md:p-2 [&_iframe]:border [&_iframe]:border-border" : ""}`}
                     style={activeTab === "files" ? { display: "none" } : undefined}
                 >
                     {live ? (
-                        <iframe
-                            ref={frame}
-                            key={`${projectId}-${refresh}`}
-                            // Shown once the app has painted, so dark theme never flashes the frame's
-                            // white background; a refresh re-mounts it and fades in again.
-                            onLoad={(event) => {
-                                event.currentTarget.dataset.loaded = "";
-                            }}
-                            src={src ?? undefined}
-                            // Mobile ↔ responsive resizes in place; max-width is the one property that
-                            // narrows the frame without scaling its content, so it is the one animated.
-                            className={`${mobile ? "max-w-[375px]" : "max-w-full"} [transition:opacity_200ms_var(--ease-out),max-width_300ms_var(--ease-in-out)] motion-reduce:[transition:opacity_120ms_var(--ease-out)]`}
-                            title="App preview"
-                            sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-modals"
-                        />
+                        <>
+                            <iframe
+                                ref={frame}
+                                key={frameKey}
+                                // Shown once the app has painted, so dark theme never flashes the frame's
+                                // white background; a refresh re-mounts it and fades in again.
+                                onLoad={(event) => {
+                                    event.currentTarget.dataset.loaded = "";
+                                    setPaintedKey(frameKey);
+                                }}
+                                src={src ?? undefined}
+                                // Mobile ↔ responsive resizes in place; max-width is the one property that
+                                // narrows the frame without scaling its content, so it is the one animated.
+                                className={`${mobile ? "max-w-[375px]" : "max-w-full"} [transition:opacity_200ms_var(--ease-out),max-width_300ms_var(--ease-in-out)] motion-reduce:[transition:opacity_120ms_var(--ease-out)]`}
+                                title="App preview"
+                                sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-modals"
+                            />
+                            {paintedKey !== frameKey && (
+                                <div
+                                    role="status"
+                                    className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-3 font-brand text-[16px] font-semibold tracking-[-0.3px]"
+                                >
+                                    {BUILD_LOADER}
+                                    Loading your app…
+                                </div>
+                            )}
+                        </>
                     ) : (
-                        <div className="ember-empty flex flex-col items-center gap-3 px-6 py-16 text-center text-muted-foreground [&_h2]:text-[19px] [&_h2]:font-medium [&_h2]:tracking-[-0.01em] [&_h2]:text-foreground [&_p]:max-w-[42ch] [&_p]:text-[13.5px] [&_p]:leading-relaxed">
+                        <div className="ember-empty flex flex-col items-center gap-3 px-6 py-16 text-center text-muted-foreground [&_h2]:font-brand [&_h2]:text-[16px] [&_h2]:font-semibold [&_h2]:tracking-[-0.3px] [&_h2]:text-foreground [&_p]:max-w-[42ch] [&_p]:text-[12.5px] [&_p]:leading-relaxed">
                             {EFFECTS.previewImageReveal && building ? (
                                 <PreviewReveal images={[]} />
+                            ) : building || preparing ? (
+                                BUILD_LOADER
                             ) : (
                                 <Eye size={26} className="text-muted-foreground/60" />
                             )}
