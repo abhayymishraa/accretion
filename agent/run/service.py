@@ -849,7 +849,11 @@ class Service:
         # The reply is shown whole, live as in history (Run.reason): redacted, not cut at the event bound.
         event["message"] = redact(reason, max_length=None)
         # Every event emitted so far is stored first: the terminal one takes the next sequence after them.
-        await self.flush_events(live)
+        try:
+            await self.flush_events(live)
+        except SQLAlchemyError as exc:
+            # A lost batch must not also lose the outcome: the terminal sequence comes from durable state.
+            logger.warning("Event batch not stored run_id=%s error_type=%s", live.id, type(exc).__name__)
         transcript = reason
         if status == "awaiting_input":
             transcript += "\nProposed, not implemented:\n" + "\n".join(live.workflow.get("steps", []))
