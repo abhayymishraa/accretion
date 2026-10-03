@@ -88,6 +88,46 @@ API and database sit in different regions: each database round trip costs ~120 m
 - The stream opens in its dependency (`opened_stream`), before the response starts: subscribe, then one query checks ownership and reads the ready frame and a resumed run's status. Not the user's: the subscription is dropped and it is a real 404. Subscribing costs no database trip, so this order is free and the only one without a gap.
 - After a deploy every tab reconnects at once. Catch-up must cost one query per tab, not a history load per tab.
 
+## Performance work: lessons that held up
+
+General rules, learned cutting round trips across this app. The section above records what was built; this one records how to decide.
+
+Measure, don't guess:
+
+- Count statements with SQLAlchemy `before_cursor_execute`. Time through a delay proxy. The `begin` event fires under AUTOCOMMIT too, but nothing goes on the wire.
+- Rewrote a read? Diff its output against the old code on real data, including error cases. Trip counts miss wrong answers.
+- Before adding machinery, check how mature open-source apps solve the same path. Match the best; stop there.
+
+When to cut, when to stop:
+
+- Cut trips on paths a user waits on: page load, prompt, stream connect, auth. Background work (lease renew, settlement, cleanup) and paths dominated by a slow provider call (sandbox start) are not worth extra complexity.
+- An error path may cost one extra read. Fold it in only when free (the write returns what refused it).
+- Correctness beats trips. Keep a lock when one statement would read stale data. Keep a transaction when two writes must land together.
+- Trips are half of it. Index every foreign key and every expression a query filters on (`lower(email)`). Add the index in the same change as the query.
+- Reply first, clean up after: a durable intent row in the reply's statement, provider calls in `BackgroundTasks`, retries from the row.
+
+Postgres and SQLAlchemy traps hit here:
+
+- One statement, one snapshot, taken before any lock wait. Its subqueries miss rows committed while it waited. A fresh read after a lock needs separate statements, e.g. a `VOLATILE` plpgsql function.
+- A data-modifying CTE must sit at the top level. It runs even when nothing references it.
+- Statements joined by CTEs share bind names: use anonymous literals (`db.base.bound`). INSERT ... SELECT and CTE inserts skip Python column defaults: give every value.
+- An ORM UPDATE carrying CTEs drops RETURNING without `synchronize_session=False`. INSERT ... SELECT reports rowcount -1: read RETURNING.
+- The session identity map holds rows weakly. A row loaded for a later `db.get` is collected unless something keeps a reference, e.g. the dependency's return value.
+- A unique index fails the deploy if existing rows break it: check production first. `CREATE INDEX CONCURRENTLY` runs outside the transaction (`autocommit_block`), and a failed build leaves an invalid index that `IF NOT EXISTS` keeps.
+
+Async traps hit here:
+
+- A closure reads a variable when called, not when defined. A name reassigned in between gives the wrong answer (a refused new project once answered 404).
+- Start a task only inside the block that cancels it, and after any cursor it depends on is applied.
+- A background writer publishes only after commit, in order. It raises its failure at the next call. The final write must still land after a failed batch.
+
+Process:
+
+- Check every review finding against the code. Reproduce it, fix it, re-measure. Decline with the exact code path that rules it out; reviewers withdraw when shown it.
+- Check that a suggested fix actually works: a `storage` event listener hears other tabs only.
+- Fail-open or fail-closed for a limit is a product decision. Record it here.
+- Scripted edits: back up first, replace exact strings, assert the match count. Never `open(p, "w").write(open(p).read())`: the write truncates before the read.
+
 ## Frontend architecture
 
 - Read `frontend/AGENTS.md` before changing frontend code. It defines the feature folders, request boundaries, naming, formatting, and enforced file limits.
