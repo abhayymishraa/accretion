@@ -9,11 +9,12 @@ import asyncio
 import json
 from collections.abc import AsyncIterator
 from contextlib import AsyncExitStack, nullcontext, suppress
+from typing import Any
 
 from fastapi.sse import ServerSentEvent
 from redis import RedisError
 from redis.asyncio.client import PubSub
-from sqlalchemy import select
+from sqlalchemy import Row, select
 from sqlalchemy.exc import SQLAlchemyError
 
 from agent.events import EVENT_PAGE, run_events
@@ -81,10 +82,10 @@ class ProjectStream:
         self.project_id = project_id
         self.queue: asyncio.Queue[ServerSentEvent | None] = asyncio.Queue()
         self.followed: dict[str, asyncio.Task[None]] = {}
-        # Set by open(): the subscription taken before the response starts, the first ready frame,
-        # and the resumed run with its status.
+        # Set by open(): the subscription taken before the response starts, the row the first ready
+        # frame is built from, and the resumed run with its status.
         self.pubsub: PubSub | None = None
-        self.ready: dict[str, object] = {"e": "ready"}
+        self.found: Row[Any] | None = None
         self.resume: str | None = None
         self.resume_status: str | None = None
 
@@ -123,8 +124,9 @@ class ProjectStream:
             found = (await db.execute(self.ready_query(user_id, resume_run))).first()
         if found is None:
             return False
-        self.resume, self.resume_status = resume, found[3]
-        self.ready = self.frame(found, subscribed=self.pubsub is not None)
+        # The frame, which starts following the newest open run, is built once the stream runs: after
+        # the resume cursor is applied, and inside the block that cancels what it follows.
+        self.resume, self.resume_status, self.found = resume, found[3], found
         return True
 
     async def events(self) -> AsyncIterator[ServerSentEvent]:
@@ -185,7 +187,7 @@ class ProjectStream:
                     if ready:
                         await self.announce(subscribed=True)
                     else:
-                        await self.queue.put(ServerSentEvent(data=self.ready))
+                        await self.queue.put(ServerSentEvent(data=self.frame(self.found, self.pubsub is not None)))
                     ready, opened = True, None
                     while True:
                         message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=STREAM_IDLE_SECONDS)
@@ -199,7 +201,7 @@ class ProjectStream:
                 # Notices are only doorbells: without Redis the client still composes, and runs still
                 # stream from Postgres. FastAPI's 15 s ping keeps this stream open until Redis returns.
                 if not ready:
-                    # Redis was down when the stream opened: open() read the frame bare.
+                    # Redis was down when the stream opened: the first frame goes out bare.
                     ready, opened = True, None
-                    await self.queue.put(ServerSentEvent(data=self.ready))
+                    await self.queue.put(ServerSentEvent(data=self.frame(self.found, self.pubsub is not None)))
                 await asyncio.sleep(STREAM_IDLE_SECONDS)
