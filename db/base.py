@@ -31,9 +31,10 @@ engine = create_async_engine(
     # dropped by a database or pooler restart fails one request and SQLAlchemy then replaces the
     # pool; pool_recycle retires idle connections before the pooler or a NAT drops them.
     pool_pre_ping=False,
-    # A chat page opens about six requests at once; with two connections they queued behind
-    # each other, a database round trip at a time.
-    pool_size=5,
+    # A chat page opens about six requests at once, beside the workers' own queries. Connections
+    # beyond pool_size are closed when returned, so each burst past it paid a new connection
+    # (~0.9 s measured in production) on every page load. Kept connections cover the burst.
+    pool_size=10,
     max_overflow=5,
     pool_timeout=5,
     # Reconnecting costs a TLS handshake to the database region (~0.85 s measured in production),
