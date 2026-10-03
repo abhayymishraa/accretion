@@ -195,6 +195,8 @@ class SandboxRuntimes:
             inserted = await db.scalar(
                 insert(SandboxRuntime).from_select(list(values), source).returning(SandboxRuntime.chat_id))
         if inserted is None:
+            # No sandbox will exist to settle this lease: release it now.
+            await settle_runtime(spend.id, rejected=True)
             raise StorageError('Project no longer exists')
         # Ownership intent is committed before the provider request.
         try:
