@@ -61,7 +61,7 @@ class Chat(Base):
     __tablename__ = "chats"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"))
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True)
     # Null until agent/run/title.py names the project from its first request.
     title: Mapped[str | None] = mapped_column(String(255), nullable=True)
     app_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
