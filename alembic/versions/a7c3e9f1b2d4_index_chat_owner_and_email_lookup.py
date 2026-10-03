@@ -26,9 +26,15 @@ def upgrade() -> None:
     unique: a database may already hold two addresses differing only in case, and register refuses a
     new one through the same lower() lookup.
     """
+    # This only reruns after a failed attempt, and a failed concurrent build leaves an invalid index
+    # under its name that IF NOT EXISTS would keep: drop whatever is there, then build.
     with op.get_context().autocommit_block():
-        op.execute("CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_chats_user_id ON chats (user_id)")
-        op.execute("CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_users_email_lower ON users (lower(email))")
+        for name, definition in (
+            ("ix_chats_user_id", "chats (user_id)"),
+            ("ix_users_email_lower", "users (lower(email))"),
+        ):
+            op.execute(f"DROP INDEX CONCURRENTLY IF EXISTS {name}")
+            op.execute(f"CREATE INDEX CONCURRENTLY {name} ON {definition}")
 
 
 def downgrade() -> None:
