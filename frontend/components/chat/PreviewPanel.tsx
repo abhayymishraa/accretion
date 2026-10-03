@@ -35,6 +35,11 @@ const PreviewReveal = dynamic(() => import("@/components/effects/PreviewReveal")
 type TabType = "preview" | "files";
 // Decorative: the text beside it announces the state.
 const BUILD_LOADER = <TetrisLoader aria-hidden rows={12} cellSize={3} gap={1} />;
+// One look for every pane state, so waking and first paint read as the same screen.
+const STATE_CLASS =
+    "ember-empty flex flex-col items-center gap-3 px-6 py-16 text-center text-muted-foreground [&_h2]:font-brand [&_h2]:text-[16px] [&_h2]:font-semibold [&_h2]:tracking-[-0.3px] [&_h2]:text-foreground [&_p]:max-w-[42ch] [&_p]:text-[12.5px] [&_p]:leading-relaxed";
+const LOADING_TITLE = "Loading your app…";
+const LOADING_DESCRIPTION = "Your saved project will appear here shortly.";
 
 export function PreviewPanel({
     appUrl,
@@ -87,7 +92,7 @@ export function PreviewPanel({
     if (building) {
         emptyTitle = "Building your app…";
     } else if (preparing) {
-        emptyTitle = "Loading your app…";
+        emptyTitle = LOADING_TITLE;
     } else if (previewError) {
         emptyTitle = "Preview unavailable.";
     } else if (revisionId) {
@@ -98,7 +103,7 @@ export function PreviewPanel({
     if (building) {
         emptyDescription = "Follow the existing build in your conversation.";
     } else if (preparing) {
-        emptyDescription = "Your saved project will appear here shortly.";
+        emptyDescription = LOADING_DESCRIPTION;
     } else if (revisionId) {
         emptyDescription = "Your saved files are available in Files.";
     }
@@ -163,16 +168,16 @@ export function PreviewPanel({
                             />
                             {paintedKey !== frameKey && (
                                 <div
-                                    role="status"
-                                    className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-3 font-brand text-[16px] font-semibold tracking-[-0.3px]"
+                                    className={`${STATE_CLASS} pointer-events-none absolute inset-0`}
                                 >
                                     {BUILD_LOADER}
-                                    Loading your app…
+                                    <h2>{LOADING_TITLE}</h2>
+                                    <p role="status">{LOADING_DESCRIPTION}</p>
                                 </div>
                             )}
                         </>
                     ) : (
-                        <div className="ember-empty flex flex-col items-center gap-3 px-6 py-16 text-center text-muted-foreground [&_h2]:font-brand [&_h2]:text-[16px] [&_h2]:font-semibold [&_h2]:tracking-[-0.3px] [&_h2]:text-foreground [&_p]:max-w-[42ch] [&_p]:text-[12.5px] [&_p]:leading-relaxed">
+                        <div className={STATE_CLASS}>
                             {EFFECTS.previewImageReveal && building ? (
                                 <PreviewReveal images={[]} />
                             ) : building || preparing ? (
@@ -189,7 +194,7 @@ export function PreviewPanel({
                                     {previewError ? "Retry" : "Resume preview"}
                                 </Button>
                             )}
-                            <div className="[&>[data-error-box]]:text-left">
+                            <div className="empty:hidden [&>[data-error-box]]:text-left">
                                 <ErrorBox message={!building && previewError ? previewError : ""} />
                             </div>
                         </div>
