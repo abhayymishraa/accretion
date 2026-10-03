@@ -182,8 +182,10 @@ export function TetrisLoader({
 
             completeRef.current?.();
             // A new game replaces the frames, which restarts this effect.
-            if (loop) setBoard(deal(width, height));
-            else frame.current = game.length - 1;
+            if (loop) {
+                frame.current = 0;
+                setBoard(deal(width, height));
+            } else frame.current = game.length - 1;
         };
 
         request = requestAnimationFrame(tick);
