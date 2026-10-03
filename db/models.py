@@ -6,10 +6,12 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
     false,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -108,6 +110,16 @@ class Run(Base):
     """A run's queue row, owner lease, bounded activity log and durable outcome."""
 
     __tablename__ = "runs"
+    # One queued or running build per project, enforced by Postgres rather than a read before the insert:
+    # admission then needs no fresh read under a lock, and a lost race fails the INSERT (a 409).
+    __table_args__ = (
+        Index(
+            "uq_runs_one_open_per_chat",
+            "chat_id",
+            unique=True,
+            postgresql_where=text("status IN ('queued', 'running')"),
+        ),
+    )
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     chat_id: Mapped[str] = mapped_column(ForeignKey("chats.id", ondelete="CASCADE"), index=True)
     status: Mapped[str] = mapped_column(String(24), default="running", index=True)
