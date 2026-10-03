@@ -57,7 +57,9 @@ export function PreviewPanel({
     const previewHistory = usePreviewHistory(frame, appUrl);
     const [refresh, setRefresh] = useState(0);
     const [retainPreview, setRetainPreview] = useState(false);
-    const previewReady = visible && Boolean(appUrl) && phase === "active" && !isBuilding;
+    const building = isBuilding || phase === "building";
+    const live = Boolean(appUrl) && phase === "active" && !building;
+    const previewReady = visible && live;
     // Reset before children render so a stale retention flag cannot mount an iframe.
     if (retainPreview && !previewReady) {
         setRetainPreview(false);
@@ -71,7 +73,6 @@ export function PreviewPanel({
         return () => clearTimeout(timer);
     }, [activeTab, previewReady, appUrl]);
     const preparing = phase === "checking" || phase === "opening";
-    const building = isBuilding || phase === "building";
 
     let emptyTitle = "Your canvas is ready.";
     if (building) {
@@ -128,11 +129,12 @@ export function PreviewPanel({
                 />
             )}
             {visible && (activeTab === "preview" || retainPreview) && (
+                // Every state fills the pane edge to edge under the address bar; only phone width is framed.
                 <div
-                    className="ember-preview-stage flex min-h-0 flex-1 justify-center overflow-auto p-4 [&_iframe]:h-full [&_iframe]:w-full [&_iframe]:opacity-0 [&_iframe[data-loaded]]:opacity-100 [&_iframe]:min-h-70 [&_iframe]:rounded-[10px] [&_iframe]:border [&_iframe]:border-border [&_iframe]:bg-white [&>.ember-empty]:w-full [&>.ember-empty]:justify-center max-md:p-2"
+                    className={`ember-preview-stage flex min-h-0 flex-1 justify-center overflow-auto [&_iframe]:h-full [&_iframe]:w-full [&_iframe]:opacity-0 [&_iframe[data-loaded]]:opacity-100 [&_iframe]:min-h-70 [&_iframe]:bg-white [&>.ember-empty]:w-full [&>.ember-empty]:justify-center ${live && mobile ? "p-4 max-md:p-2 [&_iframe]:border [&_iframe]:border-border" : ""}`}
                     style={activeTab === "files" ? { display: "none" } : undefined}
                 >
-                    {appUrl && phase === "active" && !building ? (
+                    {live ? (
                         <iframe
                             ref={frame}
                             key={`${projectId}-${refresh}`}
@@ -149,7 +151,7 @@ export function PreviewPanel({
                             sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-modals"
                         />
                     ) : (
-                        <div className="ember-empty flex flex-col items-center gap-3 rounded-[14px] border border-dashed border-border px-6 py-16 text-center text-muted-foreground [&_h2]:text-[19px] [&_h2]:font-medium [&_h2]:tracking-[-0.01em] [&_h2]:text-foreground [&_p]:max-w-[42ch] [&_p]:text-[13.5px] [&_p]:leading-relaxed">
+                        <div className="ember-empty flex flex-col items-center gap-3 px-6 py-16 text-center text-muted-foreground [&_h2]:text-[19px] [&_h2]:font-medium [&_h2]:tracking-[-0.01em] [&_h2]:text-foreground [&_p]:max-w-[42ch] [&_p]:text-[13.5px] [&_p]:leading-relaxed">
                             {EFFECTS.previewImageReveal && building ? (
                                 <PreviewReveal images={[]} />
                             ) : (
