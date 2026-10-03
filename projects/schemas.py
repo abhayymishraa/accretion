@@ -58,12 +58,6 @@ class MessagePage(CustomModel):
     chat: ProjectRef
 
 
-class ProjectDeletion(CustomModel):
-    deleted: bool
-    storage_cleanup: str
-    sandbox_cleanup: str
-
-
 class RunAdmission(CustomModel):
     """What starting or answering a run returns."""
 

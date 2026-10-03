@@ -3,7 +3,7 @@ from collections.abc import AsyncGenerator
 from typing import Annotated
 
 from fastapi import Depends, Request
-from sqlalchemy import MetaData
+from sqlalchemy import MetaData, literal
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
@@ -31,9 +31,10 @@ engine = create_async_engine(
     # dropped by a database or pooler restart fails one request and SQLAlchemy then replaces the
     # pool; pool_recycle retires idle connections before the pooler or a NAT drops them.
     pool_pre_ping=False,
-    # A chat page opens about six requests at once; with two connections they queued behind
-    # each other, a database round trip at a time.
-    pool_size=5,
+    # A chat page opens about six requests at once, beside the workers' own queries. Connections
+    # beyond pool_size are closed when returned, so each burst past it paid a new connection
+    # (~0.9 s measured in production) on every page load. Kept connections cover the burst.
+    pool_size=10,
     max_overflow=5,
     pool_timeout=5,
     # Reconnecting costs a TLS handshake to the database region (~0.85 s measured in production),
@@ -69,24 +70,34 @@ class Base(DeclarativeBase):
     metadata = MetaData(naming_convention=NAMING_CONVENTION)
 
 
-# Sessions for work that never writes: no transaction, so no BEGIN and COMMIT round trips.
-ReadSessionLocal = async_sessionmaker(
+def bound(model, **values):
+    """Column values as anonymous binds, so statements joined into one by CTEs never share a
+    parameter name (each would otherwise bind its own `id`, `chat_id`, `created_at`)."""
+    return {key: literal(value, model.__table__.c[key].type) for key, value in values.items()}
+
+
+# Sessions without a transaction: each statement commits by itself, so no BEGIN and COMMIT round
+# trips. For reads, and for a write that is one statement; two writes that must land together
+# keep AsyncSessionLocal.begin().
+AutocommitSessionLocal = async_sessionmaker(
     engine.execution_options(isolation_level="AUTOCOMMIT"), class_=AsyncSession, expire_on_commit=False
 )
 
 
-def read_only(request: Request) -> None:
-    """Route dependency for routes that never write: get_db then hands out a ReadSessionLocal
-    session. Route dependencies resolve before parameters, so get_db sees the mark."""
-    request.state.read_only = True
+def autocommit(request: Request) -> None:
+    """Route dependency for routes that never write, or write in exactly one statement, which
+    commits by itself: get_db then hands out a AutocommitSessionLocal session. A route with two writes
+    that must succeed together keeps the transaction. Route dependencies resolve before
+    parameters, so get_db sees the mark."""
+    request.state.autocommit = True
 
 
-ReadOnly = Depends(read_only)
+Autocommit = Depends(autocommit)
 
 
 async def get_db(request: Request) -> AsyncGenerator[AsyncSession, None]:
     # Creates a database session.
-    factory = ReadSessionLocal if getattr(request.state, "read_only", False) else AsyncSessionLocal
+    factory = AutocommitSessionLocal if getattr(request.state, "autocommit", False) else AsyncSessionLocal
     async with factory() as session:
         try:
             # “Pauses” the function and hands out the session object to whoever called get_db().

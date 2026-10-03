@@ -4,7 +4,7 @@
 OpenAPI component names, so renaming them breaks generated clients.
 """
 
-from typing import Any, Literal
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -55,20 +55,6 @@ class RunEventItem(CustomModel):
     model_config = ConfigDict(extra="allow")
 
     created_at: UtcDatetime | None = None
-
-
-class RunSummary(CustomModel):
-    id: str
-    status: str
-    reason: str | None = None
-    created_at: UtcDatetime | None = None
-    metrics: dict[str, Any] | None = None
-    workflow: dict[str, Any] | None = None
-    events: list[RunEventItem] = Field(default_factory=list)
-
-
-class RunList(CustomModel):
-    runs: list[RunSummary]
 
 
 class RunEventsPage(CustomModel):

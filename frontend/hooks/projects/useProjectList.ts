@@ -40,15 +40,25 @@ export function reloadProjects() {
         });
 }
 
-/** The user's projects, newest first; null until the first load. Reloads on every mount. */
+/**
+ * The user's projects, newest first; null until the first load. Loaded once per page, then kept
+ * current by events (a new prompt, a delete, a project not yet listed), not on every mount.
+ */
 export function useProjectList() {
     const list = useSyncExternalStore(
         subscribe,
         () => projects,
         () => null,
     );
-    useEffect(reloadProjects, []);
+    useEffect(() => {
+        if (projects === null) reloadProjects();
+    }, []);
     return list;
+}
+
+/** Reloads when a project opened here is not listed yet, such as one just created. */
+export function listProject(id: string) {
+    if (projects && !projects.some((project) => project.id === id)) reloadProjects();
 }
 
 /** Shows a name the server already saved: one the AI gave a new project, pushed over its socket. */

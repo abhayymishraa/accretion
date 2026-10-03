@@ -5,7 +5,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select
 
-from db.base import AsyncSessionLocal
+from db.base import AutocommitSessionLocal
 from db.models import Chat, Message
 
 from ..events import redact
@@ -96,7 +96,7 @@ async def select_workflow(live, model=None):
         return live.workflow
     if model is None:
         model = llm
-    async with AsyncSessionLocal() as db:
+    async with AutocommitSessionLocal() as db:
         chat = await db.get(Chat, live.chat_id)
         # No sandbox, compaction, or unbounded source reads just to choose a route.
         rows = (

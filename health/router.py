@@ -5,7 +5,7 @@ import asyncio
 from fastapi import APIRouter
 from sqlalchemy import text
 
-from db.base import DbSession
+from db.base import Autocommit, DbSession
 from health.exceptions import DatabaseUnavailable
 from health.schemas import Liveness, Readiness
 
@@ -17,7 +17,7 @@ async def get_health() -> Liveness:
     return Liveness(message="Welcome", status="Healthy")
 
 
-@router.get("/health/ready")
+@router.get("/health/ready", dependencies=[Autocommit])
 async def get_readiness(db: DbSession) -> Readiness:
     try:
         await asyncio.wait_for(db.execute(text("SELECT 1")), timeout=12)

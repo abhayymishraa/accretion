@@ -16,10 +16,10 @@ from collections.abc import Sequence
 from typing import Any
 
 from langchain_core.messages import messages_from_dict, messages_to_dict
-from sqlalchemy import Text, cast, delete, func, select
+from sqlalchemy import Text, cast, delete, func, insert, select
 
 from agent.context.models import TranscriptEntry
-from db.base import AsyncSessionLocal
+from db.base import AsyncSessionLocal, AutocommitSessionLocal
 
 logger = logging.getLogger("webbuilder.runs")
 
@@ -34,7 +34,7 @@ async def load(chat_id):
     the pre-transcript behaviour, where the request carries its own recent
     history instead.
     """
-    async with AsyncSessionLocal() as db:
+    async with AutocommitSessionLocal() as db:
         rows: Sequence[dict[str, Any]] = (
             (
                 await db.execute(
@@ -60,12 +60,15 @@ async def append(chat_id, messages, start):
     payloads = messages_to_dict(list(messages[start:]))
     if not payloads:
         return start
-    async with AsyncSessionLocal.begin() as db:
-        db.add_all(
-            [
-                TranscriptEntry(chat_id=chat_id, sequence=start + offset, payload=payload)
-                for offset, payload in enumerate(payloads)
-            ]
+    # One multi-row INSERT, committed by itself: all of the turn's entries or none, in one round trip.
+    async with AutocommitSessionLocal() as db:
+        await db.execute(
+            insert(TranscriptEntry).values(
+                [
+                    {"chat_id": chat_id, "sequence": start + offset, "payload": payload}
+                    for offset, payload in enumerate(payloads)
+                ]
+            )
         )
     return start + len(payloads)
 
@@ -88,12 +91,9 @@ async def replace(chat_id, messages):
     return len(messages)
 
 
-async def size_chars(chat_id: str) -> int:
-    """Stored transcript size in characters: a cheap bound for picking a model that fits."""
-    async with AsyncSessionLocal() as db:
-        total = await db.scalar(
-            select(func.coalesce(func.sum(func.length(cast(TranscriptEntry.payload, Text))), 0)).where(
-                TranscriptEntry.chat_id == chat_id
-            )
-        )
-    return int(total or 0)
+def stored_chars(chat_id: str):
+    """Stored transcript size in characters: a cheap bound for picking a model that fits. A select,
+    so a caller can read it as a column of a larger query."""
+    return select(func.coalesce(func.sum(func.length(cast(TranscriptEntry.payload, Text))), 0)).where(
+        TranscriptEntry.chat_id == chat_id
+    )

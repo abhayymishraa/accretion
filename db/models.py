@@ -6,11 +6,14 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
     false,
+    text,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from plans import DEFAULT_PLAN
@@ -58,7 +61,7 @@ class Chat(Base):
     __tablename__ = "chats"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"))
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True)
     # Null until agent/run/title.py names the project from its first request.
     title: Mapped[str | None] = mapped_column(String(255), nullable=True)
     app_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
@@ -76,6 +79,11 @@ class Chat(Base):
         back_populates="chat",
         cascade="all, delete-orphan",
         order_by="Message.created_at",
+    )
+    # Loaded only by the query that checks ownership for file routes; holding it keeps the row in
+    # the session, so latest_revision_in finds it without a query. Never lazily loaded.
+    latest_saved_revision: Mapped["ProjectRevision | None"] = relationship(
+        primaryjoin="foreign(Chat.latest_saved_revision_id) == ProjectRevision.id", viewonly=True, lazy="raise"
     )
 
 
@@ -102,6 +110,16 @@ class Run(Base):
     """A run's queue row, owner lease, bounded activity log and durable outcome."""
 
     __tablename__ = "runs"
+    # One queued or running build per project, enforced by Postgres rather than a read before the insert:
+    # admission then needs no fresh read under a lock, and a lost race fails the INSERT (a 409).
+    __table_args__ = (
+        Index(
+            "uq_runs_one_open_per_chat",
+            "chat_id",
+            unique=True,
+            postgresql_where=text("status IN ('queued', 'running')"),
+        ),
+    )
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     chat_id: Mapped[str] = mapped_column(ForeignKey("chats.id", ondelete="CASCADE"), index=True)
     status: Mapped[str] = mapped_column(String(24), default="running", index=True)
@@ -114,6 +132,9 @@ class Run(Base):
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Each file-editing call's summary (public_tools.edit_summary), appended as it completes, so
+    # history reads the edited-files card with the run's row instead of from run_events.
+    edits: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB, nullable=True)
     log_key: Mapped[str | None] = mapped_column(String(512), nullable=True)
     log_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
     # The worker holding this run (agent/run/worker.py) and when its lease lapses.

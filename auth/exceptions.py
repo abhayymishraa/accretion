@@ -29,10 +29,6 @@ class CredentialsUnverifiable(NotAuthenticated):
     DETAIL = "could not validate credentials"
 
 
-class MalformedUserId(NotAuthenticated):
-    DETAIL = "Invalid user ID format"
-
-
 class InvalidCredentials(NotAuthenticated):
     DETAIL = "Incorrect email or password."
 
@@ -75,10 +71,6 @@ class EmailTaken(BadRequest):
 
 class EmailTakenConflict(Conflict):
     DETAIL = "Email already registered."
-
-
-class AccountUnavailable(BadRequest):
-    DETAIL = "This account is no longer available."
 
 
 class DisposableEmail(UnprocessableEntity):

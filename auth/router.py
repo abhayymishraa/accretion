@@ -2,12 +2,12 @@
 
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Query, status
 
 from auth import service
-from db.base import DbSession, ReadOnly
+from db.base import Autocommit, DbSession
 
-from .dependencies import AdminUser, ClientIp, SignedInUser
+from .dependencies import AdminUser, ClientIp, get_token_user
 from .schemas import (
     AccountPage,
     AccountRow,
@@ -17,6 +17,7 @@ from .schemas import (
     RegisterResponse,
     Token,
     TokenRequest,
+    TokenUser,
     UserLogin,
     UserRegister,
     UserResponse,
@@ -26,51 +27,55 @@ from .schemas import (
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-@router.post("/register", status_code=status.HTTP_201_CREATED)
-async def register_user(user: UserRegister, request_ip: ClientIp, db: DbSession) -> RegisterResponse:
-    return await service.register_user(user=user, request_ip=request_ip, db=db)
+@router.post("/register", status_code=status.HTTP_201_CREATED, dependencies=[Autocommit])
+async def register_user(
+    user: UserRegister, request_ip: ClientIp, background: BackgroundTasks, db: DbSession
+) -> RegisterResponse:
+    return await service.register_user(user=user, request_ip=request_ip, background=background, db=db)
 
 
-@router.post("/login")
+@router.post("/login", dependencies=[Autocommit])
 async def login_user(user_data: UserLogin, db: DbSession) -> Token:
     """Authenticate user and return jwt"""
     return await service.login_user(user_data=user_data, db=db)
 
 
-@router.post("/refresh")
+@router.post("/refresh", dependencies=[Autocommit])
 async def refresh_token(token_data: RefreshTokenRequest, db: DbSession) -> Token:
     """refresh access token using refresh token"""
     return await service.refresh_token(token_data=token_data, db=db)
 
 
-@router.get("/me", dependencies=[ReadOnly])
-async def get_me(current_user: SignedInUser, db: DbSession) -> UserResponse:
-    return await service.get_me(current_user=current_user, db=db)
+@router.get("/me", dependencies=[Autocommit])
+async def get_me(current_user: Annotated[TokenUser, Depends(get_token_user)], db: DbSession) -> UserResponse:
+    return await service.get_me(current_user.id, db)
 
 
-@router.patch("/me")
+@router.patch("/me", dependencies=[Autocommit])
 async def update_me(
     profile: ProfileUpdate,
-    current_user: SignedInUser,
+    current_user: Annotated[TokenUser, Depends(get_token_user)],
     db: DbSession,
 ) -> UserResponse:
-    return await service.update_me(profile=profile, current_user=current_user, db=db)
+    return await service.update_me(profile, current_user.id, db)
 
 
-@router.post("/verification/request", status_code=202)
-async def request_verification(data: EmailRequest, request_ip: ClientIp, db: DbSession) -> VerificationRequested:
-    return await service.request_verification(data=data, request_ip=request_ip, db=db)
+@router.post("/verification/request", status_code=202, dependencies=[Autocommit])
+async def request_verification(
+    data: EmailRequest, request_ip: ClientIp, background: BackgroundTasks, db: DbSession
+) -> VerificationRequested:
+    return await service.request_verification(data=data, request_ip=request_ip, background=background, db=db)
 
 
-@router.post("/verification/confirm")
-async def confirm_verification(data: TokenRequest, db: DbSession) -> Token:
-    return await service.confirm_verification(data=data, db=db)
+@router.post("/verification/confirm", dependencies=[Autocommit])
+async def confirm_verification(data: TokenRequest, background: BackgroundTasks, db: DbSession) -> Token:
+    return await service.confirm_verification(data=data, background=background, db=db)
 
 
 users_router = APIRouter(prefix="/users", tags=["users"])
 
 
-@users_router.get("")
+@users_router.get("", dependencies=[Autocommit])
 async def list_users(
     *,
     _: AdminUser,

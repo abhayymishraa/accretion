@@ -13,9 +13,9 @@ import uuid
 from e2b import (AsyncSandbox, AuthenticationException, InvalidArgumentException,
                  NotFoundException, SandboxQuery, SandboxState)
 from e2b.exceptions import RateLimitException, ServiceBusyException
-from sqlalchemy import delete, or_, select, update
+from sqlalchemy import delete, exists, insert, literal, or_, select, update
 
-from db.base import AsyncSessionLocal, ReadSessionLocal
+from db.base import AsyncSessionLocal, AutocommitSessionLocal, bound
 from db.models import Chat, SandboxRuntime
 from ..storage.storage import StorageError
 from ..budget.sandbox_budget import reserve_runtime, confirm_runtime, settle_runtime
@@ -33,24 +33,30 @@ class SandboxRuntimes:
         self.handles = {}
 
     async def get(self, chat_id):
-        async with AsyncSessionLocal() as db:
+        async with AutocommitSessionLocal() as db:
             return await db.get(SandboxRuntime, chat_id)
 
     async def running_for(self, user_id, except_chat):
         """The user's running sandboxes other than except_chat: what one-active-per-user pauses."""
-        async with ReadSessionLocal() as db:
+        async with AutocommitSessionLocal() as db:
             return list((await db.scalars(select(SandboxRuntime)
                 .join(Chat, Chat.id == SandboxRuntime.chat_id)
                 .where(Chat.user_id == user_id, SandboxRuntime.chat_id != except_chat,
                        SandboxRuntime.state == 'running'))).all())
 
-    async def reserved(self):
-        async with AsyncSessionLocal() as db:
-            return set((await db.scalars(select(SandboxRuntime.chat_id)
-                .where(SandboxRuntime.state != 'paused'))).all())
+    async def reserved(self, chat_id):
+        """Chats whose row is not paused (each holds a live slot), and chat_id's row state, in one query."""
+        async with AutocommitSessionLocal() as db:
+            rows = (await db.execute(select(SandboxRuntime.chat_id, SandboxRuntime.state).where(
+                or_(SandboxRuntime.state != 'paused', SandboxRuntime.chat_id == chat_id)))).all()
+        return {row.chat_id for row in rows if row.state != 'paused'}, next(
+            (row.state for row in rows if row.chat_id == chat_id), None)
 
     async def change(self, row, **values):
-        async with AsyncSessionLocal.begin() as db:
+        if all(getattr(row, key) == value for key, value in values.items()):
+            return  # Already so: nothing to write (state() re-confirming 'paused' before a resume).
+        # One statement, committed by itself: the row changes only if this operation still owns it.
+        async with AutocommitSessionLocal() as db:
             result = await db.execute(update(SandboxRuntime).where(
                 SandboxRuntime.chat_id == row.chat_id,
                 SandboxRuntime.operation_id == row.operation_id).values(**values))
@@ -65,7 +71,7 @@ class SandboxRuntimes:
     async def remove(self, row, *, rejected=False):
         # Only callers with confirmed absence/termination remove runtime ownership.
         await settle_runtime(row.spend_id, rejected=rejected)
-        async with AsyncSessionLocal.begin() as db:
+        async with AutocommitSessionLocal() as db:
             await db.execute(delete(SandboxRuntime).where(
                 SandboxRuntime.chat_id == row.chat_id,
                 SandboxRuntime.operation_id == row.operation_id))
@@ -122,7 +128,7 @@ class SandboxRuntimes:
                 self.forget_handle(row.chat_id)
         return state
 
-    async def renew(self, chat_id):
+    async def renew(self, chat_id, user_id):
         """Extend a running sandbox's provider timer, metered like connect: reserve the next lease
         first, then extend, then confirm against the provider's reported size. Runs have no clock,
         so a long one renews instead of being parked at RUNTIME_TIMEOUT mid-work."""
@@ -130,16 +136,17 @@ class SandboxRuntimes:
         if not row or not handle or row.state != 'running':
             return
         info = await AsyncSandbox.get_info(handle.sandbox_id, request_timeout=API_TIMEOUT)
-        spend = await reserve_runtime(chat_id, RUNTIME_TIMEOUT, row.spend_id, info)
+        spend = await reserve_runtime(RUNTIME_TIMEOUT, row.spend_id, info, user_id=user_id)
         await self.change(row, spend_id=spend.id, last_used_at=datetime.now(timezone.utc))
         await handle.set_timeout(RUNTIME_TIMEOUT, request_timeout=API_TIMEOUT)
         await confirm_runtime(spend.id, await AsyncSandbox.get_info(handle.sandbox_id, request_timeout=API_TIMEOUT))
 
-    async def acquire(self, chat_id, revision, template):
-        """Return (handle, needs_source_restore); caller already reserved admission and chose the template."""
+    async def acquire(self, chat_id, user_id, revision, template, row):
+        """Return (handle, needs_source_restore); caller already reserved admission and chose the template.
+        user_id is the project's owner, whom each lease is reserved against; row is the chat's runtime
+        row (or None), read by the caller with the project just before."""
         revision_id = revision.id if revision else None
         generation = sandbox_settings.E2B_RUNTIME_GENERATION
-        row = await self.get(chat_id)
         if row:
             compatible = (row.reusable and row.sandbox_id and row.revision_id == revision_id
                 and row.template_id == template and row.generation == generation
@@ -153,7 +160,7 @@ class SandboxRuntimes:
                 if row and await self.state(row, info) not in ('running', 'paused'):
                     raise StorageError('Preview state is unknown; retry after cleanup')
             if row and compatible:
-                spend = await reserve_runtime(chat_id, RUNTIME_TIMEOUT, row.spend_id, info)
+                spend = await reserve_runtime(RUNTIME_TIMEOUT, row.spend_id, info, user_id=user_id)
                 # Reserve durably before connect: connect can wake a paused sandbox.
                 await self.change(row, state='running', spend_id=spend.id,
                                   last_used_at=datetime.now(timezone.utc))
@@ -175,14 +182,22 @@ class SandboxRuntimes:
             if row and not await self.retire(chat_id):
                 raise StorageError('Previous preview cleanup is pending; no replacement was started')
 
-        spend = await reserve_runtime(chat_id, RUNTIME_TIMEOUT)
+        spend = await reserve_runtime(RUNTIME_TIMEOUT, user_id=user_id)
         row = SandboxRuntime(chat_id=chat_id, operation_id=str(uuid.uuid4()), spend_id=spend.id,
             template_id=template, generation=generation, revision_id=None,
             reusable=False, state='creating', last_used_at=datetime.now(timezone.utc))
-        async with AsyncSessionLocal.begin() as db:
-            if not await db.get(Chat, chat_id):
-                raise StorageError('Project no longer exists')
-            db.add(row)
+        # One INSERT, committed by itself, of a row only while its project exists. The table has no
+        # foreign key on purpose (cleanup intent outlives the project), so the check is in the INSERT.
+        values = bound(SandboxRuntime, **{name: getattr(row, name) for name in ('chat_id', 'operation_id',
+            'spend_id', 'template_id', 'generation', 'revision_id', 'reusable', 'state', 'last_used_at')})
+        source = select(*values.values()).where(exists().where(Chat.id == chat_id))
+        async with AutocommitSessionLocal() as db:
+            inserted = await db.scalar(
+                insert(SandboxRuntime).from_select(list(values), source).returning(SandboxRuntime.chat_id))
+        if inserted is None:
+            # No sandbox will exist to settle this lease: release it now.
+            await settle_runtime(spend.id, rejected=True)
+            raise StorageError('Project no longer exists')
         # Ownership intent is committed before the provider request.
         try:
             async with asyncio.timeout(40):
@@ -204,21 +219,27 @@ class SandboxRuntimes:
         return handle, True
 
     async def invalidate(self, chat_id):
-        row = await self.get(chat_id)
-        if not row:
+        # One statement on whichever row the chat has now, as reading it first and changing it did.
+        async with AutocommitSessionLocal() as db:
+            result = await db.execute(update(SandboxRuntime).where(
+                SandboxRuntime.chat_id == chat_id).values(reusable=False))
+        if cast(CursorResult[Any], result).rowcount != 1:
             raise StorageError('Preview ownership is missing')
-        await self.change(row, reusable=False)
 
-    async def mark_reusable(self, db, chat_id, revision_id):
-        # Caller commits this with successful run completion / preview publication.
+    def reusable(self, chat_id, revision_id, *conditions):
+        """The UPDATE marking this process's running sandbox reusable at revision_id, as a statement a
+        caller runs alone or joins to its own (returning chat_id when it matched)."""
         handle = self.handles.get(chat_id)
         if not handle or not revision_id:
             raise StorageError('Saved preview ownership is missing')
-        result = await db.execute(update(SandboxRuntime).where(
+        return update(SandboxRuntime).where(
             SandboxRuntime.chat_id == chat_id, SandboxRuntime.sandbox_id == handle.sandbox_id,
-            SandboxRuntime.state == 'running').values(reusable=True, revision_id=revision_id,
-                last_used_at=datetime.now(timezone.utc)))
-        if result.rowcount != 1:
+            SandboxRuntime.state == 'running', *conditions).values(reusable=True, revision_id=revision_id,
+                last_used_at=datetime.now(timezone.utc)).returning(SandboxRuntime.chat_id)
+
+    async def mark_reusable(self, db, chat_id, revision_id):
+        # Caller commits this with successful run completion.
+        if await db.scalar(self.reusable(chat_id, revision_id)) is None:
             raise StorageError('Saved preview ownership changed')
 
     async def pause(self, row):
@@ -245,7 +266,7 @@ class SandboxRuntimes:
     async def maintain(self, busy, shutdown=False):
         now = datetime.now(timezone.utc)
         cutoff = now - timedelta(days=sandbox_settings.PAUSED_SANDBOX_RETENTION_DAYS)
-        async with AsyncSessionLocal() as db:
+        async with AutocommitSessionLocal() as db:
             # Healthy paused projects need no provider polling or periodic DB writes.
             rows = (await db.execute(select(SandboxRuntime, Chat).outerjoin(Chat,
                 Chat.id == SandboxRuntime.chat_id).where(or_(SandboxRuntime.state != 'paused',

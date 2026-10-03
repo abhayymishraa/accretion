@@ -6,23 +6,29 @@ same operation can be reached from a second caller without going through HTTP.
 """
 
 import asyncio
+from datetime import UTC, datetime
 
+from fastapi import BackgroundTasks
 from fastapi.encoders import jsonable_encoder
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, insert, literal, select, union, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from agent.context.history import conversation_page
-from agent.run.service import agent_service, open_run
+from agent.context.history import conversation_page, transcript
+from agent.run.service import agent_service
 from agent.run.worker import OPEN_STATUSES
 from agent.storage.maintenance import attempt_cleanup, cleanup_project_storage
-from db.models import Chat, Message, ProjectRevision, Run, RunScreenshot, StorageDeletion, User
+from auth.schemas import TokenUser
+from db.base import bound
+from db.models import Chat, Message, ProjectRevision, Run, RunScreenshot, StorageDeletion
 from projects.constants import LIVE_RUN_STATUSES
 from projects.dependencies import owned_chat
-from projects.exceptions import ChatNotFound, NotChatOwner, ProjectBusy
-from projects.schemas import MessagePage, ProjectDeletion, ProjectList, ProjectRef, ProjectSummary, RunAdmission
+from projects.exceptions import ChatNotFound, NotChatOwner, ProjectBusy, ProjectNotFound
+from projects.schemas import MessagePage, ProjectList, ProjectRef, ProjectSummary, RunAdmission
 
 
-async def message_page(db: AsyncSession, project_id: str, user: User, limit: int, before: str | None) -> MessagePage:
+async def message_page(
+    db: AsyncSession, project_id: str, user: TokenUser, limit: int, before: str | None
+) -> MessagePage:
     """One page of a project's conversation, plus which run is live."""
     # Not `owned_chat`: this route separates "no such chat" from "not yours",
     # and both messages are part of the published behaviour.
@@ -36,25 +42,31 @@ async def message_page(db: AsyncSession, project_id: str, user: User, limit: int
         .subquery()
     )
     newest_live = select(live.c.id).order_by(live.c.created_at.desc()).limit(1)
-    row = (
+    # The page joins on ownership, so another user's messages never leave the database, and one
+    # round trip answers both whether the project is theirs and what it holds.
+    page = transcript(project_id, limit, before).subquery()
+    rows = (
         await db.execute(
             select(
                 Chat,
-                newest_live.where(live.c.status.in_(OPEN_STATUSES)).scalar_subquery(),
-                newest_live.where(live.c.status == "awaiting_input").scalar_subquery(),
-            ).where(Chat.id == project_id)
+                newest_live.where(live.c.status.in_(OPEN_STATUSES)).scalar_subquery().label("active_run_id"),
+                newest_live.where(live.c.status == "awaiting_input").scalar_subquery().label("pending_run_id"),
+                page,
+            )
+            .outerjoin(page, Chat.user_id == user.id)
+            .where(Chat.id == project_id)
+            .order_by(page.c.created_at.desc(), page.c.kind.desc(), page.c.id.desc())
         )
-    ).first()
-    if not row:
+    ).all()
+    if not rows:
         raise ChatNotFound
-    chat, active_run_id, pending_run_id = row
+    chat, active_run_id, pending_run_id = rows[0][:3]
     if chat.user_id != user.id:
         raise NotChatOwner
 
-    page = await conversation_page(db, project_id, limit, before)
     return MessagePage.model_validate(
         {
-            **page,
+            **conversation_page([row for row in rows if row.kind], limit),
             "active_run_id": active_run_id,
             "pending_run_id": pending_run_id,
             # ProjectRef sets from_attributes, so pydantic reads the row itself.
@@ -63,7 +75,7 @@ async def message_page(db: AsyncSession, project_id: str, user: User, limit: int
     )
 
 
-async def list_projects(db: AsyncSession, user: User) -> ProjectList:
+async def list_projects(db: AsyncSession, user: TokenUser) -> ProjectList:
     """Projects by the latest accepted prompt, falling back to creation."""
     last_prompt = (
         select(func.max(Message.created_at))
@@ -80,45 +92,60 @@ async def list_projects(db: AsyncSession, user: User) -> ProjectList:
     )
 
 
-async def rename_project(db: AsyncSession, chat: Chat, title: str) -> ProjectRef:
-    chat.title = title
-    await db.commit()
+async def rename_project(db: AsyncSession, project_id: str, user: TokenUser, title: str) -> ProjectRef:
+    """One statement, committed by itself: ownership is part of the update, so an unknown project and
+    someone else's both change nothing and answer "Project not found", as owned_project does."""
+    chat = await db.scalar(
+        update(Chat).where(Chat.id == project_id, Chat.user_id == user.id).values(title=title).returning(Chat)
+    )
+    if chat is None:
+        raise ProjectNotFound
     return ProjectRef.model_validate(chat)
 
 
-async def delete_project(db: AsyncSession, project_id: str, user: User) -> ProjectDeletion:
-    """Revoke access and commit the retry intent before calling any provider."""
+async def delete_project(db: AsyncSession, project_id: str, user: TokenUser, background: BackgroundTasks) -> None:
+    """Revoke access and commit the retry intent before calling any provider; the provider calls run
+    after the reply, and the intents retry whatever they leave behind."""
     async with agent_service.admission:
         # Checkpoint creation locks this same row before inserting its object key.
         await owned_chat(project_id, user, db, for_update=True)
-        if project_id in agent_service.opening or await open_run(db, project_id):
+        # After the lock, in one query: whether a build is open, and every stored object of the
+        # project (revisions, screenshots, run logs, and each run's archive key even while its
+        # upload is still running).
+        stored = union(
+            select(ProjectRevision.object_key).where(ProjectRevision.chat_id == project_id),
+            select(RunScreenshot.object_key).join(Run).where(Run.chat_id == project_id),
+            select(Run.log_key).where(Run.chat_id == project_id, Run.log_key.is_not(None)),
+            select(literal("logs/") + Run.id + literal(".jsonl.gz")).where(Run.chat_id == project_id),
+        ).subquery()
+        building, found = (
+            await db.execute(
+                select(
+                    select(Run.id).where(Run.chat_id == project_id, Run.status.in_(OPEN_STATUSES)).exists(),
+                    select(func.array_agg(stored.c[0])).scalar_subquery(),
+                )
+            )
+        ).one()
+        if project_id in agent_service.opening or building:
             raise ProjectBusy
-        keys = set(
-            (await db.scalars(select(ProjectRevision.object_key).where(ProjectRevision.chat_id == project_id))).all()
+        keys = {*(found or []), f"legacy/{project_id}"}
+        # One statement records the retry intents and deletes the project, which revokes access
+        # before any provider call.
+        now = datetime.now(UTC)
+        intents = insert(StorageDeletion).values(
+            [bound(StorageDeletion, object_key=key, created_at=now) for key in keys]
         )
-        keys.update(
-            (await db.scalars(select(RunScreenshot.object_key).join(Run).where(Run.chat_id == project_id))).all()
+        await db.execute(delete(Chat).where(Chat.id == project_id).add_cte(intents.cte("intents")))
+        await db.commit()
+
+    async def cleanup():
+        await asyncio.gather(
+            attempt_cleanup(cleanup_project_storage(keys)),
+            attempt_cleanup(agent_service.retire_sandbox(project_id)),
         )
-        runs = (await db.execute(select(Run.id, Run.log_key).where(Run.chat_id == project_id))).all()
-        for run_id, log_key in runs:
-            keys.add(f"logs/{run_id}.jsonl.gz")  # Include archives still being uploaded.
-            if log_key:
-                keys.add(log_key)
-        keys.add(f"legacy/{project_id}")
-        for key in keys:
-            db.add(StorageDeletion(object_key=key))
-        await db.execute(delete(Chat).where(Chat.id == project_id))
-        await db.commit()  # Persist retry intent and revoke access before provider calls.
-    storage_done, sandbox_done = await asyncio.gather(
-        attempt_cleanup(cleanup_project_storage(keys)),
-        attempt_cleanup(agent_service.retire_sandbox(project_id)),
-    )
-    return ProjectDeletion(
-        deleted=True,
-        storage_cleanup="completed" if storage_done else "queued",
-        sandbox_cleanup="completed" if sandbox_done else "queued",
-    )
+
+    background.add_task(cleanup)
 
 
-async def start_project(user: User, prompt: str, mode: str, model_choice: str) -> RunAdmission:
+async def start_project(user: TokenUser, prompt: str, mode: str, model_choice: str) -> RunAdmission:
     return RunAdmission.model_validate(await agent_service.admit(user.id, prompt, mode=mode, model_choice=model_choice))

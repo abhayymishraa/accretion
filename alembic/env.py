@@ -41,7 +41,7 @@ target_metadata = Base.metadata
 # Objects that exist by migration but not in the ORM metadata. Without this,
 # autogenerate proposes dropping them on every run -- including the partial
 # full-text index, which no model can express.
-MIGRATION_OWNED_INDEXES = {"ix_messages_context_order", "ix_messages_context_search"}
+MIGRATION_OWNED_INDEXES = {"ix_messages_context_order", "ix_messages_context_search", "ix_users_email_lower"}
 
 
 def include_object(obj, name, type_, reflected, compare_to):

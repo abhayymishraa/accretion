@@ -6,6 +6,8 @@ from jwt import PyJWTError
 from passlib.context import CryptContext
 
 from auth.config import auth_settings
+from auth.schemas import Token
+from db.models import User
 
 SECRET_KEY = auth_settings.SECRET_KEY
 if len(SECRET_KEY) < 32:
@@ -51,6 +53,15 @@ def create_access_token(data: dict[str, Any]) -> str:
     encode_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
     return encode_jwt
+
+
+def issue_tokens(user: User) -> Token:
+    """A token pair for a verified user. The access token carries what each request checks, so
+    authenticating one needs no database query; the refresh token re-reads the user."""
+    return Token(
+        access_token=create_access_token({"sub": str(user.id), "role": user.role, "approved": not user.waitlisted}),
+        refresh_token=create_refresh_token({"sub": str(user.id)}),
+    )
 
 
 def create_refresh_token(data: dict[str, Any]) -> str:

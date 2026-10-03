@@ -11,10 +11,27 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from decimal import ROUND_CEILING, Decimal
 
-from sqlalchemy import func, select
+from sqlalchemy import (
+    JSON,
+    BigInteger,
+    DateTime,
+    Integer,
+    Numeric,
+    String,
+    cast,
+    exists,
+    extract,
+    func,
+    insert,
+    literal,
+    or_,
+    select,
+    update,
+)
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 
 from agent.budget.models import SpendEntry
-from db.base import AsyncSessionLocal
+from db.base import AutocommitSessionLocal, bound
 from db.models import User
 from plans import month_window
 
@@ -53,31 +70,26 @@ def _spent_error(end, left=0):
     return BudgetSpentError(f"{spent} It resets on {end:%-d %B} UTC. Saved projects and previews remain available.")
 
 
-async def used_in_month(db, user_id, start, end):
-    """Model spend only: sandbox entries are recorded but not charged to the user."""
-    return await db.scalar(
-        select(func.coalesce(func.sum(SpendEntry.amount_nanos), 0)).where(
-            SpendEntry.user_id == user_id,
-            SpendEntry.kind == "model",
-            SpendEntry.starts_at < end,
-            SpendEntry.ends_at >= start,
-        )
+def month_spend(user_id, start, end):
+    """Model spend only: sandbox entries are recorded but not charged to the user. A select, so a
+    caller can run it alone or as a column of a larger query."""
+    return select(func.coalesce(func.sum(SpendEntry.amount_nanos), 0)).where(
+        SpendEntry.user_id == user_id,
+        SpendEntry.kind == "model",
+        SpendEntry.starts_at < end,
+        SpendEntry.ends_at >= start,
     )
 
 
-async def remaining_nanos(db, user, month=None):
-    """What is left of `month`'s budget (default: this one), or None when the plan is unlimited."""
-    if user.unlimited:
-        return None
-    start, end = month or month_window(datetime.now(UTC))
-    return max(0, _limit() - await used_in_month(db, user.id, start, end))
+def remaining_in(user, used):
+    """What is left of a month's budget, given its spend (month_spend); None when the plan is unlimited."""
+    return None if user.unlimited else max(0, _limit() - used)
 
 
-async def allowance(db, user):
-    # One clock read, so the balance and its reset date always describe the same month.
-    month = month_window(datetime.now(UTC))
-    remaining = await remaining_nanos(db, user, month)
+def allowance(user, used, month):
+    """The balance shown to the user, from `month`'s spend (month_spend) read by the caller."""
     limit = _limit()
+    remaining = remaining_in(user, used)
     return {
         "unlimited": remaining is None,
         "limit_usd": limit / NANOS,
@@ -86,72 +98,140 @@ async def allowance(db, user):
     }
 
 
-async def require_allowance(db, user):
-    # Caller holds the user row lock. Each model call also reserves its own bound in reserve().
-    month = month_window(datetime.now(UTC))
-    if await remaining_nanos(db, user, month) == 0:
+def has_budget_left(plan, spend):
+    """require_left as SQL: the unlimited plan, or a month's spend below the limit."""
+    return or_(plan == "unlimited", spend < _limit())
+
+
+def require_left(user, used, month):
+    """Refuse a run when nothing is left of `month`'s budget: an early answer, not the guard. Each
+    model call reserves its own bound in reserve(), under the user row lock."""
+    if remaining_in(user, used) == 0:
         raise _spent_error(month[1])
 
 
-def runtime_amount(entry, end):
-    seconds = max(0, (min(end, entry.ends_at) - entry.starts_at).total_seconds())
-    return int((Decimal(str(seconds)) * entry.details["nanos_per_second"]).to_integral_value(rounding=ROUND_CEILING))
+def runtime_amount(end):
+    """A sandbox lease's cost up to `end`, as SQL over the row being updated: its exact seconds
+    (numeric, never below zero) times its nanos_per_second, rounded up to whole nanos."""
+    seconds = func.greatest(0, extract("epoch", func.least(end, SpendEntry.ends_at) - SpendEntry.starts_at))
+    rate = cast(SpendEntry.details["nanos_per_second"].as_string(), Numeric)
+    return cast(func.ceil(seconds * rate), BigInteger)
+
+
+def merged_details(details):
+    """The row's details with `details` laid over them (the column is JSON; || needs JSONB)."""
+    return cast(cast(SpendEntry.details, JSONB).op("||")(cast(details, JSONB)), JSON)
 
 
 async def reserve(user_id, kind, amount, duration, details, run_id=None, replace_id=None):
-    """Commit before dispatch; replacement atomically rolls a runtime lease forward."""
+    """Commit before dispatch, in one round trip; replacement atomically rolls a runtime lease forward."""
     if type(amount) is not int or amount < 0 or not 0 < duration < 86400:
         raise ValueError("Invalid cost reservation bound")
-    async with AsyncSessionLocal.begin() as db:
-        user = await db.get(User, user_id, with_for_update=True)
-        if not user or not user.email_verified:
+    now = datetime.now(UTC)
+    end = now + timedelta(seconds=duration)
+    entry = SpendEntry(
+        id=str(uuid.uuid4()),
+        user_id=user_id,
+        run_id=run_id,
+        kind=kind,
+        reserved_nanos=amount,
+        amount_nanos=amount,
+        starts_at=now,
+        ends_at=end,
+        state="reserved",
+        details=details,
+    )
+    if kind == "model":
+        # Charge a reservation crossing a month reset to both months. Durations are bounded below
+        # one day by callers, so at most two. The lock, the sums and the insert run in one call
+        # (reserve_model_spend, alembic f1a2b3c4d5e6).
+        windows = [moment for window in sorted({month_window(now), month_window(end)}) for moment in window]
+        call = func.reserve_model_spend(
+            literal(entry.id, String),
+            literal(user_id, Integer),
+            literal(run_id, String),
+            literal(amount, BigInteger),
+            literal(now, DateTime(timezone=True)),
+            literal(end, DateTime(timezone=True)),
+            literal(details, JSON),
+            literal(_limit(), BigInteger),
+            literal(windows, ARRAY(DateTime(timezone=True))),
+        ).table_valued("outcome", "used", "window_end")
+        async with AutocommitSessionLocal() as db:
+            outcome, used, finish = (await db.execute(select(call))).one()
+        if outcome == "unverified":
             raise BudgetLimitError("Verify your email before using paid build or preview resources.")
-        now = datetime.now(UTC)
-        end = now + timedelta(seconds=duration)
-        old = await db.get(SpendEntry, replace_id) if replace_id else None
-        if replace_id and not old:
-            raise ValueError("Previous sandbox spend reservation is missing")
-        if old and (old.user_id != user_id or old.kind != "sandbox" or old.state != "reserved"):
-            raise ValueError("Invalid sandbox spend reservation")
-        old_amount = runtime_amount(old, now) if old else 0
-        if kind == "model" and not user.unlimited:
-            # Charge a reservation crossing a month reset to both months. Durations are
-            # bounded below one day by callers, so at most two.
-            for start, finish in sorted({month_window(now), month_window(end)}):
-                used = await used_in_month(db, user_id, start, finish)
-                if used + amount > _limit():
-                    raise _spent_error(finish, max(0, _limit() - used))
-        if old:
-            old.amount_nanos, old.state = old_amount, "settled"
-            old.ends_at = max(old.starts_at, min(now, old.ends_at))
-        entry = SpendEntry(
-            id=str(uuid.uuid4()),
-            user_id=user_id,
-            run_id=run_id,
-            kind=kind,
-            reserved_nanos=amount,
-            amount_nanos=amount,
-            starts_at=now,
-            ends_at=end,
-            state="reserved",
-            details=details,
+        if outcome == "over":
+            raise _spent_error(finish, max(0, _limit() - used))
+        return entry
+    # A sandbox lease never counts against the model budget, so it needs no user lock: one statement
+    # settles the lease it replaces (if any) and inserts the new one, only for a verified user.
+    verified = exists().where(User.id == user_id, User.email_verified)
+    values = bound(
+        SpendEntry,
+        id=entry.id,
+        user_id=user_id,
+        run_id=run_id,
+        kind=kind,
+        state="reserved",
+        reserved_nanos=amount,
+        amount_nanos=amount,
+        starts_at=now,
+        ends_at=end,
+        details=details,
+    )
+    source = select(*values.values()).where(verified)
+    replaced = None
+    if replace_id:
+        replaced = (
+            update(SpendEntry)
+            .where(
+                SpendEntry.id == replace_id,
+                SpendEntry.user_id == user_id,
+                SpendEntry.kind == "sandbox",
+                SpendEntry.state == "reserved",
+                verified,
+            )
+            .values(
+                amount_nanos=runtime_amount(now),
+                state="settled",
+                ends_at=func.greatest(SpendEntry.starts_at, func.least(now, SpendEntry.ends_at)),
+            )
+            .returning(SpendEntry.id)
+            .cte("replaced")
         )
-        db.add(entry)
+        source = source.where(exists(select(replaced.c.id)))
+    statement = insert(SpendEntry).from_select(list(values), source).returning(SpendEntry.id)
+    if replaced is not None:
+        # A data-modifying WITH must head the statement, not the INSERT's SELECT.
+        statement = statement.add_cte(replaced, nest_here=True)
+    async with AutocommitSessionLocal() as db:
+        inserted = await db.scalar(statement)
+        if inserted is None:
+            # Only when refused: say why, as the transaction's checks did.
+            if not await db.scalar(select(verified)):
+                raise BudgetLimitError("Verify your email before using paid build or preview resources.")
+            raise ValueError("Previous sandbox spend reservation is missing or not a reserved lease of this user")
     return entry
 
 
 async def settle(entry_id, amount=None, details=None):
-    """Idempotent settlement; absent/ambiguous responses never release money."""
-    async with AsyncSessionLocal.begin() as db:
-        entry = await db.get(SpendEntry, entry_id)
-        if not entry:
+    """Idempotent settlement in one statement; absent/ambiguous responses never release money. No user
+    lock: reserve_model_spend sums under it with a fresh snapshot, so it sees a settlement committed
+    before it and the reserved bound (never less) of one still in flight."""
+    now = datetime.now(UTC)
+    async with AutocommitSessionLocal() as db:
+        settled = await db.scalar(
+            update(SpendEntry)
+            .where(SpendEntry.id == entry_id, SpendEntry.state == "reserved")
+            .values(
+                # SET reads the row as it was: the lease is measured to its old end, as before.
+                amount_nanos=runtime_amount(now) if amount is None else max(0, amount),
+                ends_at=func.greatest(SpendEntry.starts_at, func.least(now, SpendEntry.ends_at)),
+                state="settled",
+                details=merged_details(details or {}),
+            )
+            .returning(SpendEntry.id)
+        )
+        if settled is None and await db.get(SpendEntry, entry_id) is None:
             raise ValueError("Spend reservation is missing")
-        await db.get(User, entry.user_id, with_for_update=True)
-        await db.refresh(entry)
-        if entry.state != "reserved":
-            return
-        now = datetime.now(UTC)
-        entry.amount_nanos = runtime_amount(entry, now) if amount is None else max(0, amount)
-        entry.ends_at = max(entry.starts_at, min(now, entry.ends_at))
-        entry.state = "settled"
-        entry.details = {**entry.details, **(details or {})}

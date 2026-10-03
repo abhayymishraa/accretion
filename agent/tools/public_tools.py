@@ -11,6 +11,27 @@ MAX_COMMAND_CHARS = 600
 EDIT_TOOLS = ("write_files", "edit_file", "edit_files")
 
 
+def edit_summary(event):
+    """A completed file-editing call (runner.py's tool_completed) as the edited-files card shows it:
+    each diff without its hunks, which are most of the bytes. The full event stays in run_events."""
+    details = event["details"]
+    diffs = [
+        {key: diff.get(key) for key in ("path", "created", "added", "removed")} | {"hunks": []}
+        for diff in details.get("diffs") or []
+    ]
+    return {
+        "id": event["call_id"],
+        "name": event["name"],
+        "status": "success" if event["ok"] else "error",
+        "details": {
+            "version": details["version"],
+            "changed_files": details.get("changed_files"),
+            "diffs": diffs or None,
+        },
+        "output": None,
+    }
+
+
 def encode_public(details):
     return json.dumps(details, ensure_ascii=False, separators=(",", ":"))
 

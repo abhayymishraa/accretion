@@ -11,7 +11,7 @@ from typing import Any
 from langchain_core.messages import HumanMessage, SystemMessage
 from sqlalchemy import update
 
-from db.base import AsyncSessionLocal
+from db.base import AutocommitSessionLocal
 from db.models import Chat
 
 from ..budget.usage import record_usage
@@ -64,9 +64,8 @@ async def name_project(chat_id: str, prompt: str, metrics: dict[str, Any]) -> st
     The write is conditional, so a name the user typed meanwhile is never overwritten.
     """
     title = await _generate(prompt, metrics) or prompt.strip()[:_FALLBACK_LENGTH]
-    async with AsyncSessionLocal() as db:
-        result = await db.execute(
+    async with AutocommitSessionLocal() as db:
+        written = await db.scalar(
             update(Chat).where(Chat.id == chat_id, Chat.title.is_(None)).values(title=title).returning(Chat.id)
         )
-        await db.commit()
-    return title if result.first() else None
+    return title if written else None

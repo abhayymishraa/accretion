@@ -4,8 +4,6 @@
 DETAIL_RETENTION_DAYS = 14
 EVENT_RETENTION_DAYS = 30
 
-MAX_RUNS_PAGE = 50
-
 # An idle stream re-checks Postgres; FastAPI pings on the same 15 s, below the 25 s proxy idle bound.
 STREAM_IDLE_SECONDS = 15
 
