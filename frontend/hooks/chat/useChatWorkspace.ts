@@ -4,7 +4,7 @@ import { authService } from "@/services/service.auth";
 import { runService } from "@/services/service.runs";
 
 import { usePreviewLifecycle } from "@/hooks/preview/usePreviewLifecycle";
-import { clearSession, subscribeSession } from "@/lib/auth/session";
+import { clearSession, getSessionId, subscribeSession } from "@/lib/auth/session";
 import type { UserData } from "@/types/auth.type";
 import type { Message } from "@/types/chat.type";
 import { useRouter } from "next/navigation";
@@ -24,7 +24,8 @@ import { useChatConnection } from "./useChatConnection";
 import { useModelChoice } from "./useModelChoice";
 import { useWorkspaceLayout } from "./useWorkspaceLayout";
 
-let balanceLoaded = false;
+// The session whose balance this page has loaded: another sign-in loads its own.
+let balanceSession: string | null = null;
 
 export function useChatWorkspace(chatId: string) {
     const router = useRouter();
@@ -79,14 +80,16 @@ export function useChatWorkspace(chatId: string) {
             buildSeen.current = true;
             return;
         }
-        if (balanceLoaded && !buildSeen.current) return;
-        buildSeen.current = false;
-        balanceLoaded = true;
+        const session = getSessionId();
+        if (balanceSession === session && !buildSeen.current) return;
         let disposed = false;
         authService
             .getCurrentUser()
             .then((user) => {
                 if (disposed) return;
+                // Only a load that landed counts: a failed or abandoned one is retried next time.
+                balanceSession = session;
+                buildSeen.current = false;
                 localStorage.setItem("user_data", JSON.stringify(user));
                 setUserData(user);
             })
