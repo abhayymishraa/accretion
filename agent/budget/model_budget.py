@@ -6,7 +6,9 @@ bound and usage reader; prices come from the routing registry and the cost
 arithmetic is shared. A run's spend accumulates in its metrics as cost_nanos.
 """
 
+import asyncio
 import json
+import logging
 import re
 from contextvars import ContextVar
 from datetime import UTC, datetime
@@ -16,6 +18,28 @@ from ..routing.registry import JEV_COST, JEV_MODEL, MAX_OUTPUT_TOKENS, MODELS
 from .budget import BudgetLimitError, dollar_nanos, reserve, settle
 
 spend_scope: ContextVar[dict[str, Any] | None] = ContextVar("spend_scope", default=None)
+logger = logging.getLogger("webbuilder.runs")
+
+
+def settle_later(scope, entry_id, amount, details):
+    """Settle off the model call's critical path, as write-behind spend trackers do: an unsettled
+    entry still counts its reserved bound, so later checks only err toward refusing. A failure
+    stops the run's next call, as an inline one did; the run awaits scope["settling"] before it
+    finishes."""
+
+    async def run():
+        try:
+            await settle(entry_id, amount, details)
+        except Exception as exc:
+            logger.warning("Model settlement failed error_type=%s", type(exc).__name__)
+            scope["limit_error"] = BudgetLimitError(
+                "Usage accounting could not confirm the model response. Its cost remains reserved; retry later."
+            )
+
+    task = asyncio.create_task(run())
+    scope["settling"].add(task)
+    task.add_done_callback(scope["settling"].discard)
+
 
 _GEMINI_PATH = re.compile(r"/models/([^/:]+):generateContent$")
 
@@ -176,7 +200,7 @@ async def settle_model_response(response):
         # completion to bill. Timeouts and transport failures never reach this hook and can
         # hide billable work, so their reservations stay charged.
         if response.status_code in {400, 401, 403, 404, 413, 422, 429} or response.status_code >= 500:
-            await settle(entry.id, 0, {"outcome": "rejected"})
+            settle_later(scope, entry.id, 0, {"outcome": "rejected"})
             _add_run_cost(scope, -entry.reserved_nanos)
             return
         if not response.is_success:
@@ -196,7 +220,8 @@ async def settle_model_response(response):
             amount = model_cost(entry.details["rates_nanos_per_million"], inputs, outputs, cached, written)
         except (ValueError, TypeError, AttributeError):
             return
-        await settle(
+        settle_later(
+            scope,
             entry.id,
             amount,
             {

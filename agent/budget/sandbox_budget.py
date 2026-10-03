@@ -3,13 +3,12 @@
 from datetime import UTC, datetime
 from decimal import ROUND_CEILING, Decimal
 
-from sqlalchemy import select
+from sqlalchemy import BigInteger, DateTime, cast, extract, func, literal, select, update
 
 from agent.budget.models import SpendEntry
-from db.base import AsyncSessionLocal
-from db.models import Chat, User
+from db.base import AutocommitSessionLocal
 
-from .budget import BudgetLimitError, dollar_nanos, reserve, runtime_amount, settle
+from .budget import BudgetLimitError, dollar_nanos, merged_details, reserve, settle
 from .config import budget_settings
 
 
@@ -23,11 +22,8 @@ def sandbox_rate(cpu, memory_mb):
     )
 
 
-async def reserve_runtime(chat_id, lease_seconds, previous=None, info=None):
-    async with AsyncSessionLocal() as db:
-        user_id = await db.scalar(select(Chat.user_id).where(Chat.id == chat_id))
-        if user_id is None:
-            raise BudgetLimitError("Project is unavailable for preview spending.")
+async def reserve_runtime(lease_seconds, previous=None, info=None, *, user_id):
+    """Reserve a lease against the project's owner, whom every caller has already read."""
     # This configured resource ceiling must cover every permitted starter/revision.
     # Provider-reported sizes validate it on existing and newly created runtimes.
     cpu = budget_settings.E2B_COST_MAX_CPU
@@ -62,27 +58,41 @@ async def reserve_runtime(chat_id, lease_seconds, previous=None, info=None):
 
 
 async def confirm_runtime(spend_id, info):
-    async with AsyncSessionLocal.begin() as db:
-        entry = await db.get(SpendEntry, spend_id)
-        rate = sandbox_rate(info.cpu_count, info.memory_mb)
-        if not entry:
-            raise BudgetLimitError("Preview spend reservation is missing; contact support.")
-        await db.get(User, entry.user_id, with_for_update=True)
-        await db.refresh(entry)
-        if entry.state != "reserved":
+    rate = sandbox_rate(info.cpu_count, info.memory_mb)
+    # One statement: replace the pessimistic resource ceiling with a full native-timeout hold at the
+    # confirmed rate, returning the lease's previous rate and end to check against. A sandbox lease
+    # never counts against the model budget, so it needs no user lock.
+    previous = (
+        select(
+            SpendEntry.id,
+            SpendEntry.details["nanos_per_second"].as_integer().label("rate"),
+            SpendEntry.ends_at.label("ends_at"),
+        )
+        .where(SpendEntry.id == spend_id)
+        .subquery()
+    )
+    end = literal(info.end_at, DateTime(timezone=True))
+    seconds = func.greatest(0, extract("epoch", end - SpendEntry.starts_at))
+    async with AutocommitSessionLocal() as db:
+        row = (
+            await db.execute(
+                update(SpendEntry)
+                .where(SpendEntry.id == previous.c.id, SpendEntry.state == "reserved")
+                .values(
+                    details=merged_details(
+                        {"nanos_per_second": rate, "cpu_count": info.cpu_count, "memory_mb": info.memory_mb}
+                    ),
+                    ends_at=func.greatest(SpendEntry.starts_at, end),
+                    amount_nanos=cast(func.ceil(seconds * rate), BigInteger),
+                )
+                .returning(previous.c.rate, previous.c.ends_at)
+            )
+        ).first()
+        if row is None:
+            if await db.get(SpendEntry, spend_id) is None:
+                raise BudgetLimitError("Preview spend reservation is missing; contact support.")
             raise BudgetLimitError("Preview spend reservation was already closed; contact support.")
-        exceeded = rate > entry.details["nanos_per_second"] or info.end_at > entry.ends_at
-        # Replace the pessimistic resource ceiling with a full native-timeout hold
-        # at the confirmed rate. Other operations can use the difference immediately.
-        entry.details = {
-            **entry.details,
-            "nanos_per_second": rate,
-            "cpu_count": info.cpu_count,
-            "memory_mb": info.memory_mb,
-        }
-        entry.ends_at = max(entry.starts_at, info.end_at)
-        entry.amount_nanos = runtime_amount(entry, entry.ends_at)
-    if exceeded:
+    if rate > row.rate or info.end_at > row.ends_at:
         raise BudgetLimitError("Preview resource usage exceeded its reservation; contact support.")
 
 
