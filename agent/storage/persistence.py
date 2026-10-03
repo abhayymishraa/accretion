@@ -12,9 +12,10 @@ from typing import Any
 
 from redis import RedisError
 from sqlalchemy import func, select
+from sqlalchemy.orm import joinedload
 
 from agent import PACKAGE_ROOT
-from db.base import AsyncSessionLocal
+from db.base import AsyncSessionLocal, AutocommitSessionLocal
 from db.models import Chat, ProjectRevision, Run, RunEvent
 
 from ..run import bus
@@ -72,7 +73,7 @@ async def put_object(key, data, content_type="application/zip", *, chat_id):
     async def upload():
         # Register before any await; deletion drains earlier uploads, and later
         # uploads must reject the deleted owner before starting provider I/O.
-        async with AsyncSessionLocal() as db:
+        async with AutocommitSessionLocal() as db:
             if await db.get(Chat, chat_id) is None:
                 raise StorageError("Project was deleted; upload cancelled")
         await reserve_transfer("uploaded", len(data))
@@ -100,7 +101,7 @@ async def wait_for_uploads(key):
 
 
 async def latest_revision(chat_id):
-    async with AsyncSessionLocal() as db:
+    async with AutocommitSessionLocal() as db:
         return await latest_revision_in(db, chat_id)
 
 
@@ -129,10 +130,19 @@ async def revision_bytes(revision) -> bytes:
 
 async def promote(revision_id, event=None, *, recovery=False):
     async with AsyncSessionLocal.begin() as db:
-        revision = await db.get(ProjectRevision, revision_id)
-        if not revision:
+        # The revision and its project's locked row in one query; a revision's project always exists
+        # (ON DELETE CASCADE), so a missing row means the checkpoint was removed.
+        row = (
+            await db.execute(
+                select(ProjectRevision, Chat)
+                .join(Chat, Chat.id == ProjectRevision.chat_id)
+                .where(ProjectRevision.id == revision_id)
+                .with_for_update(of=Chat)
+            )
+        ).first()
+        if not row:
             raise StorageError("Checkpoint was removed")
-        chat = await db.scalar(select(Chat).where(Chat.id == revision.chat_id).with_for_update())
+        revision, chat = row
         if revision.status == "ready":
             return
         if not chat or revision.status != "pending" or chat.latest_saved_revision_id != revision.parent_id:
@@ -152,27 +162,29 @@ async def save_revision(chat_id, run_id, archive, template, event_factory=None):
     async with AsyncSessionLocal.begin() as db:
         # Serialize quota reservations across chats as well as same-chat pointer updates.
         await db.execute(select(func.pg_advisory_xact_lock(73142027)))
-        chat = await db.scalar(select(Chat).where(Chat.id == chat_id).with_for_update())
+        # The locked project row and its latest revision in one query (FOR UPDATE OF chats only).
+        chat = await db.scalar(
+            select(Chat)
+            .options(joinedload(Chat.latest_saved_revision))
+            .where(Chat.id == chat_id)
+            .with_for_update(of=Chat)
+        )
         if not chat:
             raise StorageError("Project was removed")
-        previous = (
-            await db.get(ProjectRevision, chat.latest_saved_revision_id) if chat.latest_saved_revision_id else None
-        )
+        previous = chat.latest_saved_revision
         if previous and previous.status == "ready" and previous.content_hash == digest:
             return previous.id, None
-        total = (
-            await db.scalar(
-                select(func.coalesce(func.sum(ProjectRevision.size_bytes), 0))
-                .join(Chat, Chat.id == ProjectRevision.chat_id)
-                .where(Chat.user_id == chat.user_id)
+        # The user's, the project's and everyone's stored bytes in one query.
+        size = func.coalesce(ProjectRevision.size_bytes, 0)
+        total, project_total, all_total = (
+            await db.execute(
+                select(
+                    func.coalesce(func.sum(size).filter(Chat.user_id == chat.user_id), 0),
+                    func.coalesce(func.sum(size).filter(ProjectRevision.chat_id == chat_id), 0),
+                    func.coalesce(func.sum(size), 0),
+                ).join(Chat, Chat.id == ProjectRevision.chat_id)
             )
-        ) or 0
-        project_total = (
-            await db.scalar(
-                select(func.coalesce(func.sum(ProjectRevision.size_bytes), 0)).where(ProjectRevision.chat_id == chat_id)
-            )
-        ) or 0
-        all_total = await db.scalar(select(func.coalesce(func.sum(ProjectRevision.size_bytes), 0))) or 0
+        ).one()
         if (
             total + len(archive) > 1024**3
             or project_total + len(archive) > 200 * 1024**2

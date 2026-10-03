@@ -22,7 +22,7 @@ from redis import RedisError
 from sqlalchemy import select, update
 from sqlalchemy.exc import SQLAlchemyError
 
-from db.base import AsyncSessionLocal
+from db.base import AsyncSessionLocal, AutocommitSessionLocal
 from db.models import Chat, Run
 
 from . import bus
@@ -109,7 +109,7 @@ class Workers:
             self.unsynced = True
             await asyncio.sleep(_QUEUE_POLL_SECONDS)
             try:
-                async with AsyncSessionLocal() as db:
+                async with AutocommitSessionLocal() as db:
                     return await db.scalar(
                         select(Run.id).where(Run.status == "queued").order_by(Run.created_at).limit(1)
                     )
@@ -120,17 +120,20 @@ class Workers:
 
     async def claim(self, run_id: str) -> "LiveRun | None":
         """Take a queued run. None when another worker won it or it was cancelled first."""
-        async with AsyncSessionLocal.begin() as db:
-            run = await db.scalar(
-                update(Run)
-                .where(Run.id == run_id, Run.status == "queued")
-                .values(status="running", claimed_by=self.name, lease_expires_at=_lease_end())
-                .returning(Run)
-            )
-            if run is None:
-                return None
-            # The claimed row is locked, so its chat cannot be deleted under it (runs cascade on chat).
-            chat = await db.get_one(Chat, run.chat_id)
+        # One statement, committed by itself: the claim and its chat (UPDATE ... FROM chats), so the
+        # chat is read while the claimed row is locked and cannot be deleted under it.
+        async with AutocommitSessionLocal() as db:
+            row = (
+                await db.execute(
+                    update(Run)
+                    .where(Run.id == run_id, Run.status == "queued", Chat.id == Run.chat_id)
+                    .values(status="running", claimed_by=self.name, lease_expires_at=_lease_end())
+                    .returning(Run, Chat)
+                )
+            ).first()
+        if row is None:
+            return None
+        run, chat = row
         live = self.service.load_live(run, chat)
         # Cancelled while still queued, after the canceller's own claim lost to this one.
         live.cancelling = run.cancel_requested
@@ -156,7 +159,7 @@ class Workers:
         try:
             # Listed before Postgres is read: an id admitted in between is in the rows, never dropped.
             listed = await bus.client.smembers(bus.OPEN)
-            async with AsyncSessionLocal() as db:
+            async with AutocommitSessionLocal() as db:
                 open_rows = select(Run.id, Run.status, Run.created_at).where(Run.status.in_(OPEN_STATUSES))
                 rows = (await db.execute(open_rows)).all()
             open_ids = {row.id for row in rows}
@@ -180,7 +183,7 @@ class Workers:
                 self.unsynced = True
 
     async def release(self, run_id: str) -> None:
-        async with AsyncSessionLocal.begin() as db:
+        async with AutocommitSessionLocal() as db:
             # A row still running here lost its terminal write. It keeps its lease and its place in
             # bus.OPEN, so the lease lapses and the reaper ends it; a null lease no pass looks at.
             released = await db.scalar(
@@ -231,7 +234,7 @@ class Workers:
         while True:
             await asyncio.sleep(_HEARTBEAT_SECONDS)
             try:
-                async with AsyncSessionLocal.begin() as db:
+                async with AutocommitSessionLocal() as db:
                     # status: this process's own reaper may have ended the run under the same name.
                     cancel_requested = await db.scalar(
                         update(Run)
@@ -308,8 +311,10 @@ class Workers:
                     .returning(Run)
                 )
             ).all()
-            chat_rows = await db.scalars(select(Chat).where(Chat.id.in_([run.chat_id for run in expired])))
-            chats = {chat.id: chat for chat in chat_rows}
+            chats = {}
+            if expired:
+                chat_rows = await db.scalars(select(Chat).where(Chat.id.in_([run.chat_id for run in expired])))
+                chats = {chat.id: chat for chat in chat_rows}
         for run in expired:
             logger.warning("Lease expired, ending run_id=%s", run.id)
             await self.service.finish(

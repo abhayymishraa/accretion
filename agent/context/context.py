@@ -7,7 +7,7 @@ from typing import Any
 from langchain_core.tools import tool
 from sqlalchemy import func, select, tuple_
 
-from db.base import AsyncSessionLocal
+from db.base import AutocommitSessionLocal
 from db.models import Chat, Message, Run, User
 
 from ..events import redact
@@ -165,7 +165,7 @@ class ProjectContext:
 
     async def search(self, query):
         terms = list(dict.fromkeys(re.findall(r"\w{3,}", query.lower())))[:12]
-        async with AsyncSessionLocal() as db:
+        async with AutocommitSessionLocal() as db:
             _, current = await self.scope(db)
             if not terms:
                 return {"ok": True, "messages": [], "history_is_partial": True}
@@ -209,7 +209,7 @@ class ProjectContext:
         return search_project_history
 
     async def build(self, prompt, metrics):
-        async with AsyncSessionLocal() as db:
+        async with AutocommitSessionLocal() as db:
             chat, current = await self.scope(db)
             recent_rows = (
                 await db.execute(

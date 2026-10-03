@@ -5,6 +5,7 @@ import json
 import logging
 import time
 import uuid
+from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
@@ -12,20 +13,22 @@ from typing import Any
 from e2b import AsyncSandbox, SandboxException
 from e2b.exceptions import ServiceBusyException
 from fastapi import HTTPException
-from sqlalchemy import cast, func, select, update
+from sqlalchemy import JSON, DateTime, Insert, String, Update, cast, exists, func, insert, literal, select, update
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
 
 from agent.sandbox.config import sandbox_settings
 from agent.storage.config import storage_settings
-from db.base import AsyncSessionLocal, ReadSessionLocal
+from db.base import AsyncSessionLocal, AutocommitSessionLocal, bound
 from db.models import Chat, Message, Run, RunEvent, RunScreenshot, SandboxRuntime, User
+from plans import month_window
 
-from ..budget.budget import BudgetLimitError, BudgetSpentError, remaining_nanos, require_allowance
+from ..budget.budget import BudgetLimitError, BudgetSpentError, has_budget_left, month_spend, remaining_in, require_left
 from ..budget.model_budget import spend_scope
 from ..context.context import ContextError, ProjectContext
-from ..context.transcript import size_chars as transcript_size_chars
+from ..context.transcript import stored_chars
 from ..events import MAX_RUN_EVENTS, redact
 from ..routing import jev
 from ..routing import providers as routing_providers
@@ -38,6 +41,7 @@ from ..sandbox.sandbox_runtime import RUNTIME_TIMEOUT, SandboxRuntimes
 from ..storage.persistence import (
     archive_slots,
     latest_revision,
+    latest_revision_in,
     put_object,
     revision_bytes,
     sandbox_archive,
@@ -62,13 +66,23 @@ if not logger.handlers:
 logger.propagate = False
 
 
-async def chat_kit(chat_id):
-    """The kit a project started from (Chat.kit)."""
-    async with AsyncSessionLocal() as db:
-        kit = await db.scalar(select(Chat.kit).where(Chat.id == chat_id))
+def gated(model, ok, **values):
+    """An INSERT of one row (every value given, as anonymous binds) made only when the `ok` CTE has a row."""
+    return insert(model).from_select(
+        list(values), select(*bound(model, **values).values()).where(exists(select(ok.c.id)))
+    )
+
+
+def usable_kit(kit):
     if kit not in KITS:
         raise SandboxSetupError(f"Project kit {kit!r} is not available. No editing model request was made.")
     return kit
+
+
+async def chat_kit(chat_id):
+    """The kit a project started from (Chat.kit)."""
+    async with AutocommitSessionLocal() as db:
+        return usable_kit(await db.scalar(select(Chat.kit).where(Chat.id == chat_id)))
 
 
 async def open_run(db: AsyncSession, chat_id: str) -> str | None:
@@ -124,7 +138,7 @@ async def pick_kit(live) -> None:
 
 async def last_outcome(chat_id, *, exclude):
     """The model and verification result of the chat's previous finished run."""
-    async with AsyncSessionLocal() as db:
+    async with AutocommitSessionLocal() as db:
         run = await db.scalar(
             select(Run)
             .where(Run.chat_id == chat_id, Run.id != exclude, Run.status != "running")
@@ -159,8 +173,13 @@ class LiveRun:
     # Spec 5 steering: messages the user sends while this run works, drained before each model call.
     inbox: list[str] = field(default_factory=list)
     # Read-only tools run in parallel (spec 5), so their events arrive together: each takes its
-    # sequence number and is stored under this lock, or two get the same number.
+    # sequence number under this lock, or two get the same number.
     emit_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    # Events emitted but not yet stored, and whether metrics changed since last stored: the writer
+    # task (write_events) stores them in the background, so the agent never waits on the database.
+    unwritten: list[dict[str, Any]] = field(default_factory=list)
+    metrics_dirty: bool = False
+    writer: asyncio.Task[None] | None = None
     # The first run of a new project names it alongside the reply; finish waits for it.
     unnamed: bool = False
     naming: asyncio.Task[None] | None = None
@@ -181,16 +200,15 @@ class Service:
         self.focus: dict[int, str] = {}
         self.workers = Workers(self)
 
-    async def require_sandbox_capacity(self, chat_id, *, requesting_run=None):
-        # Paused rows retain ownership without occupying a running slot.
-        reserved = await self.runtimes.reserved()
-        reserved |= (
+    async def require_sandbox_capacity(self, chat_id, reserved, state, *, requesting_run=None):
+        """reserved and state as SandboxRuntimes.reserved(chat_id) reads them, or a caller's own query.
+        Paused rows retain ownership without occupying a running slot."""
+        reserved = set(reserved) | (
             set(self.sandboxes)
             | self.opening
             | {r.chat_id for r in self.active.values() if r.sandbox_started and r.id != requesting_run}
         )
-        row = await self.runtimes.get(chat_id) if chat_id else None
-        if (row and row.state in ("creating", "retiring")) or (
+        if state in ("creating", "retiring") or (
             chat_id not in reserved and len(reserved) >= run_settings.MAX_LIVE_SANDBOXES
         ):
             raise HTTPException(
@@ -210,7 +228,7 @@ class Service:
         """Chats maintain() must leave alone: a preview opening here, or an open run. A run's sandbox stays
         non-reusable until the run ends, and maintain() retires non-reusable rows, so the runs come from
         Postgres: a run another process's worker owns is not in this process's memory."""
-        async with AsyncSessionLocal() as db:
+        async with AutocommitSessionLocal() as db:
             open_chats = set((await db.scalars(select(Run.chat_id).where(Run.status.in_(OPEN_STATUSES)))).all())
         return open_chats | self.opening
 
@@ -218,40 +236,37 @@ class Service:
         async with self.admission:
             await self.runtimes.maintain(await self.busy_chats())
 
-    async def preview_status(self, chat) -> dict[str, Any]:
-        # Viewing a project is what makes it the user's active one, even when its sandbox is already up
-        # and nothing is acquired. Outside admission: parking calls the provider.
-        await self.park_others(chat.id, chat.user_id)
+    async def preview_status(self, chat_id, user_id) -> dict[str, Any]:
         async with self.admission:
-            if any(r.chat_id == chat.id for r in self.active.values()):
-                return {"url": None, "state": "building"}
-            if chat.id in self.opening:
-                return {"url": None, "state": "opening"}
-            # Ownership was checked by the route. Refresh revision and runtime together
-            # after acquiring admission; its original Chat snapshot may predate a build.
-            async with ReadSessionLocal() as db:
+            # The project, checked as the user's, and its runtime in one query, read after acquiring
+            # admission so an open that just finished is seen.
+            async with AutocommitSessionLocal() as db:
                 current = (
                     await db.execute(
                         select(Chat, SandboxRuntime)
                         .outerjoin(SandboxRuntime, SandboxRuntime.chat_id == Chat.id)
-                        .where(Chat.id == chat.id)
+                        .where(Chat.id == chat_id, Chat.user_id == user_id)
                     )
                 ).one_or_none()
             if current is None:
                 raise HTTPException(404, "Project not found")
             chat, row = current
-            if row and row.reusable and row.state != "retiring" and row.revision_id == chat.latest_saved_revision_id:
+            status: dict[str, Any] = {"url": None, "state": "sleeping", "revision_id": chat.latest_saved_revision_id}
+            if any(r.chat_id == chat_id for r in self.active.values()):
+                status = {"url": None, "state": "building"}
+            elif chat_id in self.opening:
+                status = {"url": None, "state": "opening"}
+            elif row and row.reusable and row.state != "retiring" and row.revision_id == chat.latest_saved_revision_id:
                 try:
                     if await self.runtimes.state(row) == "running" and chat.app_url:
                         # Observing status must not keep an idle preview alive.
-                        return {
-                            "url": chat.app_url,
-                            "state": "active",
-                            "revision_id": row.revision_id,
-                        }
+                        status = {"url": chat.app_url, "state": "active", "revision_id": row.revision_id}
                 except Exception:
                     raise HTTPException(503, "Preview status temporarily unavailable") from None
-            return {"url": None, "state": "sleeping", "revision_id": chat.latest_saved_revision_id}
+        # Viewing a project is what makes it the user's active one, even when its sandbox is already up
+        # and nothing is acquired. Outside admission: parking calls the provider.
+        await self.park_others(chat_id, user_id)
+        return status
 
     async def startup(self):
         if self.maintenance_task and not self.maintenance_task.done():
@@ -302,76 +317,121 @@ class Service:
         prompt = prompt.strip()
         if (not prompt and response is None) or len(prompt) > 12000:
             raise HTTPException(422, "Describe a change in 1–12000 characters")
-        async with self.admission:
-            # Resolve retries before capacity/budget checks: no duplicate run or charge.
+        async with self.admission, AsyncExitStack() as stack:
+            # Answering a decision is one transaction from here to the new run: its parent stays
+            # locked throughout. Retries resolve before capacity/budget checks: no duplicate run or charge.
             if response is not None:
-                async with AsyncSessionLocal.begin() as db:
-                    parent, fingerprint = await decision_source(db, user_id, *response)
-                    if parent.workflow.get("response_hash"):
-                        child = (
-                            await db.get(Run, parent.workflow["continuation_id"])
-                            if parent.workflow.get("continuation_id")
-                            else None
-                        )
-                        return {
-                            "chat_id": parent.chat_id,
-                            "run_id": child.id if child else None,
-                            "status": child.status if child else parent.status,
-                        }
-                    if response[1] == "dismiss":
-                        resolve_decision(parent, fingerprint, "dismiss")
-                        # Commit before telling other tabs to fetch the resolved state.
-                        await db.commit()
-                        await self.notify(parent.chat_id, {"e": "resync"})
-                        return {"chat_id": parent.chat_id, "run_id": None, "status": "cancelled"}
-                    chat_id = parent.chat_id
-            workflow, metrics = {"mode": mode}, {}
-            async with AsyncSessionLocal.begin() as db:
-                user = await db.scalar(select(User).where(User.id == user_id).with_for_update())
-                if not user:
+                decision = await stack.enter_async_context(AsyncSessionLocal.begin())
+                parent, fingerprint = await decision_source(decision, user_id, *response)
+                if parent.workflow.get("response_hash"):
+                    child = (
+                        await decision.get(Run, parent.workflow["continuation_id"])
+                        if parent.workflow.get("continuation_id")
+                        else None
+                    )
+                    return {
+                        "chat_id": parent.chat_id,
+                        "run_id": child.id if child else None,
+                        "status": child.status if child else parent.status,
+                    }
+                if response[1] == "dismiss":
+                    resolve_decision(parent, fingerprint, "dismiss")
+                    # Commit before telling other tabs to fetch the resolved state.
+                    await decision.commit()
+                    await self.notify(parent.chat_id, {"e": "resync"})
+                    return {"chat_id": parent.chat_id, "run_id": None, "status": "cancelled"}
+                chat_id = parent.chat_id
+            workflow: dict[str, Any] = {"mode": mode}
+            metrics: dict[str, Any] = {}
+            now = datetime.now(UTC)
+            month = month_window(now)
+            if self.stopping:
+                raise HTTPException(429, "The builder is busy. Try again shortly.")
+            if not storage_settings.configured:
+                raise HTTPException(503, "Project storage is not configured.")
+            if chat_id and chat_id in self.opening:
+                raise HTTPException(409, "This project already has a running request.")
+            open_runs = select(func.count()).select_from(Run).where(Run.status.in_(OPEN_STATUSES)).scalar_subquery()
+            spend = month_spend(user_id, *month).scalar_subquery()
+            in_chat = select(Run.id).where(Run.chat_id == chat_id)
+
+            async def refuse():
+                """Every admission check, read in one query, raising the first that fails. A prompt
+                pays for it only when its write was refused; answering a decision checks first."""
+                row = (
+                    await check_db.execute(
+                        select(
+                            User,
+                            open_runs,
+                            spend,
+                            select(Chat.id).where(Chat.id == chat_id, Chat.user_id == user_id).scalar_subquery(),
+                            in_chat.where(Run.status.in_(OPEN_STATUSES)).limit(1).scalar_subquery(),
+                            in_chat.where(Run.status == "awaiting_input").limit(1).scalar_subquery(),
+                        ).where(User.id == user_id)
+                    )
+                ).first()
+                if row is None:
+                    # A missing account cannot hold a valid token.
                     raise HTTPException(401, "User not found")
+                user, running_total, used, owned, running, pending = row
+                if chat_id and not owned:
+                    raise HTTPException(404, "Project not found")
                 if not user.email_verified:
                     raise HTTPException(403, "Verify your email before continuing.")
-                open_runs = await db.scalar(select(func.count()).select_from(Run).where(Run.status.in_(OPEN_STATUSES)))
-                if self.stopping or (open_runs or 0) + len(self.opening) >= run_settings.MAX_CONCURRENT_RUNS:
+                if (running_total or 0) + len(self.opening) >= run_settings.MAX_CONCURRENT_RUNS:
                     raise HTTPException(429, "The builder is busy. Try again shortly.")
-                parent = None
-                if response is not None:
-                    parent, fingerprint = await decision_source(db, user_id, *response)
-                    workflow, metrics = await prepare_continuation(db, parent, response[1], response[2])
-                    # The model is sticky across a decision: the child reuses the parent's (metrics["model"]).
-                    model_choice = parent.model_choice
-                else:
-                    # Remembered for the next prompt, like dyad's selectedModel setting (spec 4.2).
-                    user.default_model_choice = model_choice
                 try:
-                    await require_allowance(db, user)
+                    require_left(user, used, month)
                 except BudgetLimitError as exc:
                     raise HTTPException(429, str(exc)) from None
-                if not storage_settings.configured:
-                    raise HTTPException(503, "Project storage is not configured.")
-                if chat_id:
-                    chat = await db.scalar(
-                        select(Chat).where(Chat.id == chat_id, Chat.user_id == user_id).with_for_update()
+                if chat_id and running:
+                    raise HTTPException(409, "This project already has a running request.")
+                return pending
+
+            check_db = await stack.enter_async_context(AutocommitSessionLocal())
+            new_project = not chat_id
+            chat_id = chat_id or str(uuid.uuid4())
+            message_id, run_id = str(uuid.uuid4()), str(uuid.uuid4())
+            try:
+                if response is None:
+                    # One statement, committed by itself, carrying every admission check (the `ok` row):
+                    # the remembered model choice (dyad's selectedModel, spec 4.2), the project when
+                    # new, the user's message and the queued run, all or none. Postgres also refuses a
+                    # second open build (uq_runs_one_open_per_chat) and a project deleted meanwhile.
+                    checks = [
+                        User.id == user_id,
+                        User.email_verified,
+                        open_runs + len(self.opening) < run_settings.MAX_CONCURRENT_RUNS,
+                        has_budget_left(User.plan, spend),
+                    ]
+                    if not new_project:
+                        checks += [
+                            exists().where(Chat.id == chat_id, Chat.user_id == user_id),
+                            ~in_chat.where(Run.status.in_(OPEN_STATUSES) | (Run.status == "awaiting_input")).exists(),
+                        ]
+                    ok = select(User.id).where(*checks).cte("ok")
+                    ctes = [
+                        ok,
+                        update(User)
+                        .where(User.id.in_(select(ok.c.id)))
+                        .values(bound(User, default_model_choice=model_choice))
+                        .cte("choice"),
+                    ]
+                    if new_project:
+                        # Untitled until title.py names it from this request.
+                        ctes.append(
+                            gated(
+                                Chat, ok, id=chat_id, user_id=user_id, kit=sandbox_settings.DEFAULT_KIT, created_at=now
+                            ).cte("project")
+                        )
+                    ctes.append(
+                        gated(
+                            Message, ok, id=message_id, chat_id=chat_id, role="user", content=prompt, created_at=now
+                        ).cte("message")
                     )
-                    if not chat:
-                        raise HTTPException(404, "Project not found")
-                    if chat_id in self.opening or await open_run(db, chat_id):
-                        raise HTTPException(409, "This project already has a running request.")
-                    pending = await db.scalar(
-                        select(Run.id).where(Run.chat_id == chat_id, Run.status == "awaiting_input").limit(1)
-                    )
-                    if pending and (not parent or pending != parent.id):
-                        raise HTTPException(409, "Answer or dismiss the pending question or plan first.")
-                else:
-                    chat_id = str(uuid.uuid4())
-                    # Untitled until title.py names it from this request.
-                    db.add(Chat(id=chat_id, user_id=user_id, kit=sandbox_settings.DEFAULT_KIT))
-                    await db.flush()
-                message_id = str(uuid.uuid4())
-                run_id = str(uuid.uuid4())
-                db.add(
-                    Run(
+                    queued = gated(
+                        Run,
+                        ok,
                         id=run_id,
                         chat_id=chat_id,
                         prompt=prompt,
@@ -380,11 +440,46 @@ class Service:
                         workflow=workflow,
                         metrics=metrics,
                         message_id=message_id,
+                        cancel_requested=False,
+                        created_at=now,
                     )
-                )
-                if parent is not None:
+                    admitted = await check_db.scalar(queued.returning(Run.id).add_cte(*ctes))
+                    if admitted is None:
+                        # Refused: one more read names the reason. A check that passes now lost a race.
+                        if await refuse():
+                            raise HTTPException(409, "Answer or dismiss the pending question or plan first.")
+                        raise HTTPException(409, "This project already has a running request.")
+                else:
+                    pending = await refuse()
+                    # The decision's transaction, opened above with its parent locked, resolves the
+                    # parent with the new run.
+                    if pending and pending != parent.id:
+                        raise HTTPException(409, "Answer or dismiss the pending question or plan first.")
+                    workflow, metrics = await prepare_continuation(decision, parent, response[1], response[2])
+                    decision.add(
+                        Run(
+                            id=run_id,
+                            chat_id=chat_id,
+                            prompt=prompt,
+                            status="queued",
+                            # The model is sticky across a decision: the child reuses the parent's.
+                            model_choice=parent.model_choice,
+                            workflow=workflow,
+                            metrics=metrics,
+                            message_id=message_id,
+                        )
+                    )
                     resolve_decision(parent, fingerprint, response[1], run_id)
-                db.add(Message(id=message_id, chat_id=chat_id, role="user", content=prompt))
+                    decision.add(Message(id=message_id, chat_id=chat_id, role="user", content=prompt))
+                    # Inside the try, so a refused INSERT maps below rather than at commit.
+                    await decision.flush()
+            except IntegrityError as exc:
+                state = getattr(exc.orig, "sqlstate", None)
+                if state == "23505":  # uq_runs_one_open_per_chat: another request admitted one first
+                    raise HTTPException(409, "This project already has a running request.") from None
+                if state == "23503":  # the project was deleted after the read
+                    raise HTTPException(404, "Project not found") from None
+                raise
         # Outside admission: both need only the committed row, and a slow Redis must not hold the
         # lock that previews and deletes wait on. Other tabs learn of the run; the starter opens its stream.
         await asyncio.gather(self.workers.enqueue(run_id), self.notify(chat_id, {"e": "run_created", "run_id": run_id}))
@@ -442,14 +537,10 @@ class Service:
         async with live.emit_lock:
             if len(live.events) >= MAX_RUN_EVENTS:
                 raise RunLimitError("Activity budget reached")
+            self.queue_write(live)
             event = self.event(live, kind, **payload)
-            async with AsyncSessionLocal.begin() as db:
-                db.add(RunEvent(run_id=live.id, sequence=event["sequence"], payload=event))
-                if kind == "tool_completed" and event.get("name") in EDIT_TOOLS:
-                    edits = func.coalesce(Run.edits, cast([], JSONB)).op("||")(cast([edit_summary(event)], JSONB))
-                    await db.execute(update(Run).where(Run.id == live.id).values(edits=edits))
             live.events.append(event)
-        await bus.publish(bus.run_channel(live.id), event)
+            live.unwritten.append(event)
         record = {k: event[k] for k in ("e", "run_id", "sequence")}
         if kind == "stage":
             live.metrics["stage"] = payload.get("message")
@@ -463,39 +554,111 @@ class Service:
         # before E2B parks it at RUNTIME_TIMEOUT. Once a turn, at most every third of that.
         if live.sandbox and time.monotonic() - live.sandbox_touched > RUNTIME_TIMEOUT / 3:
             try:
-                await self.runtimes.renew(live.chat_id)
+                await self.runtimes.renew(live.chat_id, live.user_id)
                 live.sandbox_touched = time.monotonic()
             except SandboxException:
                 # The provider call failed; the lease is still running, so the next turn retries.
                 logger.warning("Could not renew the sandbox lease run_id=%s", live.id)
         if dirty:
             await self.save_files(live)
-        async with AsyncSessionLocal.begin() as db:
-            await db.execute(update(Run).where(Run.id == live.id).values(metrics=redact(live.metrics)))
+        # Stored by the event writer with whatever it writes next: the turn does not wait for it.
+        live.metrics_dirty = True
+        self.queue_write(live)
 
-    async def park_others(self, chat_id, user_id=None):
+    def queue_write(self, live):
+        """Start the run's event writer unless it is running. A writer that failed stops the run here,
+        at the next emit or checkpoint, as a failed inline write did."""
+        writer = live.writer
+        if writer is not None and writer.done():
+            if not writer.cancelled() and (error := writer.exception()) is not None:
+                raise error
+            writer = None
+        if writer is None:
+            live.writer = asyncio.create_task(self.write_events(live), name=f"events:{live.id}")
+
+    async def write_events(self, live):
+        """Store the run's queued events, oldest first, then publish them: each round is one statement
+        carrying every event queued so far, their file-edit summaries (runs.edits) and the latest
+        metrics. An event is published only after it is stored, so a stream backfilling from Postgres
+        on a gap always finds it. The agent never waits for this."""
+        while live.unwritten or live.metrics_dirty:
+            batch, live.unwritten = live.unwritten, []
+            changes: dict[str, Any] = {}
+            if live.metrics_dirty:
+                live.metrics_dirty = False
+                changes["metrics"] = literal(redact(live.metrics), JSON)
+            summaries = [edit_summary(e) for e in batch if e["e"] == "tool_completed" and e.get("name") in EDIT_TOOLS]
+            if summaries:
+                changes["edits"] = func.coalesce(Run.edits, cast([], JSONB)).op("||")(cast(summaries, JSONB))
+            now = datetime.now(UTC)
+            stored = (
+                insert(RunEvent).values(
+                    [bound(RunEvent, run_id=live.id, sequence=e["sequence"], payload=e, created_at=now) for e in batch]
+                )
+                if batch
+                else None
+            )
+            statement: Insert | Update
+            if changes:
+                statement = update(Run).where(Run.id == live.id).values(changes)
+                if stored is not None:
+                    statement = statement.add_cte(stored.cte("stored"))
+            else:
+                assert stored is not None, "a round has events or changes"
+                statement = stored
+            async with AutocommitSessionLocal() as db:
+                await db.execute(statement)
+            for event in batch:
+                await bus.publish(bus.run_channel(live.id), event)
+
+    async def flush_events(self, live):
+        """Wait until everything emitted so far is stored and published; raise if storing failed. Any
+        other writer of this run's events (a checkpoint, the terminal event) calls this first, so no
+        event is stored or published ahead of an earlier one."""
+        while live.writer is not None and not live.writer.done():
+            await asyncio.shield(live.writer)
+        if live.writer is not None and not live.writer.cancelled() and (error := live.writer.exception()) is not None:
+            raise error
+
+    async def park_others(self, chat_id, user_id):
         """One active sandbox per user, as open-lovable keeps one (firecrawl/open-lovable@69bd93b), but
         per user and paused, not killed: switching to this project parks the user's other idle sandboxes.
         One with a build or an open in progress keeps running; a build parks its own when it ends."""
-        if user_id is None:
-            # A caller holding the project row passes its owner and skips this round trip.
-            async with ReadSessionLocal() as db:
-                user_id = await db.scalar(select(Chat.user_id).where(Chat.id == chat_id))
-        if user_id is None:
+        if self.focus.get(user_id) == chat_id:
+            # Already this user's focus: every sandbox that started since (an open or a build of
+            # another project) moved the focus away, so there is nothing new to park.
             return
         self.focus[user_id] = chat_id
         for row in await self.runtimes.running_for(user_id, chat_id):
             await self.park_left(row.chat_id)
 
-    async def get_e2b_sandbox(self, id: str):
-        await self.park_others(id)
-        revision = await latest_revision(id)
-        kit_id = await chat_kit(id)
+    async def get_e2b_sandbox(self, id: str, loaded=None):
+        """loaded: the project, its latest saved revision and its runtime row when the caller has just
+        read them."""
+        if loaded:
+            chat, revision, runtime = loaded
+        else:
+            # The project, its owner, kit, latest saved revision and runtime row in one query;
+            # latest_revision_in then finds the revision in the session.
+            async with AutocommitSessionLocal() as db:
+                found = (
+                    await db.execute(
+                        select(Chat, SandboxRuntime)
+                        .outerjoin(SandboxRuntime, SandboxRuntime.chat_id == Chat.id)
+                        .options(joinedload(Chat.latest_saved_revision))
+                        .where(Chat.id == id)
+                    )
+                ).first()
+                chat, runtime = found if found else (None, None)
+                revision = await latest_revision_in(db, id)
+        kit_id = usable_kit(chat.kit if chat else None)
+        assert chat is not None, "usable_kit refuses a project that no longer exists"
+        await self.park_others(id, chat.user_id)
         try:
             template = revision.template_id if revision else await project.template_ref()
         except project.KitTemplateMissing as exc:
             raise SandboxSetupError(f"{exc}. No editing model request was made.") from None
-        sandbox, restore = await self.runtimes.acquire(id, revision, template)
+        sandbox, restore = await self.runtimes.acquire(id, chat.user_id, revision, template, runtime)
         if not restore:
             return sandbox
         try:
@@ -556,8 +719,10 @@ class Service:
         await project.dump(live.sandbox, kit_id)
         async with archive_slots:
             archive = await sandbox_archive(live.sandbox, "pack")
-            # The checkpoint event takes a sequence number too (see LiveRun.emit_lock).
+            # The checkpoint event takes a sequence number too (see LiveRun.emit_lock), and is stored
+            # by promote(): every earlier event is stored and published first.
             async with live.emit_lock:
+                await self.flush_events(live)
                 live.revision_id, event = await save_revision(
                     live.chat_id,
                     live.id,
@@ -572,24 +737,46 @@ class Service:
         if event:
             await bus.publish(bus.run_channel(live.id), event)
 
-    async def open_preview(self, chat_id) -> dict[str, Any]:
+    async def open_preview(self, chat_id, user_id) -> dict[str, Any]:
         async with self.admission:
-            async with AsyncSessionLocal() as db:
-                if (
-                    self.stopping
-                    or chat_id in self.opening
-                    or await open_run(db, chat_id)
-                    or len(self.active) + len(self.opening) >= run_settings.MAX_CONCURRENT_RUNS
-                ):
-                    raise HTTPException(409, "Wait for the current operation to finish")
-            await self.require_sandbox_capacity(chat_id)
-            self.opening.add(chat_id)
-        try:
-            revision = await latest_revision(chat_id)
+            # Everything opening needs to know, in one query: the project (checked as the user's) and
+            # its latest saved revision, whether a build is open, and sandbox capacity as
+            # SandboxRuntimes.reserved reads it.
+            async with AutocommitSessionLocal() as db:
+                found = (
+                    await db.execute(
+                        select(
+                            Chat,
+                            select(Run.id).where(Run.chat_id == chat_id, Run.status.in_(OPEN_STATUSES)).exists(),
+                            select(func.array_agg(SandboxRuntime.chat_id))
+                            .where(SandboxRuntime.state != "paused")
+                            .scalar_subquery(),
+                            SandboxRuntime,
+                        )
+                        .outerjoin(SandboxRuntime, SandboxRuntime.chat_id == Chat.id)
+                        .options(joinedload(Chat.latest_saved_revision))
+                        .where(Chat.id == chat_id, Chat.user_id == user_id)
+                    )
+                ).first()
+                if found is None:
+                    raise HTTPException(404, "Project not found")
+                chat, open_build, reserved, runtime = found
+                state = runtime.state if runtime else None
+                revision = await latest_revision_in(db, chat_id)
+            if (
+                self.stopping
+                or chat_id in self.opening
+                or open_build
+                or len(self.active) + len(self.opening) >= run_settings.MAX_CONCURRENT_RUNS
+            ):
+                raise HTTPException(409, "Wait for the current operation to finish")
             if not revision:
                 raise HTTPException(404, "No saved project yet")
+            await self.require_sandbox_capacity(chat_id, reserved or [], state)
+            self.opening.add(chat_id)
+        try:
             async with asyncio.timeout(180):
-                sandbox = await self.get_e2b_sandbox(chat_id)
+                sandbox = await self.get_e2b_sandbox(chat_id, (chat, revision, runtime))
                 # The navigation proxy's port; it fronts the kit's own web port (sandbox/preview.py).
                 port = PROXY_PORT
                 try:
@@ -606,12 +793,27 @@ class Service:
                     await control_preview(sandbox, "restart")
                     await self.preview_ready(sandbox, port)
                 url = "https://" + sandbox.get_host(port)
-                async with AsyncSessionLocal.begin() as db:
-                    chat = await db.get(Chat, chat_id, with_for_update=True)
-                    if not chat or chat.latest_saved_revision_id != revision.id:
-                        raise StorageError("Saved project changed while opening its preview")
-                    await self.runtimes.mark_reusable(db, chat_id, revision.id)
-                    chat.app_url = url
+                # One statement: lock the project while its saved revision is still the one opened,
+                # then mark the sandbox reusable and publish the URL, or write nothing at all.
+                current = (
+                    select(Chat.id)
+                    .where(Chat.id == chat_id, Chat.latest_saved_revision_id == revision.id)
+                    .with_for_update()
+                    .cte("current")
+                )
+                reusable = self.runtimes.reusable(chat_id, revision.id, exists(select(current.c.id))).cte("reusable")
+                async with AutocommitSessionLocal() as db:
+                    published = await db.scalar(
+                        update(Chat)
+                        .where(Chat.id.in_(select(reusable.c.chat_id)))
+                        .values(app_url=url)
+                        .returning(Chat.id)
+                        .add_cte(current, reusable),
+                        # Plain SQL: the ORM's session sync would drop RETURNING from a statement with CTEs.
+                        execution_options={"synchronize_session": False},
+                    )
+                if published is None:
+                    raise StorageError("Saved project changed while opening its preview")
                 return {"url": url, "revision_id": revision.id}
         except BaseException:
             await self.retire_sandbox(chat_id)
@@ -635,48 +837,91 @@ class Service:
         )
         # The reply is shown whole, live as in history (Run.reason): redacted, not cut at the event bound.
         event["message"] = redact(reason, max_length=None)
-        async with AsyncSessionLocal.begin() as db:
-            run = await db.get(Run, live.id, with_for_update=True)
-            if not run or run.status != "running":
-                return
-            # A cancelled DB await may have committed an event before updating LiveRun.
-            # Allocate terminal sequence from durable state rather than the in-memory length.
-            last_sequence = (
-                await db.scalar(select(func.coalesce(func.max(RunEvent.sequence), 0)).where(RunEvent.run_id == live.id))
-            ) or 0
-            event["sequence"] = last_sequence + 1
-            await db.execute(
-                update(Run)
-                .where(Run.id == live.id)
-                .values(
+        # Every event emitted so far is stored first: the terminal one takes the next sequence after them.
+        await self.flush_events(live)
+        transcript = reason
+        if status == "awaiting_input":
+            transcript += "\nProposed, not implemented:\n" + "\n".join(live.workflow.get("steps", []))
+            if live.workflow.get("question"):
+                transcript += "\n" + live.workflow["question"]
+        now = datetime.now(UTC)
+        # One statement ends the run, updates its project, records the terminal event and the
+        # transcript reply: all of it, or nothing when the run is no longer running (the reaper ended
+        # it). The event takes the next sequence from durable state, since a cancelled emit may have
+        # committed one the in-memory list lacks; only this run's owner writes its events.
+        finished = (
+            update(Run)
+            .where(Run.id == live.id, Run.status == "running")
+            .values(
+                bound(
+                    Run,
                     status=status,
                     reason=reason,
                     metrics=redact(live.metrics),
                     workflow=live.workflow,
-                    finished_at=datetime.now(UTC),
+                    finished_at=now,
                 )
             )
-            changes = {"app_url": event["url"]} if live.sandbox_started else {}
-            if status == "succeeded" and live.revision_id:
+            .returning(Run.id)
+            .cte("finished")
+        )
+        sequence = (
+            select((func.coalesce(func.max(RunEvent.sequence), 0) + 1).label("n"))
+            .where(RunEvent.run_id == live.id)
+            .cte("sequence")
+        )
+        reply = (
+            insert(Message)
+            .from_select(
+                ["id", "chat_id", "role", "content", "event_type", "created_at"],
+                select(
+                    *bound(
+                        Message,
+                        id=live.id,
+                        chat_id=live.chat_id,
+                        role="assistant",
+                        content=transcript,
+                        event_type="run_summary",
+                        created_at=now,
+                    ).values()
+                ).select_from(finished),
+            )
+            .cte("reply")
+        )
+        ctes = [finished, sequence, reply]
+        changes = {"app_url": event["url"]} if live.sandbox_started else {}
+        reusable = status == "succeeded" and live.revision_id
+        if reusable:
+            changes["latest_verified_revision_id"] = live.revision_id
+        if changes:
+            ctes.append(
+                update(Chat)
+                .where(Chat.id == live.chat_id, exists(select(finished.c.id)))
+                .values(bound(Chat, **changes))
+                .cte("project")
+            )
+        payload = cast(
+            cast(literal(event, JSON), JSONB).op("||")(func.jsonb_build_object("sequence", sequence.c.n)), JSON
+        )
+        terminal = (
+            insert(RunEvent)
+            .from_select(
+                ["run_id", "sequence", "payload", "created_at"],
+                select(
+                    literal(live.id, String), sequence.c.n, payload, literal(now, DateTime(timezone=True))
+                ).select_from(finished, sequence),
+            )
+            .returning(RunEvent.sequence)
+            .add_cte(*ctes)
+        )
+        # A succeeded run also marks its sandbox reusable, which refuses (and so rolls this back)
+        # when the sandbox changed hands: then one transaction; otherwise the statement alone.
+        async with AsyncSessionLocal.begin() if reusable else AutocommitSessionLocal() as db:
+            event["sequence"] = await db.scalar(terminal)
+            if event["sequence"] is None:
+                return
+            if reusable:
                 await self.runtimes.mark_reusable(db, live.chat_id, live.revision_id)
-                changes["latest_verified_revision_id"] = live.revision_id
-            if changes:
-                await db.execute(update(Chat).where(Chat.id == live.chat_id).values(**changes))
-            db.add(RunEvent(run_id=live.id, sequence=event["sequence"], payload=event))
-            transcript = reason
-            if status == "awaiting_input":
-                transcript += "\nProposed, not implemented:\n" + "\n".join(live.workflow.get("steps", []))
-                if live.workflow.get("question"):
-                    transcript += "\n" + live.workflow["question"]
-            db.add(
-                Message(
-                    id=live.id,
-                    chat_id=live.chat_id,
-                    role="assistant",
-                    content=transcript,
-                    event_type="run_summary",
-                )
-            )
         live.events.append(event)
         await bus.publish(bus.run_channel(live.id), event)
         logger.info(
@@ -718,16 +963,32 @@ class Service:
                     "The model this conversation uses is no longer available. Choose another model or Auto"
                 )
             return routing_providers.chat_model(sticky)
-        previous = await last_outcome(live.chat_id, exclude=live.id)
-        async with AsyncSessionLocal() as db:
-            user = await db.get(User, live.user_id)
-            # An account deleted mid-run has nothing left; reserve() then refuses the call.
-            remaining = await remaining_nanos(db, user) if user else 0
+
+        async def budget_and_size():
+            # The user, this month's spend and the transcript's size in one query.
+            month = month_window(datetime.now(UTC))
+            async with AutocommitSessionLocal() as db:
+                row = (
+                    await db.execute(
+                        select(
+                            User,
+                            month_spend(live.user_id, *month).scalar_subquery(),
+                            stored_chars(live.chat_id).scalar_subquery(),
+                        ).where(User.id == live.user_id)
+                    )
+                ).first()
+            return row or (None, 0, 0)
+
+        previous, (user, used, transcript_chars) = await asyncio.gather(
+            last_outcome(live.chat_id, exclude=live.id), budget_and_size()
+        )
+        # An account deleted mid-run has nothing left; reserve() then refuses the call.
+        remaining = remaining_in(user, used) if user else 0
         pick = await routing_router.pick_model(
             live.prompt,
             model_choice=live.model_choice,
             # About 3 characters per token, plus the system prompt, tools and the new request.
-            needed_tokens=await transcript_size_chars(live.chat_id) // 3 + 20_000,
+            needed_tokens=transcript_chars // 3 + 20_000,
             remaining_nanos=remaining,
             failed_model=previous.get("model") if previous.get("failed") else None,
         )
@@ -737,9 +998,14 @@ class Service:
     async def execute(self, live):
         # The hooks add each reservation and settlement to live.metrics["cost_nanos"],
         # the run's reported spend. Same dict, not a copy.
-        scope_token = spend_scope.set(
-            {"user_id": live.user_id, "run_id": live.id, "limit_error": None, "metrics": live.metrics}
-        )
+        scope = {
+            "user_id": live.user_id,
+            "run_id": live.id,
+            "limit_error": None,
+            "metrics": live.metrics,
+            "settling": set(),
+        }
+        scope_token = spend_scope.set(scope)
         if live.unnamed:
             # Started inside the spend scope, so the naming call is metered like any other.
             live.naming = asyncio.create_task(self.name_project(live), name=f"name:{live.chat_id}")
@@ -898,6 +1164,9 @@ class Service:
                     live.metrics["sandbox_cleanup"] = "pending"
                     reason += " Sandbox cleanup is pending. Reopening is blocked until ownership is resolved."
                     logger.warning("Sandbox cleanup remains reserved run_id=%s", live.id)
+            # Settlements run in the background (model_budget.settle_later); the run's spend is
+            # final only once they have landed.
+            await asyncio.gather(*scope["settling"], return_exceptions=True)
             try:
                 await self.finish(live, status, reason, result)
             except Exception:
@@ -925,7 +1194,7 @@ class Service:
         """Pause a project's sandbox the user has moved away from, unless a build or an open uses it."""
         if chat_id in self.opening:
             return
-        async with AsyncSessionLocal() as db:
+        async with AutocommitSessionLocal() as db:
             # A queued run is about to acquire this sandbox, and a running one may belong to another
             # process's worker: neither is in self.active, so the row decides.
             if await open_run(db, chat_id):
@@ -941,7 +1210,9 @@ class Service:
 
     async def open_sandbox(self, live):
         async with self.admission:
-            await self.require_sandbox_capacity(live.chat_id, requesting_run=live.id)
+            await self.require_sandbox_capacity(
+                live.chat_id, *await self.runtimes.reserved(live.chat_id), requesting_run=live.id
+            )
             live.sandbox_started = True
         live.sandbox = await self.get_e2b_sandbox(live.chat_id)
         # Commit unsafe state before the first possible mutation.
@@ -966,22 +1237,34 @@ class Service:
         await self.emit(live, "approach", message=question, workflow=public_workflow(live.workflow))
         return "awaiting_input", question
 
-    async def steer(self, run_id: str, text: str) -> bool:
-        """Queue a user message for a running build (Pi's steering queue). False if it is not running."""
-        async with AsyncSessionLocal.begin() as db:
-            run = await db.get(Run, run_id)
-            if run is None or run.status != "running" or run.cancel_requested:
-                return False
-            db.add(Message(id=str(uuid.uuid4()), chat_id=run.chat_id, role="user", content=text))
+    async def steer(self, run_id: str, user_id: int, text: str) -> bool:
+        """Queue a user message for a running build (Pi's steering queue), in one statement: it is
+        stored only if the run is the user's, running and not stopping. False if nothing matched."""
+        running = (
+            select(literal(str(uuid.uuid4())), Run.chat_id, literal("user"), literal(text))
+            .join(Chat, Chat.id == Run.chat_id)
+            .where(Run.id == run_id, Chat.user_id == user_id, Run.status == "running", Run.cancel_requested.is_(False))
+        )
+        async with AutocommitSessionLocal() as db:
+            chat_id = await db.scalar(
+                insert(Message).from_select(["id", "chat_id", "role", "content"], running).returning(Message.chat_id)
+            )
+        if chat_id is None:
+            return False
         await bus.publish(bus.COMMANDS, {"type": "steer", "run_id": run_id, "text": text})
-        await self.notify(run.chat_id, {"e": "resync"})
+        await self.notify(chat_id, {"e": "resync"})
         return True
 
-    async def cancel(self, run_id: str) -> None:
-        async with AsyncSessionLocal.begin() as db:
+    async def cancel(self, run_id: str, user_id: int) -> bool:
+        """Request a stop in one statement, only for the user's open run. False if nothing matched."""
+        async with AutocommitSessionLocal() as db:
             status = await db.scalar(
                 update(Run)
-                .where(Run.id == run_id, Run.status.in_(OPEN_STATUSES))
+                .where(
+                    Run.id == run_id,
+                    Run.status.in_(OPEN_STATUSES),
+                    Run.chat_id.in_(select(Chat.id).where(Chat.user_id == user_id)),
+                )
                 .values(cancel_requested=True)
                 .returning(Run.status)
             )
@@ -990,11 +1273,12 @@ class Service:
             live = await self.workers.claim(run_id)
             if live is not None:
                 await self.workers.finish_unstarted(live)
-                return
+                return True
         if status is not None:
             # Running, or a worker claimed it between our update and claim. The command is
             # immediate; the flag reaches the owner at its next heartbeat if the command is lost.
             await bus.publish(bus.COMMANDS, {"type": "cancel", "run_id": run_id})
+        return status is not None
 
 
 agent_service = Service()

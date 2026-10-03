@@ -9,7 +9,7 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import delete, func, or_, select
 
 from agent.storage.models import StorageUsage
-from db.base import AsyncSessionLocal
+from db.base import AsyncSessionLocal, AutocommitSessionLocal
 from db.models import Chat, ProjectRevision, Run, RunEvent, StorageDeletion
 
 from ..events import archive_run
@@ -21,7 +21,7 @@ CLEANUP_TIMEOUT = 10
 
 
 async def attempt_cleanup(action):
-    """Bound the request wait; durable storage/runtime records survive failures."""
+    """Bound one cleanup; durable storage/runtime records survive failures."""
     try:
         async with asyncio.timeout(CLEANUP_TIMEOUT):
             return await action
@@ -32,6 +32,7 @@ async def attempt_cleanup(action):
 
 async def cleanup_project_storage(keys):
     completed = True
+    removed = []
     for key in keys:
         try:
             if key.startswith("legacy/"):
@@ -45,14 +46,17 @@ async def cleanup_project_storage(keys):
             logger.warning("Project storage cleanup deferred error_type=%s", type(exc).__name__)
             completed = False
             continue  # Retain the durable intent; one failure must not block other keys.
-        async with AsyncSessionLocal.begin() as db:
-            await db.execute(delete(StorageDeletion).where(StorageDeletion.object_key == key))
+        removed.append(key)
+    if removed:
+        # One statement for every removed object; intents left by a crash before it are retried.
+        async with AutocommitSessionLocal() as db:
+            await db.execute(delete(StorageDeletion).where(StorageDeletion.object_key.in_(removed)))
     return completed
 
 
 async def maintain(service):
     now = datetime.now(UTC)
-    async with AsyncSessionLocal() as db:
+    async with AutocommitSessionLocal() as db:
         deletions = list(
             (
                 await db.scalars(
@@ -65,7 +69,7 @@ async def maintain(service):
     for key in deletions:
         await attempt_cleanup(cleanup_project_storage([key]))
     busy = {r.chat_id for r in service.active.values()} | service.opening
-    async with AsyncSessionLocal() as db:
+    async with AutocommitSessionLocal() as db:
         pending = list(
             (
                 await db.scalars(
@@ -91,7 +95,7 @@ async def maintain(service):
                     if row and row.status == "pending":
                         row.status = "failed"
 
-    async with AsyncSessionLocal() as db:
+    async with AutocommitSessionLocal() as db:
         run_ids = list(
             (
                 await db.scalars(
@@ -112,7 +116,7 @@ async def maintain(service):
         except StorageError:
             logger.warning("Run log archive deferred run_id=%s", run_id)
 
-    async with AsyncSessionLocal() as db:
+    async with AutocommitSessionLocal() as db:
         chat_ids = list(
             (
                 await db.scalars(
@@ -168,7 +172,7 @@ async def maintain(service):
                     )
                 )
 
-    async with AsyncSessionLocal() as db:
+    async with AutocommitSessionLocal() as db:
         expired = list(
             (
                 await db.scalars(

@@ -8,7 +8,7 @@ import re
 
 from sqlalchemy import select
 
-from db.base import AsyncSessionLocal
+from db.base import AsyncSessionLocal, AutocommitSessionLocal
 from db.models import Run, RunEvent
 
 from .storage.persistence import put_object, read_object
@@ -65,7 +65,7 @@ async def run_events(db, run_id, after_sequence=0, limit=EVENT_PAGE):
 
 
 async def archive_run(run_id):
-    async with AsyncSessionLocal() as db:
+    async with AutocommitSessionLocal() as db:
         run = await db.get(Run, run_id)
         if not run or run.status in ("running", "awaiting_input") or run.log_sha256:
             return
