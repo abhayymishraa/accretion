@@ -23,6 +23,9 @@ import { useChatHistory } from "./useChatHistory";
 import { useChatConnection } from "./useChatConnection";
 import { useModelChoice } from "./useModelChoice";
 import { useWorkspaceLayout } from "./useWorkspaceLayout";
+
+let balanceLoaded = false;
+
 export function useChatWorkspace(chatId: string) {
     const router = useRouter();
 
@@ -68,9 +71,17 @@ export function useChatWorkspace(chatId: string) {
         }
     }, [updatedUser, storedUser]);
     const modelChoice = useModelChoice(userData?.default_model_choice);
-    // The budget balance changes as a build spends, so reload it on open and after each build.
+    // The budget balance changes only as a build spends: load it once per page, then after each
+    // build, not on every chat opened.
+    const buildSeen = useRef(false);
     useEffect(() => {
-        if (isBuilding) return;
+        if (isBuilding) {
+            buildSeen.current = true;
+            return;
+        }
+        if (balanceLoaded && !buildSeen.current) return;
+        buildSeen.current = false;
+        balanceLoaded = true;
         let disposed = false;
         authService
             .getCurrentUser()

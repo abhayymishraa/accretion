@@ -1,5 +1,6 @@
 "use client";
 
+import { reloadProjects } from "@/hooks/projects/useProjectList";
 import { filterProjects, type ProjectPeriod, type ProjectSort } from "@/lib/projects/filters";
 import { projectService } from "@/services/service.projects";
 import type { Project } from "@/types/project.type";
@@ -62,6 +63,7 @@ export function useProjectCollection(compact: boolean, onOpen?: () => void) {
         try {
             const result = await projectService.deleteProject(project.id);
             setProjects((current) => current.filter((item) => item.id !== project.id));
+            reloadProjects();
             setPendingDelete(null);
             const cleanupPending =
                 result.storage_cleanup !== "completed" || result.sandbox_cleanup !== "completed";

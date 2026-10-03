@@ -2,7 +2,7 @@
 
 import { authService } from "@/services/service.auth";
 
-import { reloadProjects, showProjectTitle } from "@/hooks/projects/useProjectList";
+import { listProject, reloadProjects, showProjectTitle } from "@/hooks/projects/useProjectList";
 import { getSessionId } from "@/lib/auth/session";
 import {
     followEvents,
@@ -57,6 +57,7 @@ export function useChatConnection({
                 // catch up in full. History stays visible either way.
                 if (incoming.e === "ready" && "latest_run_id" in incoming) {
                     syncHistory(incoming.latest_run_id);
+                    listProject(chatId);
                     if (typeof incoming.title === "string")
                         showProjectTitle(chatId, incoming.title);
                     return;
@@ -70,9 +71,12 @@ export function useChatConnection({
                 showProjectTitle(chatId, incoming.title);
                 return;
             }
-            // History then lists the run as open; its events follow on this stream.
-            if (incoming.e === "run_created") refreshHistory();
-            else if (typeof incoming.run_id === "string")
+            // History then lists the run as open; its events follow on this stream. A new prompt
+            // also moves this project to the top of the list.
+            if (incoming.e === "run_created") {
+                refreshHistory();
+                reloadProjects();
+            } else if (typeof incoming.run_id === "string")
                 receiveEvent(new MessageEvent("message", { data }));
         };
         const connect = async () => {
