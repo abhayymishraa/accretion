@@ -2,7 +2,8 @@
 
 // Adapted from shadcn/ui Sonner (MIT). See SHADCN-LICENSE.
 // https://github.com/shadcn-ui/ui/blob/2b3e6d4f8d9161fe5c19340dc383aade392012dd/apps/v4/registry/new-york-v4/ui/sonner.tsx
-import { CircleCheck, CircleX, LoaderCircle } from "lucide-react";
+import { CometSpinner } from "@/components/ui/comet-spinner";
+import { CircleCheck, CircleX } from "lucide-react";
 import type { CSSProperties } from "react";
 import { Toaster as Sonner } from "sonner";
 
@@ -18,9 +19,7 @@ export function Toaster() {
             icons={{
                 success: <CircleCheck size={17} />,
                 error: <CircleX size={17} />,
-                loading: (
-                    <LoaderCircle size={17} className="animate-spin motion-reduce:animate-none" />
-                ),
+                loading: <CometSpinner aria-hidden className="size-3.5" />,
             }}
             style={
                 {

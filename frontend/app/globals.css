@@ -152,6 +152,14 @@
     /* Makes `auto` animatable, which is what lets a disclosure transition its
        height. Inert everywhere nothing transitions a keyword size. */
     interpolate-size: allow-keywords;
+    /* Build loader tetrominoes, I O T S Z J L (components/ui/loader-tetris.tsx). */
+    --tetris-1: oklch(0.797 0.134 211.5);
+    --tetris-2: oklch(0.861 0.173 91.9);
+    --tetris-3: oklch(0.709 0.159 293.5);
+    --tetris-4: oklch(0.8 0.182 151.7);
+    --tetris-5: oklch(0.711 0.166 22.2);
+    --tetris-6: oklch(0.714 0.143 254.6);
+    --tetris-7: oklch(0.758 0.159 55.9);
 }
 
 /* [data-palette="light"] opts one subtree into this palette, for surfaces
@@ -220,6 +228,13 @@
     --surface-2: oklch(0.9784 0.0011 197.1387);
     --surface-3: oklch(0.9878 0.0008 197.1387);
     --hairline: oklch(0.9317 0.0118 231.6594 / 0.9);
+    --tetris-1: oklch(0.609 0.111 221.7);
+    --tetris-2: oklch(0.666 0.157 58.3);
+    --tetris-3: oklch(0.541 0.247 293);
+    --tetris-4: oklch(0.627 0.17 149.2);
+    --tetris-5: oklch(0.577 0.215 27.3);
+    --tetris-6: oklch(0.546 0.215 262.9);
+    --tetris-7: oklch(0.646 0.194 41.1);
 }
 
 @layer base {
