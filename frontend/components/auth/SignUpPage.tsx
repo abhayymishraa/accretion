@@ -4,8 +4,8 @@ import { AUTH_SWITCH_LINK, AuthFrame } from "@/components/auth/AuthFrame";
 import { ErrorBox } from "@/components/ui/ErrorBox";
 import { SocialLogin } from "@/components/auth/SocialLogin";
 import { Button } from "@/components/ui/button";
+import { CometSpinner } from "@/components/ui/comet-spinner";
 import { Input } from "@/components/ui/input";
-import { Loader2 } from "lucide-react";
 import Link from "next/link";
 
 import { useSignUp } from "@/hooks/auth/useSignUp";
@@ -110,7 +110,7 @@ export default function SignUpPage() {
                         aria-hidden="true"
                         className={`absolute inset-0 flex items-center justify-center gap-2 transition-opacity duration-[120ms] ${isLoading ? "opacity-100" : "opacity-0"}`}
                     >
-                        <Loader2 size={16} className="animate-spin" />
+                        <CometSpinner className="size-[13px]" />
                         Creating account…
                     </span>
                 </Button>

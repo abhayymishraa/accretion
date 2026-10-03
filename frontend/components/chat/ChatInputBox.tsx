@@ -1,10 +1,11 @@
 import { ModelPicker } from "@/components/chat/ModelPicker";
 import { Button } from "@/components/ui/button";
+import { CometSpinner } from "@/components/ui/comet-spinner";
 import { IconSwap } from "@/components/ui/IconSwap";
 import { Input } from "@/components/ui/input";
 import { MAX_PROJECT_DRAFT_LENGTH } from "@/lib/projects/draft";
 import { starterBriefs } from "@/lib/projects/starterBriefs";
-import { ArrowRight, ArrowUp, Loader2, Plus } from "lucide-react";
+import { ArrowRight, ArrowUp, Plus } from "lucide-react";
 import type { ModelOption } from "@/types/models.type";
 import { useRef, useState } from "react";
 
@@ -87,17 +88,7 @@ export function ChatInputBox({
                     <IconSwap
                         swapped={isLoading}
                         from={<ArrowUp size={19} aria-hidden="true" />}
-                        to={
-                            <Loader2
-                                size={19}
-                                aria-hidden="true"
-                                className={
-                                    isLoading
-                                        ? "animate-spin motion-reduce:animate-none"
-                                        : undefined
-                                }
-                            />
-                        }
+                        to={<CometSpinner aria-hidden className="size-[15px]" />}
                     />
                 </Button>
             </div>
