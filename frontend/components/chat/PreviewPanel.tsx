@@ -72,6 +72,9 @@ export function PreviewPanel({
     } else if (!retainPreview && previewReady && activeTab === "preview") {
         setRetainPreview(true);
     }
+    // An unmounted frame comes back unpainted, so its loader must show again.
+    const frameMounted = visible && live && (activeTab === "preview" || retainPreview);
+    if (!frameMounted && paintedKey !== null) setPaintedKey(null);
     useEffect(() => {
         if (!previewReady || activeTab === "preview") return;
         // A short Files visit preserves the iframe. Hidden work is bounded.
