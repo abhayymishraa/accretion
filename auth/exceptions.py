@@ -29,10 +29,6 @@ class CredentialsUnverifiable(NotAuthenticated):
     DETAIL = "could not validate credentials"
 
 
-class MalformedUserId(NotAuthenticated):
-    DETAIL = "Invalid user ID format"
-
-
 class InvalidCredentials(NotAuthenticated):
     DETAIL = "Incorrect email or password."
 

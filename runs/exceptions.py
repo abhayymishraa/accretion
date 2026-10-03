@@ -15,10 +15,6 @@ class RunNotRunning(Conflict):
     DETAIL = "This build has already finished. Send your message as a new request."
 
 
-class InvalidHistoryPage(UnprocessableEntity):
-    DETAIL = "Invalid history page"
-
-
 class InvalidEventCursor(UnprocessableEntity):
     DETAIL = "Invalid event cursor"
 

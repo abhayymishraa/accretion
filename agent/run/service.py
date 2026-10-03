@@ -12,7 +12,8 @@ from typing import Any
 from e2b import AsyncSandbox, SandboxException
 from e2b.exceptions import ServiceBusyException
 from fastapi import HTTPException
-from sqlalchemy import func, select, update
+from sqlalchemy import cast, func, select, update
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,7 +26,7 @@ from ..budget.budget import BudgetLimitError, BudgetSpentError, remaining_nanos,
 from ..budget.model_budget import spend_scope
 from ..context.context import ContextError, ProjectContext
 from ..context.transcript import size_chars as transcript_size_chars
-from ..events import MAX_RUN_EVENTS, redact, run_events
+from ..events import MAX_RUN_EVENTS, redact
 from ..routing import jev
 from ..routing import providers as routing_providers
 from ..routing import router as routing_router
@@ -43,6 +44,7 @@ from ..storage.persistence import (
     save_revision,
 )
 from ..storage.storage import StorageError
+from ..tools.public_tools import EDIT_TOOLS, edit_summary
 from ..tools.tools import ROOT, FileWriteError
 from . import bus
 from .config import run_settings
@@ -443,6 +445,9 @@ class Service:
             event = self.event(live, kind, **payload)
             async with AsyncSessionLocal.begin() as db:
                 db.add(RunEvent(run_id=live.id, sequence=event["sequence"], payload=event))
+                if kind == "tool_completed" and event.get("name") in EDIT_TOOLS:
+                    edits = func.coalesce(Run.edits, cast([], JSONB)).op("||")(cast([edit_summary(event)], JSONB))
+                    await db.execute(update(Run).where(Run.id == live.id).values(edits=edits))
             live.events.append(event)
         await bus.publish(bus.run_channel(live.id), event)
         record = {k: event[k] for k in ("e", "run_id", "sequence")}
@@ -990,33 +995,6 @@ class Service:
             # Running, or a worker claimed it between our update and claim. The command is
             # immediate; the flag reaches the owner at its next heartbeat if the command is lost.
             await bus.publish(bus.COMMANDS, {"type": "cancel", "run_id": run_id})
-
-    async def snapshot(self, chat_id, offset=0, limit=10) -> list[dict[str, Any]]:
-        async with AsyncSessionLocal() as db:
-            rows = (
-                await db.scalars(
-                    select(Run)
-                    .where(Run.chat_id == chat_id)
-                    .order_by(Run.created_at.desc(), Run.id.desc())
-                    .offset(offset)
-                    .limit(limit)
-                )
-            ).all()
-            runs = []
-            for row in reversed(rows):
-                live = self.active.get(row.id)
-                runs.append(
-                    {
-                        "id": row.id,
-                        "status": row.status,
-                        "reason": row.reason,
-                        "created_at": row.created_at.isoformat(),
-                        "workflow": public_workflow(row.workflow),
-                        "events": await run_events(db, row.id),
-                        "metrics": redact(live.metrics) if live else row.metrics,
-                    }
-                )
-            return runs
 
 
 agent_service = Service()

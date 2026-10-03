@@ -76,18 +76,20 @@ ReadSessionLocal = async_sessionmaker(
 )
 
 
-def read_only(request: Request) -> None:
-    """Route dependency for routes that never write: get_db then hands out a ReadSessionLocal
-    session. Route dependencies resolve before parameters, so get_db sees the mark."""
-    request.state.read_only = True
+def autocommit(request: Request) -> None:
+    """Route dependency for routes that never write, or write in exactly one statement, which
+    commits by itself: get_db then hands out a ReadSessionLocal session. A route with two writes
+    that must succeed together keeps the transaction. Route dependencies resolve before
+    parameters, so get_db sees the mark."""
+    request.state.autocommit = True
 
 
-ReadOnly = Depends(read_only)
+Autocommit = Depends(autocommit)
 
 
 async def get_db(request: Request) -> AsyncGenerator[AsyncSession, None]:
     # Creates a database session.
-    factory = ReadSessionLocal if getattr(request.state, "read_only", False) else AsyncSessionLocal
+    factory = ReadSessionLocal if getattr(request.state, "autocommit", False) else AsyncSessionLocal
     async with factory() as session:
         try:
             # “Pauses” the function and hands out the session object to whoever called get_db().

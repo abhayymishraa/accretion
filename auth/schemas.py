@@ -1,6 +1,18 @@
+from dataclasses import dataclass
+
 from pydantic import BaseModel, EmailStr, Field
 
 from models import CustomModel, UtcDatetime
+
+
+@dataclass(frozen=True)
+class TokenUser:
+    """The caller as their access token states it, read without a database query. Waitlist,
+    role and removal changes reach it when the token is renewed, within its 30 minutes."""
+
+    id: int
+    role: str
+    approved: bool
 
 
 class UserRegister(BaseModel):

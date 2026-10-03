@@ -53,16 +53,19 @@ def _spent_error(end, left=0):
     return BudgetSpentError(f"{spent} It resets on {end:%-d %B} UTC. Saved projects and previews remain available.")
 
 
-async def used_in_month(db, user_id, start, end):
-    """Model spend only: sandbox entries are recorded but not charged to the user."""
-    return await db.scalar(
-        select(func.coalesce(func.sum(SpendEntry.amount_nanos), 0)).where(
-            SpendEntry.user_id == user_id,
-            SpendEntry.kind == "model",
-            SpendEntry.starts_at < end,
-            SpendEntry.ends_at >= start,
-        )
+def month_spend(user_id, start, end):
+    """Model spend only: sandbox entries are recorded but not charged to the user. A select, so a
+    caller can run it alone or as a column of a larger query."""
+    return select(func.coalesce(func.sum(SpendEntry.amount_nanos), 0)).where(
+        SpendEntry.user_id == user_id,
+        SpendEntry.kind == "model",
+        SpendEntry.starts_at < end,
+        SpendEntry.ends_at >= start,
     )
+
+
+async def used_in_month(db, user_id, start, end):
+    return await db.scalar(month_spend(user_id, start, end))
 
 
 async def remaining_nanos(db, user, month=None):
@@ -73,11 +76,10 @@ async def remaining_nanos(db, user, month=None):
     return max(0, _limit() - await used_in_month(db, user.id, start, end))
 
 
-async def allowance(db, user):
-    # One clock read, so the balance and its reset date always describe the same month.
-    month = month_window(datetime.now(UTC))
-    remaining = await remaining_nanos(db, user, month)
+def allowance(user, used, month):
+    """The balance shown to the user, from `month`'s spend (month_spend) read by the caller."""
     limit = _limit()
+    remaining = None if user.unlimited else max(0, limit - used)
     return {
         "unlimited": remaining is None,
         "limit_usd": limit / NANOS,

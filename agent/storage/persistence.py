@@ -3,20 +3,21 @@
 import asyncio
 import base64
 import hashlib
+import logging
 import shlex
 import uuid
 import zipfile
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import func, select, update
-from sqlalchemy.dialects.postgresql import insert
+from redis import RedisError
+from sqlalchemy import func, select
 
 from agent import PACKAGE_ROOT
-from agent.storage.models import StorageUsage
 from db.base import AsyncSessionLocal
 from db.models import Chat, ProjectRevision, Run, RunEvent
 
+from ..run import bus
 from ..sandbox.archive import MAX_ARCHIVE, content_hash, manifest
 from ..tools.tools import ROOT
 from .config import storage_settings
@@ -24,6 +25,7 @@ from .storage import StorageError, storage_call
 
 # Bound archive memory and provider requests on the small single-worker VM.
 archive_slots = asyncio.Semaphore(2)
+logger = logging.getLogger("webbuilder.storage")
 # Generated project checkouts. Deliberately not `<root>/projects`: that is the
 # `projects` domain package, and the deployed bind mount would shadow it.
 PROJECTS = PACKAGE_ROOT.parent / "var" / "projects"
@@ -31,25 +33,33 @@ PROJECTS = PACKAGE_ROOT.parent / "var" / "projects"
 _uploads: dict[str, Any] = {}
 
 
+# Checks and adds one transfer to today's totals in a single step: bytes, then operations.
+_RESERVE = """
+local bytes = tonumber(redis.call('HGET', KEYS[1], ARGV[1]) or '0')
+local ops = tonumber(redis.call('HGET', KEYS[1], ARGV[2]) or '0')
+if bytes + tonumber(ARGV[3]) > tonumber(ARGV[4]) or ops >= tonumber(ARGV[5]) then return 0 end
+redis.call('HINCRBY', KEYS[1], ARGV[1], ARGV[3])
+redis.call('HINCRBY', KEYS[1], ARGV[2], 1)
+redis.call('EXPIRE', KEYS[1], 172800)
+return 1
+"""
+
+
 async def reserve_transfer(direction, size):
+    """The daily storage transfer budget, kept in Redis like other rate limits so that reading a file
+    costs no database round trip. ponytail: Redis has no persistence (deploy/compose.yaml), so a
+    Redis restart resets the day's count, and an unreachable Redis lets transfers through; it is a
+    soft guard on provider allowances, not billing."""
     limit = storage_settings.daily_limit_bytes(direction)
-    today = datetime.now(UTC).date()
-    async with AsyncSessionLocal.begin() as db:
-        await db.execute(insert(StorageUsage).values(day=today, uploaded=0, downloaded=0).on_conflict_do_nothing())
-        column = getattr(StorageUsage, direction)
-        operations = getattr(StorageUsage, direction + "_ops")
-        result = await db.execute(
-            update(StorageUsage)
-            .where(
-                StorageUsage.day == today,
-                column + size <= limit,
-                operations < (1000 if direction == "uploaded" else 10000),
-            )
-            .values({direction: column + size, direction + "_ops": operations + 1})
-            .returning(StorageUsage.day)
-        )
-        if result.scalar_one_or_none() is None:
-            raise StorageError("Daily storage transfer budget reached; retry after midnight UTC")
+    key = f"accretion:storage:{datetime.now(UTC).date()}"
+    operations = 1000 if direction == "uploaded" else 10000
+    try:
+        allowed = await bus.client.eval(_RESERVE, 1, key, direction, direction + "_ops", size, limit, operations)
+    except RedisError as exc:
+        logger.warning("Storage budget unchecked; Redis failed error_type=%s", type(exc).__name__)
+        return
+    if not allowed:
+        raise StorageError("Daily storage transfer budget reached; retry after midnight UTC")
 
 
 async def read_object(key, size) -> bytes:

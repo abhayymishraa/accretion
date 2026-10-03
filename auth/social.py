@@ -30,10 +30,9 @@ from .schemas import Token, TokenRequest
 from .utils import (
     SECRET_KEY,
     canonical_email,
-    create_access_token,
-    create_refresh_token,
     get_password_hash,
     initial_access,
+    issue_tokens,
 )
 from .verification import consume_token, email_configured, frontend_url, issue_token
 
@@ -245,7 +244,4 @@ async def exchange_oauth(data: TokenRequest, db: DbSession) -> Token:
     if not user or (not user.email_verified):
         raise EmailNotVerified
     await db.commit()
-    return Token(
-        access_token=create_access_token({"sub": str(user_id)}),
-        refresh_token=create_refresh_token({"sub": str(user_id)}),
-    )
+    return issue_tokens(user)

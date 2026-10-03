@@ -11,6 +11,7 @@ from sqlalchemy import (
     Text,
     false,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from plans import DEFAULT_PLAN
@@ -77,6 +78,11 @@ class Chat(Base):
         cascade="all, delete-orphan",
         order_by="Message.created_at",
     )
+    # Loaded only by the query that checks ownership for file routes; holding it keeps the row in
+    # the session, so latest_revision_in finds it without a query. Never lazily loaded.
+    latest_saved_revision: Mapped["ProjectRevision | None"] = relationship(
+        primaryjoin="foreign(Chat.latest_saved_revision_id) == ProjectRevision.id", viewonly=True, lazy="raise"
+    )
 
 
 class Message(Base):
@@ -114,6 +120,9 @@ class Run(Base):
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Each file-editing call's summary (public_tools.edit_summary), appended as it completes, so
+    # history reads the edited-files card with the run's row instead of from run_events.
+    edits: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB, nullable=True)
     log_key: Mapped[str | None] = mapped_column(String(512), nullable=True)
     log_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
     # The worker holding this run (agent/run/worker.py) and when its lease lapses.

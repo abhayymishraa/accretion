@@ -2,12 +2,12 @@
 
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Query, status
+from fastapi import APIRouter, Depends, Query, status
 
 from auth import service
-from db.base import DbSession, ReadOnly
+from db.base import Autocommit, DbSession
 
-from .dependencies import AdminUser, ClientIp, SignedInUser
+from .dependencies import AdminUser, ClientIp, get_token_user
 from .schemas import (
     AccountPage,
     AccountRow,
@@ -17,6 +17,7 @@ from .schemas import (
     RegisterResponse,
     Token,
     TokenRequest,
+    TokenUser,
     UserLogin,
     UserRegister,
     UserResponse,
@@ -43,18 +44,18 @@ async def refresh_token(token_data: RefreshTokenRequest, db: DbSession) -> Token
     return await service.refresh_token(token_data=token_data, db=db)
 
 
-@router.get("/me", dependencies=[ReadOnly])
-async def get_me(current_user: SignedInUser, db: DbSession) -> UserResponse:
-    return await service.get_me(current_user=current_user, db=db)
+@router.get("/me", dependencies=[Autocommit])
+async def get_me(current_user: Annotated[TokenUser, Depends(get_token_user)], db: DbSession) -> UserResponse:
+    return await service.get_me(current_user.id, db)
 
 
-@router.patch("/me")
+@router.patch("/me", dependencies=[Autocommit])
 async def update_me(
     profile: ProfileUpdate,
-    current_user: SignedInUser,
+    current_user: Annotated[TokenUser, Depends(get_token_user)],
     db: DbSession,
 ) -> UserResponse:
-    return await service.update_me(profile=profile, current_user=current_user, db=db)
+    return await service.update_me(profile, current_user.id, db)
 
 
 @router.post("/verification/request", status_code=202)
@@ -70,7 +71,7 @@ async def confirm_verification(data: TokenRequest, db: DbSession) -> Token:
 users_router = APIRouter(prefix="/users", tags=["users"])
 
 
-@users_router.get("")
+@users_router.get("", dependencies=[Autocommit])
 async def list_users(
     *,
     _: AdminUser,

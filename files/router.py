@@ -6,21 +6,21 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import Response
 
 from agent.sandbox.archive import safe_path
-from db.base import DbSession, ReadOnly
+from db.base import Autocommit, DbSession
 from files import service
 from files.exceptions import InvalidProjectPath
-from files.schemas import FileList, RevisionList
-from projects.dependencies import OwnedProject, owned_project
+from files.schemas import FileList
+from projects.dependencies import owned_project_files
 
 router = APIRouter()
 
 
-@router.get("/projects/{project_id}/files", dependencies=[ReadOnly, Depends(owned_project)])
+@router.get("/projects/{project_id}/files", dependencies=[Autocommit, Depends(owned_project_files)])
 async def get_project_files(project_id: str, db: DbSession) -> FileList:
     return await service.file_list(db, project_id)
 
 
-@router.get("/projects/{project_id}/files/{file_path:path}", dependencies=[ReadOnly, Depends(owned_project)])
+@router.get("/projects/{project_id}/files/{file_path:path}", dependencies=[Autocommit, Depends(owned_project_files)])
 async def get_file_content(
     project_id: str,
     file_path: str,
@@ -53,7 +53,7 @@ async def get_file_content(
     }
 
 
-@router.get("/projects/{project_id}/download", dependencies=[Depends(owned_project)])
+@router.get("/projects/{project_id}/download", dependencies=[Autocommit, Depends(owned_project_files)])
 async def download_all_files(project_id: str, db: DbSession, revision_id: str | None = None):
     data = await service.project_archive(db, project_id, revision_id)
     return Response(
@@ -64,8 +64,3 @@ async def download_all_files(project_id: str, db: DbSession, revision_id: str | 
             "Cache-Control": "private, no-store",
         },
     )
-
-
-@router.get("/projects/{project_id}/revisions")
-async def get_revisions(project: OwnedProject, db: DbSession) -> RevisionList:
-    return await service.revision_list(db, project)

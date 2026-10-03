@@ -3,27 +3,23 @@
 import io
 import zipfile
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent.run.service import agent_service
 from agent.storage.persistence import archive_slots, latest_revision_in, revision_bytes
 from db.models import ProjectRevision
-from files.constants import MAX_INLINE_TEXT_BYTES, MAX_REVISIONS_PAGE
+from files.constants import MAX_INLINE_TEXT_BYTES
 from files.exceptions import FileNotInRevision, NoSavedRevision
-from files.schemas import FileList, RevisionItem, RevisionList
+from files.schemas import FileList
 from request_timing import measure
 
 
 async def saved_revision(chat_id: str, revision_id: str | None, db: AsyncSession) -> ProjectRevision:
     if revision_id:
-        revision = await db.scalar(
-            select(ProjectRevision).where(
-                ProjectRevision.id == revision_id,
-                ProjectRevision.chat_id == chat_id,
-                ProjectRevision.status == "ready",
-            )
-        )
+        # db.get: the latest revision, the usual request, is already in the session (owned_project_files).
+        revision = await db.get(ProjectRevision, revision_id)
+        if revision and (revision.chat_id != chat_id or revision.status != "ready"):
+            revision = None
     else:
         revision = await latest_revision_in(db, chat_id)
     if not revision:
@@ -71,28 +67,3 @@ async def project_archive(db: AsyncSession, project_id: str, revision_id: str | 
     revision = await saved_revision(project_id, revision_id, db)
     async with archive_slots:
         return await revision_bytes(revision)
-
-
-async def revision_list(db: AsyncSession, project) -> RevisionList:
-    rows = (
-        await db.scalars(
-            select(ProjectRevision)
-            .where(ProjectRevision.chat_id == project.id, ProjectRevision.status == "ready")
-            .order_by(ProjectRevision.created_at.desc())
-            .limit(MAX_REVISIONS_PAGE)
-        )
-    ).all()
-    return RevisionList(
-        latest_saved_revision_id=project.latest_saved_revision_id,
-        latest_verified_revision_id=project.latest_verified_revision_id,
-        revisions=[
-            RevisionItem(
-                id=r.id,
-                run_id=r.run_id,
-                created_at=r.created_at,
-                size_bytes=r.size_bytes,
-                file_count=len(r.manifest),
-            )
-            for r in rows
-        ],
-    )
