@@ -83,19 +83,29 @@ async def consume_token(db: AsyncSession, token: str, purpose: str) -> int:
     return user_id
 
 
-async def may_send(request_ip: str, email: str) -> bool:
-    """Verification email limits, kept in Redis like other rate limits: five per caller per 15 minutes
-    (raises), one per address per minute (False: a link just went out). ponytail: unchecked while
-    Redis is down; the links still expire."""
+# Verification email limits live in Redis like other rate limits. ponytail: unchecked while Redis is
+# down; the links still expire.
+
+
+async def limit_caller(request_ip: str) -> None:
+    """Five verification requests per caller per 15 minutes; the sixth raises."""
     caller = f"accretion:verify:ip:{request_ip}"
     try:
         async with bus.client.pipeline() as pipe:
             sent, _ = await pipe.incr(caller).expire(caller, 900, nx=True).execute()
-        if sent > 5:
-            raise VerificationThrottled
+    except RedisError as exc:
+        logger.warning("Verification limit unchecked; Redis failed error_type=%s", type(exc).__name__)
+        return
+    if sent > 5:
+        raise VerificationThrottled
+
+
+async def first_link(email: str) -> bool:
+    """One link per address per minute: marks this one, or False when a link just went out."""
+    try:
         return bool(await bus.client.set(f"accretion:verify:email:{email}", 1, nx=True, ex=60))
     except RedisError as exc:
-        logger.warning("Verification limits unchecked; Redis failed error_type=%s", type(exc).__name__)
+        logger.warning("Verification limit unchecked; Redis failed error_type=%s", type(exc).__name__)
         return True
 
 

@@ -63,9 +63,10 @@ from .utils import (
 )
 from .verification import (
     email_configured,
+    first_link,
     frontend_url,
     issue_token,
-    may_send,
+    limit_caller,
     send_link,
     token_digest,
     token_insert,
@@ -87,8 +88,7 @@ async def register_user(
     name = user.name.strip()
     if not name:
         raise NameRequired
-    # A new address has no link out yet, so only the caller's limit applies.
-    await may_send(request_ip, email)
+    await limit_caller(request_ip)
     # One statement: the account, unless the address is taken (older rows may differ in case), and
     # its link. Column defaults are not applied to an INSERT ... SELECT: every value is given.
     values = bound(
@@ -110,6 +110,8 @@ async def register_user(
         raise EmailTakenConflict from None
     if created is None:
         raise EmailTaken
+    # Marked only once the account exists: a refused sign-up leaves the address's resend free.
+    await first_link(email)
     background.add_task(send_link, email, name, token)
     return RegisterResponse()
 
@@ -194,7 +196,8 @@ async def request_verification(
     if not email_configured():
         raise VerificationNotConfigured
     email = canonical_email(str(data.email))
-    if not await may_send(request_ip, email):
+    await limit_caller(request_ip)
+    if not await first_link(email):
         return VerificationRequested()
     # One statement: a link for the account at this address, only while it is unverified.
     account = (
