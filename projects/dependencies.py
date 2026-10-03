@@ -15,6 +15,7 @@ from auth.dependencies import CurrentUser
 from auth.schemas import TokenUser
 from db.base import DbSession
 from db.models import Chat, ProjectRevision
+from files.exceptions import NoSavedRevision
 from projects.exceptions import ProjectNotFound
 
 
@@ -53,4 +54,8 @@ async def owned_project_files(
     ).first()
     if not found:
         raise ProjectNotFound
-    return found.tuple()
+    chat, revision = found.tuple()
+    if revision_id and revision is None:
+        # Unknown, or another project's: answered from this query, no second read.
+        raise NoSavedRevision
+    return chat, revision
