@@ -14,7 +14,7 @@ from sqlalchemy.orm import joinedload
 from auth.dependencies import CurrentUser
 from auth.schemas import TokenUser
 from db.base import DbSession
-from db.models import Chat
+from db.models import Chat, ProjectRevision
 from projects.exceptions import ProjectNotFound
 
 
@@ -35,15 +35,22 @@ async def owned_project(project_id: str, current_user: CurrentUser, db: DbSessio
 OwnedProject = Annotated[Chat, Depends(owned_project)]
 
 
-async def owned_project_files(project_id: str, current_user: CurrentUser, db: DbSession) -> Chat:
-    """owned_project for routes that read saved files: the latest saved revision loads in the same
-    query, so latest_revision_in then finds both rows in the session and queries nothing."""
-    chat = await db.scalar(
-        select(Chat)
-        .options(joinedload(Chat.latest_saved_revision))
-        .where(Chat.id == project_id, Chat.user_id == current_user.id)
-    )
-    if not chat:
+async def owned_project_files(
+    project_id: str, current_user: CurrentUser, db: DbSession, revision_id: str | None = None
+) -> tuple[Chat, ProjectRevision | None]:
+    """owned_project for routes that read saved files: the latest saved revision, and a requested one
+    (revision_id) of this project, load in the same query, so the service finds them in the session
+    and queries nothing. Both rows are returned: the session holds rows weakly, and FastAPI keeps a
+    dependency's value for the whole request."""
+    requested = (ProjectRevision.id == revision_id) & (ProjectRevision.chat_id == Chat.id)
+    found = (
+        await db.execute(
+            select(Chat, ProjectRevision)
+            .options(joinedload(Chat.latest_saved_revision))
+            .outerjoin(ProjectRevision, requested)
+            .where(Chat.id == project_id, Chat.user_id == current_user.id)
+        )
+    ).first()
+    if not found:
         raise ProjectNotFound
-    return chat
-
+    return found.tuple()

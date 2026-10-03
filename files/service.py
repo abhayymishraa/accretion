@@ -16,7 +16,7 @@ from request_timing import measure
 
 async def saved_revision(chat_id: str, revision_id: str | None, db: AsyncSession) -> ProjectRevision:
     if revision_id:
-        # db.get: the latest revision, the usual request, is already in the session (owned_project_files).
+        # db.get: owned_project_files loaded a revision of this project into the session.
         revision = await db.get(ProjectRevision, revision_id)
         if revision and (revision.chat_id != chat_id or revision.status != "ready"):
             revision = None
