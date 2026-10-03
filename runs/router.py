@@ -1,18 +1,16 @@
 """Runs: one editing request, its events, its logs and its live stream."""
 
 from collections.abc import AsyncIterable
-from typing import Annotated
 
-from fastapi import APIRouter, Depends, Header
+from fastapi import APIRouter, Depends
 from fastapi.responses import Response
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 
 from auth.dependencies import CurrentUser, get_approved_user
 from db.base import Autocommit, DbSession
-from projects.dependencies import StreamedProject
 from projects.schemas import RunAdmission
-from runs import service, stream
-from runs.dependencies import OwnedRun
+from runs import service
+from runs.dependencies import OpenedStream, OwnedRun
 from runs.schemas import ChatPayload, DecisionPayload, ModelList, RunEventsPage, SteerPayload
 
 router = APIRouter()
@@ -33,14 +31,14 @@ async def respond_to_run(run_id: str, payload: DecisionPayload, current_user: Cu
     return await service.answer_run(current_user, run_id, payload.action, payload.text)
 
 
-@router.post("/runs/{run_id}/steer", status_code=204)
-async def steer_run(run: OwnedRun, payload: SteerPayload) -> None:
-    await service.steer(run, payload.text)
+@router.post("/runs/{run_id}/steer", status_code=204, dependencies=[Autocommit])
+async def steer_run(run_id: str, payload: SteerPayload, current_user: CurrentUser, db: DbSession) -> None:
+    await service.steer(db, run_id, current_user, payload.text)
 
 
-@router.post("/runs/{run_id}/cancel", status_code=204)
-async def cancel_run(run: OwnedRun) -> None:
-    await service.cancel(run)
+@router.post("/runs/{run_id}/cancel", status_code=204, dependencies=[Autocommit])
+async def cancel_run(run_id: str, current_user: CurrentUser, db: DbSession) -> None:
+    await service.cancel(db, run_id, current_user)
 
 
 @router.get("/runs/{run_id}/events", dependencies=[Autocommit])
@@ -50,13 +48,11 @@ async def get_run_events(
     return await service.events_page(db, run_id, current_user, after_sequence)
 
 
-@router.get("/projects/{project_id}/stream", response_class=EventSourceResponse, dependencies=[Autocommit])
-async def stream_project(
-    project: StreamedProject,
-    last_event_id: Annotated[str | None, Header(pattern=r"^[0-9a-f-]{36}:\d+$")] = None,
-) -> AsyncIterable[ServerSentEvent]:
-    # Validated by the parameter, not in the body: once this generator runs the 200 is already sent.
-    async for event in stream.ProjectStream(project.id).events(last_event_id):
+@router.get("/projects/{project_id}/stream", response_class=EventSourceResponse)
+async def stream_project(opened: OpenedStream) -> AsyncIterable[ServerSentEvent]:
+    # Ownership and the resume cursor are settled in the dependency: once this generator runs the
+    # 200 is already sent.
+    async for event in opened.events():
         yield event
 
 

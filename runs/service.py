@@ -20,6 +20,7 @@ from runs.constants import (
     EVENT_RETENTION_DAYS,
     MAX_RUN_LOG_BYTES,
 )
+from runs.dependencies import owned_run
 from runs.exceptions import (
     InvalidEventCursor,
     RunLogExpired,
@@ -55,13 +56,17 @@ async def answer_run(user: TokenUser, run_id: str, action: str, text: str) -> Ru
     return RunAdmission.model_validate(await agent_service.admit(user.id, prompt, response=(run_id, action, text)))
 
 
-async def steer(run: Run, text: str) -> None:
-    if not await agent_service.steer(run.id, text.strip()):
+async def steer(db: AsyncSession, run_id: str, user: TokenUser, text: str) -> None:
+    if not await agent_service.steer(run_id, user.id, text.strip()):
+        # Only when nothing was stored: owned_run's errors for an unknown or someone else's run.
+        await owned_run(run_id, user, db)
         raise RunNotRunning
 
 
-async def cancel(run: Run) -> None:
-    await agent_service.cancel(run.id)
+async def cancel(db: AsyncSession, run_id: str, user: TokenUser) -> None:
+    if not await agent_service.cancel(run_id, user.id):
+        # A finished run of the user's is a no-op; an unknown or someone else's keeps owned_run's errors.
+        await owned_run(run_id, user, db)
 
 
 async def events_page(db: AsyncSession, run_id: str, user: TokenUser, after_sequence: int) -> RunEventsPage:

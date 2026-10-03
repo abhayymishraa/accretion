@@ -8,7 +8,7 @@ A run event's id is `run_id:sequence`, so a reconnect resumes the run it was wat
 import asyncio
 import json
 from collections.abc import AsyncIterator
-from contextlib import AsyncExitStack, suppress
+from contextlib import AsyncExitStack, nullcontext, suppress
 
 from fastapi.sse import ServerSentEvent
 from redis import RedisError
@@ -19,7 +19,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from agent.events import EVENT_PAGE, run_events
 from agent.run import bus
 from agent.run.worker import OPEN_STATUSES
-from db.base import AsyncSessionLocal, ReadSessionLocal
+from db.base import AutocommitSessionLocal
 from db.models import Chat, Run
 from runs.constants import STREAM_IDLE_SECONDS
 
@@ -35,7 +35,7 @@ async def run_stream(run_id: str, after: int) -> AsyncIterator[ServerSentEvent]:
                     pubsub = await stack.enter_async_context(bus.subscribe(bus.run_channel(run_id)))
             # Status before events: a run that finishes in between still has its terminal
             # event in the rows read next, or arrives live on the channel we already hold.
-            async with AsyncSessionLocal() as db:
+            async with AutocommitSessionLocal() as db:
                 status = await db.scalar(select(Run.status).where(Run.id == run_id))
                 events = await run_events(db, run_id, sent)
             for event in events:
@@ -81,15 +81,59 @@ class ProjectStream:
         self.project_id = project_id
         self.queue: asyncio.Queue[ServerSentEvent | None] = asyncio.Queue()
         self.followed: dict[str, asyncio.Task[None]] = {}
+        # Set by open(): the subscription taken before the response starts, the first ready frame,
+        # and the resumed run with its status.
+        self.pubsub: PubSub | None = None
+        self.ready: dict[str, object] = {"e": "ready"}
+        self.resume: str | None = None
+        self.resume_status: str | None = None
 
-    async def events(self, resume: str | None) -> AsyncIterator[ServerSentEvent]:
-        if resume:
+    def ready_query(self, user_id: int | None = None, resume_run: str | None = None):
+        """The project's title and newest run with its status, plus a resumed run's status: what a
+        ready frame carries. With user_id, only the user's project matches."""
+        newest = select(Run).where(Run.chat_id == self.project_id).order_by(Run.created_at.desc()).limit(1)
+        resumed = select(Run.status).where(Run.id == resume_run, Run.chat_id == self.project_id)
+        query = select(
+            Chat.title,
+            newest.with_only_columns(Run.id).scalar_subquery(),
+            newest.with_only_columns(Run.status).scalar_subquery(),
+            resumed.scalar_subquery(),
+        ).where(Chat.id == self.project_id)
+        return query.where(Chat.user_id == user_id) if user_id is not None else query
+
+    def frame(self, found, subscribed: bool) -> dict[str, object]:
+        frame: dict[str, object] = {"e": "ready"}
+        if found:
+            title, run_id, status = found[:3]
+            if run_id and status in OPEN_STATUSES:
+                self.follow(run_id)
+            if subscribed:
+                frame |= {"latest_run_id": run_id, "title": title}
+        return frame
+
+    async def open(self, stack: AsyncExitStack, user_id: int, resume: str | None) -> bool:
+        """Before the response starts: subscribe to the project's notices, then read, in one query,
+        whether the project is the user's and what the ready frame and a resumed run need. Read after
+        subscribing, so a change made in between arrives as a notice. False when it is not theirs;
+        the caller's stack then drops the subscription and nothing has been sent."""
+        with suppress(RedisError):
+            self.pubsub = await stack.enter_async_context(bus.subscribe(bus.project_channel(self.project_id)))
+        resume_run = resume.split(":")[0] if resume else None
+        async with AutocommitSessionLocal() as db:
+            found = (await db.execute(self.ready_query(user_id, resume_run))).first()
+        if found is None:
+            return False
+        self.resume, self.resume_status = resume, found[3]
+        self.ready = self.frame(found, subscribed=self.pubsub is not None)
+        return True
+
+    async def events(self) -> AsyncIterator[ServerSentEvent]:
+        if self.resume:
             # Before the notices start. An open run is followed from here, not from its start. An
             # ended run's remaining events are sent first and in full: were a later run's events
             # interleaved, a second reconnect would resume that run and skip the rest of this one.
-            run_id, after = resume.split(":")
-            async with ReadSessionLocal() as db:
-                status = await db.scalar(select(Run.status).where(Run.id == run_id, Run.chat_id == self.project_id))
+            run_id, after = self.resume.split(":")
+            status = self.resume_status
             if status in OPEN_STATUSES:
                 self.follow(run_id, int(after))
             elif status is not None:
@@ -120,34 +164,29 @@ class ProjectStream:
         # Read after subscribing: a run or title committed before the read is in this frame, one
         # committed after it arrives as a notice. The client then reloads history only when it
         # lacks that run. Without a subscription the frame stays bare and the client reloads.
-        newest = select(Run).where(Run.chat_id == self.project_id).order_by(Run.created_at.desc()).limit(1)
-        query = select(
-            Chat.title,
-            newest.with_only_columns(Run.id).scalar_subquery(),
-            newest.with_only_columns(Run.status).scalar_subquery(),
-        ).where(Chat.id == self.project_id)
         try:
-            async with ReadSessionLocal() as db:
-                found = (await db.execute(query)).first()
+            async with AutocommitSessionLocal() as db:
+                found = (await db.execute(self.ready_query())).first()
         except SQLAlchemyError:
             found = None
-        frame: dict[str, object] = {"e": "ready"}
-        if found:
-            title, run_id, status = found
-            if run_id and status in OPEN_STATUSES:
-                self.follow(run_id)
-            if subscribed:
-                frame |= {"latest_run_id": run_id, "title": title}
-        await self.queue.put(ServerSentEvent(data=frame))
+        await self.queue.put(ServerSentEvent(data=self.frame(found, subscribed)))
 
     async def notices(self) -> None:
         ready = False
+        # The first round uses the subscription and ready frame open() took before the response
+        # started; a round after Redis failed subscribes and reads again.
+        opened = self.pubsub
         while True:
             try:
-                async with bus.subscribe(bus.project_channel(self.project_id)) as pubsub:
+                async with (
+                    nullcontext(opened) if opened else bus.subscribe(bus.project_channel(self.project_id)) as pubsub
+                ):
                     # Sent after every subscribe, so notices missed while Redis was down are caught up.
-                    ready = True
-                    await self.announce(subscribed=True)
+                    if ready:
+                        await self.announce(subscribed=True)
+                    else:
+                        await self.queue.put(ServerSentEvent(data=self.ready))
+                    ready, opened = True, None
                     while True:
                         message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=STREAM_IDLE_SECONDS)
                         if message is None:
@@ -160,6 +199,7 @@ class ProjectStream:
                 # Notices are only doorbells: without Redis the client still composes, and runs still
                 # stream from Postgres. FastAPI's 15 s ping keeps this stream open until Redis returns.
                 if not ready:
-                    ready = True
-                    await self.announce(subscribed=False)
+                    # Redis was down when the stream opened: open() read the frame bare.
+                    ready, opened = True, None
+                    await self.queue.put(ServerSentEvent(data=self.ready))
                 await asyncio.sleep(STREAM_IDLE_SECONDS)
