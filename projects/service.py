@@ -17,12 +17,14 @@ from agent.context.history import conversation_page, transcript
 from agent.run.service import agent_service
 from agent.run.worker import OPEN_STATUSES
 from agent.storage.maintenance import attempt_cleanup, cleanup_project_storage
+from agent.storage.persistence import read_object
+from agent.tools import tools as agent_tools
 from auth.schemas import TokenUser
 from db.base import bound
 from db.models import Chat, Message, ProjectRevision, Run, RunScreenshot, StorageDeletion
 from projects.constants import LIVE_RUN_STATUSES
 from projects.dependencies import owned_chat
-from projects.exceptions import ChatNotFound, NotChatOwner, ProjectBusy, ProjectNotFound
+from projects.exceptions import ChatNotFound, CoverNotFound, NotChatOwner, ProjectBusy, ProjectNotFound
 from projects.schemas import MessagePage, ProjectList, ProjectRef, ProjectSummary, RunAdmission
 
 
@@ -92,6 +94,13 @@ async def list_projects(db: AsyncSession, user: TokenUser) -> ProjectList:
     )
 
 
+async def cover(chat: Chat) -> bytes:
+    """The project's card image, made from a screenshot by its last succeeded run."""
+    if chat.cover_updated_at is None:
+        raise CoverNotFound
+    return await read_object(f"covers/{chat.id}", agent_tools.MAX_COVER_BYTES)
+
+
 async def rename_project(db: AsyncSession, project_id: str, user: TokenUser, title: str) -> ProjectRef:
     """One statement, committed by itself: ownership is part of the update, so an unknown project and
     someone else's both change nothing and answer "Project not found", as owned_project does."""
@@ -128,7 +137,7 @@ async def delete_project(db: AsyncSession, project_id: str, user: TokenUser, bac
         ).one()
         if project_id in agent_service.opening or building:
             raise ProjectBusy
-        keys = {*(found or []), f"legacy/{project_id}"}
+        keys = {*(found or []), f"legacy/{project_id}", f"covers/{project_id}"}
         # One statement records the retry intents and deletes the project, which revokes access
         # before any provider call.
         now = datetime.now(UTC)

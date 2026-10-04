@@ -49,7 +49,7 @@ from ..storage.persistence import (
 )
 from ..storage.storage import StorageError
 from ..tools.public_tools import EDIT_TOOLS, edit_summary
-from ..tools.tools import ROOT, FileWriteError
+from ..tools.tools import MAX_COVER_BYTES, ROOT, FileWriteError, cover_image
 from . import bus
 from .config import run_settings
 from .decisions import decision_source, prepare_continuation, resolve_decision
@@ -185,6 +185,8 @@ class LiveRun:
     naming: asyncio.Task[None] | None = None
     # When this run last reset its sandbox's provider timer (see checkpoint).
     sandbox_touched: float = 0.0
+    # The last screenshot this run took: a succeeded run makes it the project's cover.
+    last_screenshot: bytes | None = None
 
 
 class Service:
@@ -707,6 +709,7 @@ class Service:
 
         None when storage refuses it: the check still counts, the chat just shows no image.
         """
+        live.last_screenshot = data
         screenshot_id = uuid.uuid4().hex
         key = f"screenshots/{live.chat_id}/{live.id}/{screenshot_id}"
         try:
@@ -717,6 +720,19 @@ class Service:
         async with AsyncSessionLocal.begin() as db:
             db.add(RunScreenshot(id=screenshot_id, run_id=live.id, object_key=key, media_type=media_type))
         return screenshot_id
+
+    async def save_cover(self, live, screenshot: bytes) -> None:
+        """Make a screenshot the project's card image. After the reply: the user does not wait on it,
+        and a failure only leaves the previous cover."""
+        try:
+            cover = await asyncio.to_thread(cover_image, screenshot)
+            if len(cover) > MAX_COVER_BYTES:
+                return
+            await put_object(f"covers/{live.chat_id}", cover, "image/webp", chat_id=live.chat_id)
+            async with AutocommitSessionLocal() as db:
+                await db.execute(update(Chat).where(Chat.id == live.chat_id).values(cover_updated_at=datetime.now(UTC)))
+        except (OSError, StorageError, SQLAlchemyError) as exc:
+            logger.warning("Cover not saved run_id=%s error_type=%s", live.id, type(exc).__name__)
 
     async def save_files(self, live):
         if not live.sandbox:
@@ -939,6 +955,8 @@ class Service:
                 await self.runtimes.mark_reusable(db, live.chat_id, live.revision_id)
         live.events.append(event)
         await bus.publish(bus.run_channel(live.id), event)
+        if reusable and live.last_screenshot:
+            await self.save_cover(live, live.last_screenshot)
         logger.info(
             json.dumps(
                 {

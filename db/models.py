@@ -70,6 +70,9 @@ class Chat(Base):
     # Kept separate: failed drafts must not replace the last verified build.
     latest_saved_revision_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     latest_verified_revision_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    # When covers/<id> (the project list's card image) was last written; null until one exists. The
+    # client sends it as the image's version, so the cached copy is replaced exactly when it changes.
+    cover_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 

@@ -13,7 +13,7 @@ from typing import Annotated, Any
 import httpx
 from e2b import SandboxException
 from langchain_core.tools import tool
-from PIL import Image
+from PIL import Image, ImageOps
 from pydantic import BaseModel, Field
 
 from ..sandbox.commands import MAX_OUTPUT, run_command
@@ -102,6 +102,9 @@ IMAGE_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".gif", ".webp"})
 # downscale to JPEG for the same reason (agent-browser's own JPEG default is quality 80).
 MODEL_IMAGE_EDGE = 1568
 MAX_MODEL_ASPECT = 2.5
+# The project list's card image: 16:10, twice the widest card (3 columns of ~320px CSS px).
+COVER_SIZE = (640, 400)
+MAX_COVER_BYTES = 200_000
 
 
 def shrink_for_model(data: bytes) -> tuple[bytes, bool]:
@@ -117,6 +120,15 @@ def shrink_for_model(data: bytes) -> tuple[bytes, bool]:
     buffer = io.BytesIO()
     image.save(buffer, "JPEG", quality=80, optimize=True)
     return buffer.getvalue(), cropped
+
+
+def cover_image(data: bytes) -> bytes:
+    """A screenshot cut to the card's shape from its top, where an app's header and hero are."""
+    with Image.open(io.BytesIO(data)) as source:
+        image = ImageOps.fit(source.convert("RGB"), COVER_SIZE, Image.Resampling.LANCZOS, centering=(0.5, 0))
+    buffer = io.BytesIO()
+    image.save(buffer, "WEBP", quality=75)
+    return buffer.getvalue()
 
 
 class FileWriteError(Exception):
