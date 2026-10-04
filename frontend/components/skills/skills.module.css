@@ -1,0 +1,120 @@
+/* The `/name` chip: brand blue on a blue tint. Light theme darkens the ink so
+   small mono text keeps AA contrast on the paler tint. */
+.chip {
+    color: var(--primary);
+    background: color-mix(in oklab, var(--primary) 14%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--primary) 32%, transparent);
+}
+:global([data-theme="light"]) .chip {
+    color: color-mix(in oklab, var(--primary) 62%, black);
+    background: color-mix(in oklab, var(--primary) 10%, white);
+}
+
+/* Fades in what replaces a loading state: opacity only, so it is the same under reduced motion. */
+.reveal {
+    animation: reveal 180ms var(--ease-out);
+}
+@keyframes reveal {
+    from {
+        opacity: 0;
+    }
+}
+
+/* Halftone dots behind the step list: the same dot grain as the artwork. */
+.grain {
+    background-image: radial-gradient(
+        color-mix(in oklab, var(--foreground) 9%, transparent) 1px,
+        transparent 1.4px
+    );
+    background-size: 10px 10px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    /* Page entrance: header, banner and cards rise into place once, in order.
+       --i is the item's slot; the page caps it so a long list is not slow. */
+    .rise {
+        animation: rise 280ms var(--ease-out) backwards;
+        animation-delay: calc(var(--i, 0) * 40ms);
+    }
+    @keyframes rise {
+        from {
+            opacity: 0;
+            transform: translateY(8px);
+        }
+    }
+
+    /* Artwork: the halftone settles in, each connector draws itself out
+       from the core, then its chip pops into place at the far end. */
+    .art {
+        animation: art 520ms var(--ease-drawer) backwards;
+    }
+    @keyframes art {
+        from {
+            opacity: 0;
+            transform: scale(0.97);
+        }
+    }
+    .line {
+        stroke-dasharray: 1;
+        animation: draw 520ms var(--ease-out) backwards;
+        animation-delay: calc(160ms + var(--i, 0) * 70ms);
+    }
+    @keyframes draw {
+        from {
+            stroke-dashoffset: 1;
+        }
+        to {
+            stroke-dashoffset: 0;
+        }
+    }
+    /* A cycled chip label: in from just below, as if it had settled into orbit. */
+    .swap {
+        animation: swap 260ms var(--ease-out);
+    }
+    @keyframes swap {
+        from {
+            opacity: 0;
+            transform: translateY(3px);
+        }
+    }
+    /* "In library" settles into the slot the button left, confirming the save where it was tapped. */
+    .settle {
+        animation: settle 180ms var(--ease-out);
+    }
+    @keyframes settle {
+        from {
+            opacity: 0;
+            transform: scale(0.96);
+        }
+    }
+    /* The delete question rises into the action row; it leaves at once. */
+    .ask {
+        animation: swap 160ms var(--ease-out);
+    }
+    /* An import's result lands, then its skills arrive one by one; --i is capped by the sheet. */
+    .landed {
+        animation: swap 200ms var(--ease-out);
+    }
+    .arrive {
+        animation: settle 160ms var(--ease-out) backwards;
+        animation-delay: calc(var(--i, 0) * 40ms);
+    }
+    .pin {
+        animation: settle 220ms var(--ease-out) backwards;
+        animation-delay: calc(480ms + var(--i, 0) * 70ms);
+    }
+}
+
+/* Reduced motion keeps the fades that orient the reader and drops movement. */
+@media (prefers-reduced-motion: reduce) {
+    .rise,
+    .art,
+    .pin {
+        animation: reveal 160ms ease backwards;
+    }
+    .settle,
+    .ask,
+    .landed {
+        animation: reveal 150ms ease;
+    }
+}

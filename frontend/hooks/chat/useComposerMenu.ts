@@ -1,5 +1,6 @@
 "use client";
 
+import type { ProjectSkill } from "@/types/skill.type";
 import { type RefObject, useLayoutEffect, useRef, useState } from "react";
 
 /**
@@ -27,6 +28,7 @@ export interface MenuChoice {
     insert: string;
     // Where the query matched inside the label, for highlighting.
     match?: [number, number];
+    skill?: boolean;
 }
 
 interface Trigger {
@@ -62,22 +64,32 @@ export function mentionTargets(files: string[]): string[] {
     return [...targets];
 }
 
-const MENTION = /(^|\s)@([^\s@]+)/g;
+const MENTION = /(^|\s)([@/])([^\s@]+)/g;
 const TRAILING = /[.,;:!?)\]}'"]+$/;
+export const SKILL_NAME = /^[a-z0-9][a-z0-9-]*/;
+
+type PromptPart = string | { path: string } | { skill: string };
 
 /**
- * The prompt cut around "@path" mentions of real project files and folders, by the backend's rule
- * (agent/context/context.py mentions), so the composer can highlight them.
+ * The prompt cut around "@path" mentions of real project files and folders, and "/name" picks of
+ * enabled skills, by the backend's rules (agent/context/context.py mentions, agent/tools/skills.py
+ * picked), so the composer can highlight them.
  */
-export function splitMentions(text: string, targets: Set<string>): (string | { path: string })[] {
-    const parts: (string | { path: string })[] = [];
+export function splitMentions(
+    text: string,
+    targets: Set<string>,
+    skills: Set<string>,
+): PromptPart[] {
+    const parts: PromptPart[] = [];
     let last = 0;
     for (const match of text.matchAll(MENTION)) {
-        const path = match[2].replace(TRAILING, "");
-        if (!targets.has(path)) continue;
-        const at = match.index + match[1].length;
-        parts.push(text.slice(last, at), { path });
-        last = at + 1 + path.length;
+        const [, space, sigil, rest] = match;
+        const name =
+            sigil === "@" ? rest.replace(TRAILING, "") : (SKILL_NAME.exec(rest)?.[0] ?? "");
+        if (!(sigil === "@" ? targets : skills).has(name)) continue;
+        const at = match.index + space.length;
+        parts.push(text.slice(last, at), sigil === "@" ? { path: name } : { skill: name });
+        last = at + 1 + name.length;
     }
     parts.push(text.slice(last));
     return parts;
@@ -111,13 +123,33 @@ function fileChoices(query: string, targets: string[]): MenuChoice[] {
     });
 }
 
-function buildChoices(kind: MenuKind, query: string, files: string[]): MenuChoice[] {
+function buildChoices(
+    kind: MenuKind,
+    query: string,
+    files: string[],
+    skills: ProjectSkill[],
+): MenuChoice[] {
     if (kind === "files") return fileChoices(query, mentionTargets(files));
     const needle = query.toLowerCase();
-    return promptCommands
+    const commands = promptCommands
         .filter((command) => command.name.toLowerCase().includes(needle))
-        .slice(0, MAX_CHOICES)
         .map((command) => ({ id: command.name, label: command.name, insert: command.prompt }));
+    // Every enabled skill, not a top few: the list scrolls. The user's own come before built-ins.
+    const picks = skills
+        .filter((skill) => skill.enabled && skill.name.includes(needle))
+        .sort((a, b) => Number(a.source === "builtin") - Number(b.source === "builtin"))
+        .map((skill) => {
+            const at = skill.name.indexOf(needle);
+            return {
+                id: `skill:${skill.name}`,
+                label: skill.name,
+                detail: skill.description,
+                insert: `/${skill.name} `,
+                match: needle ? ([at, at + needle.length] as [number, number]) : undefined,
+                skill: true,
+            };
+        });
+    return [...commands, ...picks];
 }
 
 export function useComposerMenu({
@@ -125,6 +157,7 @@ export function useComposerMenu({
     value,
     onChange,
     files,
+    skills,
     disabled,
 }: {
     // Owned by the composer so the element keeps a plain ref in its own render.
@@ -132,6 +165,8 @@ export function useComposerMenu({
     value: string;
     onChange: (next: string) => void;
     files: string[];
+    // Null until the "/" menu has opened once and fetched them.
+    skills: ProjectSkill[] | null;
     disabled: boolean;
 }) {
     const pendingCaret = useRef<number | null>(null);
@@ -139,7 +174,7 @@ export function useComposerMenu({
     const [dismissedKey, setDismissedKey] = useState<string | null>(null);
     const [activeIndex, setActiveIndex] = useState(0);
 
-    const choices = trigger ? buildChoices(trigger.kind, trigger.query, files) : [];
+    const choices = trigger ? buildChoices(trigger.kind, trigger.query, files, skills ?? []) : [];
     // Escape suppresses one trigger run, keyed by kind and position, so deleting it
     // and starting a fresh mention in the same column opens the menu again.
     const triggerKey = trigger ? `${trigger.kind}:${trigger.start}` : null;

@@ -1,7 +1,9 @@
 import { FileViewer } from "@/components/files/FileViewer";
 import { EFFECTS } from "@/config/effects";
 import dynamic from "next/dynamic";
-import type { OpenedFile } from "@/hooks/chat/useWorkspaceLayout";
+import type { OpenedFile, WorkspaceTab } from "@/hooks/chat/useWorkspaceLayout";
+import type { ProjectSkills } from "@/hooks/skills/useProjectSkills";
+import { ProjectSkillsPanel } from "@/components/skills/ProjectSkillsPanel";
 import { Button } from "@/components/ui/button";
 import { ErrorBox } from "@/components/ui/ErrorBox";
 import { TetrisLoader } from "@/components/ui/loader-tetris";
@@ -19,20 +21,20 @@ interface PreviewPanelProps {
     projectId: string;
     revisionId?: string | null;
     isBuilding?: boolean;
-    activeTab: TabType;
+    activeTab: WorkspaceTab;
     visible: boolean;
-    onTabChange: (tab: TabType) => void;
+    onTabChange: (tab: WorkspaceTab) => void;
     phase: PreviewPhase;
     previewError: string | null;
     onRetry: () => void;
     openedFile: OpenedFile | null;
     chatHidden: boolean;
     onToggleChat: () => void;
+    projectSkills: ProjectSkills;
 }
 // Loaded only when switched on: img-fx brings three.js with it.
 const PreviewReveal = dynamic(() => import("@/components/effects/PreviewReveal"), { ssr: false });
 
-type TabType = "preview" | "files";
 // Decorative: the text beside it announces the state.
 const BUILD_LOADER = <TetrisLoader aria-hidden rows={12} cellSize={3} gap={1} />;
 // One look for every pane state, so waking and first paint read as the same screen.
@@ -57,6 +59,7 @@ export function PreviewPanel({
     openedFile,
     chatHidden,
     onToggleChat,
+    projectSkills,
 }: PreviewPanelProps) {
     const [mobile, setMobile] = useState(false);
     const [route, setRoute] = useState("/");
@@ -146,7 +149,7 @@ export function PreviewPanel({
                 // Every state fills the pane edge to edge under the address bar; only phone width is framed.
                 <div
                     className={`ember-preview-stage relative flex min-h-0 flex-1 justify-center overflow-auto [&_iframe]:h-full [&_iframe]:w-full [&_iframe]:opacity-0 [&_iframe[data-loaded]]:opacity-100 [&_iframe]:min-h-70 [&_iframe]:bg-white [&>.ember-empty]:w-full [&>.ember-empty]:justify-center ${live && mobile ? "p-4 max-md:p-2 [&_iframe]:border [&_iframe]:border-border" : ""}`}
-                    style={activeTab === "files" ? { display: "none" } : undefined}
+                    style={activeTab !== "preview" ? { display: "none" } : undefined}
                 >
                     {live ? (
                         <>
@@ -212,6 +215,7 @@ export function PreviewPanel({
                     />
                 </div>
             )}
+            {activeTab === "skills" && <ProjectSkillsPanel projectSkills={projectSkills} />}
         </section>
     );
 }

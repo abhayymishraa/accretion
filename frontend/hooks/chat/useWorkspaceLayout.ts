@@ -4,13 +4,15 @@ import { useCallback, useEffect, useRef, useState, type PointerEvent } from "rea
 
 // A new object per click, so the viewer selects the file again even when the path repeats.
 export type OpenedFile = { path: string };
+// The workspace panel's tabs: the app preview, its files (Code), and its skills.
+export type WorkspaceTab = "preview" | "files" | "skills";
 
 export function useWorkspaceLayout() {
     const containerRef = useRef<HTMLElement>(null);
     const [previewWidth, setPreviewWidth] = useState(50);
     const [showPreview, setShowPreview] = useState(true);
     const [mobilePane, setMobilePane] = useState("chat");
-    const [previewTab, setPreviewTab] = useState<"preview" | "files">("preview");
+    const [previewTab, setPreviewTab] = useState<WorkspaceTab>("preview");
     const [openedFile, setOpenedFile] = useState<OpenedFile | null>(null);
     const [desktopPreview, setDesktopPreview] = useState<boolean | null>(null);
     const workspaceVisible =
