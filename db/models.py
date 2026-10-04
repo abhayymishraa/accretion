@@ -45,7 +45,7 @@ class User(Base):
     # The user's last pick, pre-filling the picker in the prompt box (spec 4.2, dyad's selectedModel).
     default_model_choice: Mapped[str] = mapped_column(String(128), default="auto", server_default="auto")
     # Skills turned off for the whole account: no project uses them. Each project's own list is kept.
-    disabled_skills: Mapped[list[str]] = mapped_column(ARRAY(String(64)), server_default="{}", default=list)
+    disabled_skills: Mapped[list[str]] = mapped_column(ARRAY(String(64)), server_default="{}")
 
     # A User can have many Chats.
     # back_populates="user" links back to the user field in the Chat model.
@@ -76,10 +76,10 @@ class Chat(Base):
     latest_saved_revision_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     latest_verified_revision_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     # Skills are on unless named here: built-in and library skills the user turned off for this project.
-    disabled_skills: Mapped[list[str]] = mapped_column(ARRAY(String(64)), server_default="{}", default=list)
+    disabled_skills: Mapped[list[str]] = mapped_column(ARRAY(String(64)), server_default="{}")
     # The project's own skills (.agents/skills) as of its last successful build: name, description and
     # instructions. Always on; written by the build's finish statement, read by the skills list.
-    project_skills: Mapped[list[dict[str, str]]] = mapped_column(JSONB, server_default="[]", default=list)
+    project_skills: Mapped[list[dict[str, str]]] = mapped_column(JSONB, server_default="[]")
     # The project list's card image, stored at covers/<chat id>/<cover_id>; null until one exists. A new
     # cover is a new id, so its URL changes and the browser may keep each one (agent/run/service.save_cover).
     cover_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
