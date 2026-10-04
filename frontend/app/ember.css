@@ -71,7 +71,10 @@
 [data-slot="sheet-content"] {
     animation-timing-function: var(--ease-out);
 }
+/* Opened from the keyboard, a sheet appears at once. Only the duration changes: switching the
+   animation itself off and back on (focus moving from a text field to a button) would replay the
+   slide-in under the pointer and lose the click. */
 html:has(:focus-visible) [data-slot="sheet-content"],
 html:has(:focus-visible) [data-slot="sheet-overlay"] {
-    animation: none;
+    animation-duration: 0s;
 }
