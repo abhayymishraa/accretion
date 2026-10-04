@@ -10,7 +10,6 @@ import { useEffect, useState } from "react";
 
 export function useProjectsPage() {
     const router = useRouter();
-    const [ready, setReady] = useState(false);
     const hasSession = useHasSession();
     const [user, setUser] = useState<UserData | null>(null);
     useEffect(() => {
@@ -26,9 +25,6 @@ export function useProjectsPage() {
             })
             .catch(() => {
                 /* The API client handles an expired session. */
-            })
-            .finally(() => {
-                if (!disposed) setReady(true);
             });
         return () => {
             disposed = true;
@@ -39,5 +35,5 @@ export function useProjectsPage() {
         router.push("/");
     }
 
-    return { ready, hasSession, user, signOut };
+    return { hasSession, user, signOut };
 }

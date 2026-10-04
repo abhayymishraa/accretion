@@ -19,13 +19,17 @@ from db.base import AsyncSessionLocal, AutocommitSessionLocal, bound
 from db.models import Chat, SandboxRuntime
 from ..storage.storage import StorageError
 from ..budget.sandbox_budget import reserve_runtime, confirm_runtime, settle_runtime
-from ..budget.budget import BudgetLimitError
+from ..budget.budget import BudgetLimitError, SpendMissing
 from .config import sandbox_settings
 
 logger = logging.getLogger('webbuilder.runs')
 # Bounds one running stretch, not the project's life: the provider parks it at timeout.
 RUNTIME_TIMEOUT = 1800
 API_TIMEOUT = 10
+# How long a create may stay unconfirmed before an empty provider list proves it never made a sandbox.
+# The create call gives up after 40 seconds; ten minutes is Cluster API's default node startup
+# timeout. A sandbox a lost create did make is still listed: they pause on timeout, never vanish.
+CREATE_GRACE = timedelta(minutes=10)
 
 
 class SandboxRuntimes:
@@ -70,7 +74,12 @@ class SandboxRuntimes:
 
     async def remove(self, row, *, rejected=False):
         # Only callers with confirmed absence/termination remove runtime ownership.
-        await settle_runtime(row.spend_id, rejected=rejected)
+        try:
+            await settle_runtime(row.spend_id, rejected=rejected)
+        except SpendMissing:
+            # The sandbox is gone and its reservation never existed: nothing to release, as a cleanup
+            # treats "already gone" as done. Raising here would strand the row on every pass.
+            logger.warning('Sandbox spend reservation missing chat_id=%s', row.chat_id)
         async with AutocommitSessionLocal() as db:
             await db.execute(delete(SandboxRuntime).where(
                 SandboxRuntime.chat_id == row.chat_id,
@@ -96,7 +105,12 @@ class SandboxRuntimes:
                     while pages.has_next:
                         ids.update(info.sandbox_id for info in await pages.next_items())
                 if not ids:
-                    return False
+                    if datetime.now(timezone.utc) - row.last_used_at < CREATE_GRACE:
+                        return False
+                    # Past the grace period, an empty list is conclusive: the create never made a
+                    # sandbox, so its lease is released unspent and the row stops holding capacity.
+                    await self.remove(row, rejected=True)
+                    return True
             for sandbox_id in ids:
                 async with asyncio.timeout(API_TIMEOUT):
                     # False means confirmed absent; both outcomes complete cleanup.

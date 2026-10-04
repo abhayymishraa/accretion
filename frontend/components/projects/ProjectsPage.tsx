@@ -2,7 +2,6 @@
 
 import { buttonVariants } from "@/components/ui/button";
 
-import { ChatNavbar } from "@/components/layout/ChatNavbar";
 import { WorkspaceSidebar } from "@/components/layout/WorkspaceSidebar";
 import { ProjectCollection } from "@/components/projects/ProjectCollection";
 import { ProjectCollectionSkeleton } from "@/components/projects/ProjectCollectionSkeleton";
@@ -13,11 +12,10 @@ import Link from "next/link";
 import { useProjectsPage } from "@/hooks/projects/useProjectsPage";
 
 export default function ProjectsPage() {
-    const { ready, hasSession, user, signOut } = useProjectsPage();
+    const { hasSession, user, signOut } = useProjectsPage();
     return (
         <>
-            <ChatNavbar isAuthenticated={ready} onSignOut={signOut} />
-            <div className="ember-workspace-shell flex min-h-[calc(100dvh_-_76px)] [&>.ember-workspace]:flex-1 [&>.ember-workspace]:min-w-0 [&>.ember-workspace]:w-full [&>.ember-workspace]:mx-auto max-md:min-h-[calc(100dvh_-_70px)]">
+            <div className="ember-workspace-shell flex min-h-dvh [&>.ember-workspace]:flex-1 [&>.ember-workspace]:min-w-0 [&>.ember-workspace]:w-full [&>.ember-workspace]:mx-auto">
                 <WorkspaceSidebar current="projects" userData={user} onSignOut={signOut} />
                 <main
                     className="ember-workspace max-w-295 mx-auto pt-12 px-10 pb-25 max-md:pt-8 max-md:px-5.5 max-md:pb-[65px]"

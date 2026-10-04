@@ -13,7 +13,21 @@ from typing import Any
 from e2b import AsyncSandbox, SandboxException
 from e2b.exceptions import ServiceBusyException
 from fastapi import HTTPException
-from sqlalchemy import JSON, DateTime, Insert, String, Update, cast, exists, func, insert, literal, select, update
+from sqlalchemy import (
+    JSON,
+    DateTime,
+    Insert,
+    String,
+    Update,
+    cast,
+    delete,
+    exists,
+    func,
+    insert,
+    literal,
+    select,
+    update,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,7 +36,18 @@ from sqlalchemy.orm import aliased, joinedload
 from agent.sandbox.config import sandbox_settings
 from agent.storage.config import storage_settings
 from db.base import AsyncSessionLocal, AutocommitSessionLocal, bound
-from db.models import Chat, Message, Run, RunEvent, RunScreenshot, SandboxRuntime, Skill, User, library_rows
+from db.models import (
+    Chat,
+    Message,
+    Run,
+    RunEvent,
+    RunScreenshot,
+    SandboxRuntime,
+    Skill,
+    StorageDeletion,
+    User,
+    library_rows,
+)
 from plans import month_window
 
 from ..budget.budget import BudgetLimitError, BudgetSpentError, has_budget_left, month_spend, remaining_in, require_left
@@ -50,7 +75,7 @@ from ..storage.persistence import (
 from ..storage.storage import StorageError
 from ..tools.public_tools import EDIT_TOOLS, edit_summary
 from ..tools.skills import RuntimeSkills
-from ..tools.tools import ROOT, FileWriteError
+from ..tools.tools import MAX_COVER_BYTES, ROOT, FileWriteError, cover_image
 from . import bus
 from .config import run_settings
 from .decisions import decision_source, prepare_continuation, resolve_decision
@@ -198,6 +223,8 @@ class LiveRun:
     naming: asyncio.Task[None] | None = None
     # When this run last reset its sandbox's provider timer (see checkpoint).
     sandbox_touched: float = 0.0
+    # The last screenshot this run took: a succeeded run makes it the project's cover.
+    last_screenshot: bytes | None = None
 
 
 class Service:
@@ -720,6 +747,7 @@ class Service:
 
         None when storage refuses it: the check still counts, the chat just shows no image.
         """
+        live.last_screenshot = data
         screenshot_id = uuid.uuid4().hex
         key = f"screenshots/{live.chat_id}/{live.id}/{screenshot_id}"
         try:
@@ -730,6 +758,47 @@ class Service:
         async with AsyncSessionLocal.begin() as db:
             db.add(RunScreenshot(id=screenshot_id, run_id=live.id, object_key=key, media_type=media_type))
         return screenshot_id
+
+    async def save_cover(self, live, screenshot: bytes) -> None:
+        """Make a screenshot the project's card image, after the reply: the user does not wait on it.
+
+        Each cover is a new object, queued for deletion before it is uploaded. Publishing claims that
+        intent and queues the cover it replaces, in one transaction, and only while this run's revision
+        is still the project's latest verified one. A failed, cancelled or outdated publish keeps the
+        previous cover, and maintenance deletes the upload.
+        """
+        cover_id = uuid.uuid4().hex
+        key = f"covers/{live.chat_id}/{cover_id}"
+        try:
+            cover = await asyncio.to_thread(cover_image, screenshot)
+            if len(cover) > MAX_COVER_BYTES:
+                return
+            async with AutocommitSessionLocal() as db:
+                await db.execute(
+                    insert(StorageDeletion).values(bound(StorageDeletion, object_key=key, created_at=datetime.now(UTC)))
+                )
+            # ponytail: maintenance can take the intent before the upload starts and leak one small object.
+            await put_object(key, cover, "image/webp", chat_id=live.chat_id)
+            async with AsyncSessionLocal() as db:
+                chat = await db.get(Chat, live.chat_id, with_for_update=True)
+                if chat is None or chat.latest_verified_revision_id != live.revision_id:
+                    return
+                # No intent left: maintenance already deleted the upload.
+                claimed = await db.scalar(
+                    delete(StorageDeletion)
+                    .where(StorageDeletion.object_key == key)
+                    .returning(StorageDeletion.object_key)
+                )
+                if claimed is None:
+                    return
+                if chat.cover_id:
+                    db.add(
+                        StorageDeletion(object_key=f"covers/{chat.id}/{chat.cover_id}", created_at=datetime.now(UTC))
+                    )
+                chat.cover_id = cover_id
+                await db.commit()
+        except (OSError, StorageError, SQLAlchemyError) as exc:
+            logger.warning("Cover not saved run_id=%s error_type=%s", live.id, type(exc).__name__)
 
     async def save_files(self, live):
         if not live.sandbox:
@@ -955,6 +1024,8 @@ class Service:
                 await self.runtimes.mark_reusable(db, live.chat_id, live.revision_id)
         live.events.append(event)
         await bus.publish(bus.run_channel(live.id), event)
+        if reusable and live.last_screenshot:
+            await self.save_cover(live, live.last_screenshot)
         logger.info(
             json.dumps(
                 {

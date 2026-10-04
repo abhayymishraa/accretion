@@ -5,16 +5,16 @@ import { filterProjects, type ProjectPeriod, type ProjectSort } from "@/lib/proj
 import { projectService } from "@/services/service.projects";
 import type { Project } from "@/types/project.type";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useId, useRef, useState, type PointerEvent } from "react";
+import { useEffect, useId, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { toast } from "sonner";
 
-export function useProjectCollection(compact: boolean, onOpen?: () => void) {
+export function useProjectCollection(onOpen?: () => void) {
     const pathname = usePathname();
     const router = useRouter();
     const id = useId();
     const searchRef = useRef<HTMLInputElement>(null);
     const deleteTrigger = useRef<HTMLButtonElement | null>(null);
-    const spotlightEnabled = useRef(false);
     const [projects, setProjects] = useState<Project[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
@@ -29,32 +29,6 @@ export function useProjectCollection(compact: boolean, onOpen?: () => void) {
     const [deletingId, setDeletingId] = useState<string | null>(null);
     const [deleteError, setDeleteError] = useState("");
 
-    useEffect(() => {
-        if (compact) return;
-        const media = window.matchMedia(
-            "(hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference)",
-        );
-        const sync = () => {
-            spotlightEnabled.current = media.matches;
-        };
-        sync();
-        media.addEventListener("change", sync);
-        return () => {
-            spotlightEnabled.current = false;
-            media.removeEventListener("change", sync);
-        };
-    }, [compact]);
-
-    // Adapted from React Bits SpotlightCard; see REACT-BITS-LICENSE.
-    // https://github.com/DavidHDev/react-bits/blob/3a1c7f2f9f94ed833934ab5c2635760b9e644583/src/ts-default/Components/SpotlightCard/SpotlightCard.tsx
-    function moveSpotlight(event: PointerEvent<HTMLAnchorElement>) {
-        if (!spotlightEnabled.current || event.pointerType !== "mouse") return;
-        const card = event.currentTarget;
-        const bounds = card.getBoundingClientRect();
-        card.style.setProperty("--spotlight-x", `${event.clientX - bounds.left}px`);
-        card.style.setProperty("--spotlight-y", `${event.clientY - bounds.top}px`);
-    }
-
     async function deleteProject() {
         if (!pendingDelete || deletingId) return;
         const project = pendingDelete;
@@ -62,9 +36,21 @@ export function useProjectCollection(compact: boolean, onOpen?: () => void) {
         setDeleteError("");
         try {
             await projectService.deleteProject(project.id);
-            setProjects((current) => current.filter((item) => item.id !== project.id));
+            const remove = () => {
+                setProjects((current) => current.filter((item) => item.id !== project.id));
+                setPendingDelete(null);
+            };
+            // The other cards slide into the gap instead of jumping; without the API, or with
+            // reduced motion, the card is removed at once.
+            if (
+                "startViewTransition" in document &&
+                !window.matchMedia("(prefers-reduced-motion: reduce)").matches
+            ) {
+                document.startViewTransition(() => flushSync(remove));
+            } else {
+                remove();
+            }
             reloadProjects();
-            setPendingDelete(null);
             toast.success("Project deleted");
             if (pathname === `/chat/${project.id}`) {
                 onOpen?.();
@@ -134,7 +120,6 @@ export function useProjectCollection(compact: boolean, onOpen?: () => void) {
         deletingId,
         deleteError,
         setDeleteError,
-        moveSpotlight,
         deleteProject,
         visible,
         narrowed,

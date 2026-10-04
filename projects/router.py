@@ -1,11 +1,12 @@
 """Projects: the chat that owns a generated app, its history and its lifecycle."""
 
-from fastapi import APIRouter, BackgroundTasks
+from fastapi import APIRouter, BackgroundTasks, Response
 
 from auth.dependencies import CurrentUser
 from db.base import Autocommit, DbSession
 from projects import service
 from projects.constants import DEFAULT_MESSAGE_PAGE
+from projects.dependencies import OwnedProject
 from projects.schemas import MessagePage, ProjectList, ProjectRef, ProjectRename, RunAdmission
 from request_timing import timed
 from runs.schemas import ChatPayload
@@ -35,6 +36,13 @@ async def create_project(payload: ChatPayload, current_user: CurrentUser) -> Run
 async def list_user_projects(current_user: CurrentUser, db: DbSession) -> ProjectList:
     """List projects by the latest accepted prompt, falling back to creation."""
     return await service.list_projects(db, current_user)
+
+
+@router.get("/projects/{project_id}/covers/{cover_id}", dependencies=[Autocommit])
+async def get_project_cover(cover_id: str, project: OwnedProject) -> Response:
+    data = await service.cover(project, cover_id)
+    # Stored once under a random id and never rewritten, so the browser may keep it.
+    return Response(data, media_type="image/webp", headers={"Cache-Control": "private, max-age=31536000, immutable"})
 
 
 @router.patch("/projects/{project_id}", dependencies=[Autocommit])

@@ -1,7 +1,7 @@
 """user skills, skills turned off per project and per account, and the project's own skills
 
 Revision ID: b6ecfa854d64
-Revises: a7c3e9f1b2d4
+Revises: c4d8e2a6f1b3
 Create Date: 2026-10-04 00:50:49.967819
 
 """
@@ -15,7 +15,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "b6ecfa854d64"
-down_revision: str | Sequence[str] | None = "a7c3e9f1b2d4"
+down_revision: str | Sequence[str] | None = "c4d8e2a6f1b3"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

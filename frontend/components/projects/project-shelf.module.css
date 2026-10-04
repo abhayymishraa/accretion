@@ -61,67 +61,75 @@
     }
 }
 
-.paper::before {
+/* The card of a project with no cover yet: a grid that fades out from the mark, in theme colors. */
+.banner {
+    background-color: var(--surface-2);
+    background-image:
+        linear-gradient(color-mix(in srgb, var(--foreground) 9%, transparent) 1px, transparent 1px),
+        linear-gradient(
+            90deg,
+            color-mix(in srgb, var(--foreground) 9%, transparent) 1px,
+            transparent 1px
+        );
+    background-size: 28px 28px;
+    background-position: center;
+}
+.banner::before {
     content: "";
     position: absolute;
     inset: 0;
-    border-radius: inherit;
-    pointer-events: none;
-    opacity: 0.045;
-    background-image: radial-gradient(var(--foreground) 0.45px, transparent 0.45px);
-    background-size: 4px 4px;
-}
-
-/* React Bits SpotlightCard, adapted to Ember; see REACT-BITS-LICENSE. */
-.paper::after {
-    content: "";
-    position: absolute;
-    inset: 1px;
-    z-index: -1;
-    border-radius: inherit;
-    pointer-events: none;
-    opacity: 0;
-    background: radial-gradient(
-        ellipse at var(--spotlight-x, 50%) var(--spotlight-y, 50%),
-        color-mix(in srgb, var(--primary) 14%, transparent),
-        transparent 72%
-    );
-}
-
-.paper:focus-visible::after {
-    --spotlight-x: 50%;
-    --spotlight-y: 50%;
-    opacity: 1;
-}
-
-@media (hover: hover) and (pointer: fine) {
-    .paper:hover::after {
-        opacity: 1;
-    }
-}
-
-@media (prefers-reduced-motion: reduce) {
-    .paper::after {
-        --spotlight-x: 50%;
-        --spotlight-y: 50%;
-    }
+    background: radial-gradient(ellipse at center, transparent 20%, var(--surface-2) 80%);
 }
 
 @media (prefers-reduced-motion: no-preference) {
-    .paper::after {
-        transition: opacity 180ms var(--ease-out);
-    }
     .card {
         transition: transform 220ms var(--ease-out);
-    }
-    .card:focus-within {
-        transform: translateY(-2px);
     }
     @media (hover: hover) and (pointer: fine) {
         .card:hover {
             transform: translateY(-2px);
         }
     }
+    /* Last, so a press wins over the hover lift. A phone has no hover: this is its only response. */
+    .card:active {
+        transform: scale(0.985);
+        transition-duration: 140ms;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .card {
+        transition: opacity 100ms ease;
+    }
+    .card:active {
+        opacity: 0.92;
+    }
+}
+
+/* A new user's empty projects page rises in once. Not "No matching projects": that one shows while typing. */
+.firstRun {
+    transition:
+        opacity 260ms var(--ease-out),
+        translate 260ms var(--ease-out);
+
+    @starting-style {
+        opacity: 0;
+        translate: 0 8px;
+    }
+}
+@media (prefers-reduced-motion: reduce) {
+    .firstRun {
+        transition-property: opacity;
+    }
+}
+
+/* The screenshot fades in over the placeholder once decoded, never over an empty frame. */
+.cover {
+    opacity: 0;
+    transition: opacity 200ms var(--ease-out);
+}
+.cover[data-loaded] {
+    opacity: 1;
 }
 
 /* Filtered cards arrive rather than appear. Transitions, not keyframes: a

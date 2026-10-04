@@ -17,12 +17,14 @@ from agent.context.history import conversation_page, transcript
 from agent.run.service import agent_service
 from agent.run.worker import OPEN_STATUSES
 from agent.storage.maintenance import attempt_cleanup, cleanup_project_storage
+from agent.storage.persistence import read_object
+from agent.tools import tools as agent_tools
 from auth.schemas import TokenUser
 from db.base import bound
 from db.models import Chat, Message, ProjectRevision, Run, RunScreenshot, StorageDeletion
 from projects.constants import LIVE_RUN_STATUSES
 from projects.dependencies import owned_chat
-from projects.exceptions import ChatNotFound, NotChatOwner, ProjectBusy, ProjectNotFound
+from projects.exceptions import ChatNotFound, CoverNotFound, NotChatOwner, ProjectBusy, ProjectNotFound
 from projects.schemas import MessagePage, ProjectList, ProjectRef, ProjectSummary, RunAdmission
 
 
@@ -92,6 +94,13 @@ async def list_projects(db: AsyncSession, user: TokenUser) -> ProjectList:
     )
 
 
+async def cover(chat: Chat, cover_id: str) -> bytes:
+    """The project's current card image, made from a screenshot by its last succeeded run."""
+    if chat.cover_id != cover_id:
+        raise CoverNotFound
+    return await read_object(f"covers/{chat.id}/{cover_id}", agent_tools.MAX_COVER_BYTES)
+
+
 async def rename_project(db: AsyncSession, project_id: str, user: TokenUser, title: str) -> ProjectRef:
     """One statement, committed by itself: ownership is part of the update, so an unknown project and
     someone else's both change nothing and answer "Project not found", as owned_project does."""
@@ -110,12 +119,15 @@ async def delete_project(db: AsyncSession, project_id: str, user: TokenUser, bac
         # Checkpoint creation locks this same row before inserting its object key.
         await owned_chat(project_id, user, db, for_update=True)
         # After the lock, in one query: whether a build is open, and every stored object of the
-        # project (revisions, screenshots, run logs, and each run's archive key even while its
+        # project (revisions, screenshots, run logs, its cover, and each run's archive key even while its
         # upload is still running).
         stored = union(
             select(ProjectRevision.object_key).where(ProjectRevision.chat_id == project_id),
             select(RunScreenshot.object_key).join(Run).where(Run.chat_id == project_id),
             select(Run.log_key).where(Run.chat_id == project_id, Run.log_key.is_not(None)),
+            select(literal(f"covers/{project_id}/") + Chat.cover_id).where(
+                Chat.id == project_id, Chat.cover_id.is_not(None)
+            ),
             select(literal("logs/") + Run.id + literal(".jsonl.gz")).where(Run.chat_id == project_id),
         ).subquery()
         building, found = (

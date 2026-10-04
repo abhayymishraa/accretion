@@ -2,7 +2,6 @@
 
 import { ChatInputBox } from "@/components/chat/ChatInputBox";
 import { Brand } from "@/components/layout/Brand";
-import { ChatNavbar } from "@/components/layout/ChatNavbar";
 import { WorkspaceSidebar } from "@/components/layout/WorkspaceSidebar";
 import { Button } from "@/components/ui/button";
 import { ErrorBox } from "@/components/ui/ErrorBox";
@@ -26,8 +25,7 @@ export default function ChatPage() {
         setModelChoice,
     } = useNewProject();
     return (
-        <div className="ember-chat-home relative flex h-dvh flex-col overflow-hidden [&>.ember-workspace-header]:shrink-0">
-            <ChatNavbar isAuthenticated={isAuthenticated} onSignOut={handleSignOut} />
+        <div className="ember-chat-home relative flex h-dvh flex-col overflow-hidden">
             <div className="ember-workspace-shell flex min-h-0 flex-1 overflow-hidden">
                 <WorkspaceSidebar current="new" userData={userData} onSignOut={handleSignOut} />
                 <main
