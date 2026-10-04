@@ -43,6 +43,9 @@
 !agent/skills/frontend-design/SKILL.md
 !agent/skills/frontend-design/LICENSE.txt
 !agent/skills/taste-source.json
+!agent/skills/skill-creator/
+!agent/skills/skill-creator/SKILL.md
+!agent/skills/authored-sources.json
 !agent/skills/brandkit/
 !agent/skills/brandkit/SKILL.md
 !agent/skills/brutalist-skill/
@@ -74,3 +77,5 @@
 !auth/*.py
 !db/
 !db/*.py
+!skills/
+!skills/*.py

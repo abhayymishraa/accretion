@@ -26,6 +26,7 @@ COPY projects/ ./projects/
 COPY runs/ ./runs/
 COPY files/ ./files/
 COPY previews/ ./previews/
+COPY skills/ ./skills/
 USER app
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=6s --start-period=60s --retries=3 \
