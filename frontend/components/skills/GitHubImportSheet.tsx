@@ -176,7 +176,7 @@ export function GitHubImportSheet({ open, onClose }: { open: boolean; onClose: (
                                 <Button
                                     className="h-11 w-full rounded-none"
                                     disabled={busy || chosen.size === 0}
-                                    onClick={() => importChosen(url.trim())}
+                                    onClick={() => importChosen(search.url)}
                                 >
                                     {busy
                                         ? "Importing…"

@@ -6,7 +6,7 @@ else's both answer "not found" without a second read."""
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import delete, exists, func, insert, literal, select, true, type_coerce, update
+from sqlalchemy import any_, delete, exists, func, insert, literal, select, true, type_coerce, update
 from sqlalchemy.dialects.postgresql import JSONB, JSONPATH
 from sqlalchemy.dialects.postgresql import insert as upsert
 from sqlalchemy.exc import IntegrityError
@@ -100,14 +100,21 @@ async def update_skill(db: AsyncSession, user: TokenUser, skill_id: str, payload
 
 
 async def delete_skill(db: AsyncSession, user: TokenUser, skill_id: str) -> None:
-    """Deletes the skill and drops its name from the account's turned-off list, in one statement, so a
-    new skill with the same name starts on."""
+    """Deletes the skill and drops its name from the account's and each project's turned-off lists, in one
+    statement, so a new skill with the same name starts on."""
     gone = delete(Skill).where(Skill.id == skill_id, Skill.user_id == user.id).returning(Skill.name).cte("gone")
+    name = select(gone.c.name).scalar_subquery()
+    projects = (
+        update(Chat)
+        .where(Chat.user_id == user.id, name == any_(Chat.disabled_skills))
+        .values(disabled_skills=func.array_remove(Chat.disabled_skills, name))
+        .cte("projects")
+    )
     deleted = await db.scalar(
         update(User)
-        .add_cte(gone)
+        .add_cte(gone, projects)
         .where(User.id == user.id, exists(select(gone.c.name)))
-        .values(disabled_skills=func.array_remove(User.disabled_skills, select(gone.c.name).scalar_subquery()))
+        .values(disabled_skills=func.array_remove(User.disabled_skills, name))
         .returning(User.id)
         .execution_options(synchronize_session=False)
     )

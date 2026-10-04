@@ -192,9 +192,10 @@ class RuntimeSkills:
 
     def add_project(self, rows: Iterable[dict[str, str]]) -> None:
         """Skills in the project's own .agents/skills: always on, and a project skill wins over a bundled
-        or library skill of the same name."""
+        or library skill of the same name, except a required one, which the platform needs as shipped."""
         for row in rows:
-            self.entries[row["name"]] = _library_entry(row)
+            if row["name"] not in REQUIRED_SKILLS:
+                self.entries[row["name"]] = _library_entry(row)
 
     def verify(self, relative, data):
         """Reject a vendored file whose contents drifted from its recorded upstream hash.

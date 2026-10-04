@@ -9,6 +9,7 @@ import re
 import zipfile
 from collections.abc import AsyncIterator
 from pathlib import PurePosixPath
+from urllib.parse import quote
 
 import httpx
 from pydantic import ValidationError
@@ -137,7 +138,8 @@ async def _read_skills(
     async def read(path: str) -> tuple[str, SkillCreate] | ImportFailure:
         async with gate:
             try:
-                response = await _get(client, raw + path)
+                # Quoted, so a "#" or "?" in a folder name stays part of the path.
+                response = await _get(client, raw + quote(path))
                 return path, skill_from_text(_text(response.content))
             except (SkillImportInvalid, SkillImportTooLarge, GitHubUnavailable) as exc:
                 return ImportFailure(path=path, reason=str(exc.detail))

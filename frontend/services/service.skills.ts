@@ -39,6 +39,8 @@ export const skillService = {
             await apiClient.post<SkillDetail>("/skills/import", file, {
                 params: { filename: file.name },
                 headers: { "Content-Type": "application/octet-stream" },
+                // Up to 2 MB, which a slow phone connection can take longer than the default 30s to send.
+                timeout: 120000,
             })
         ).data,
 
