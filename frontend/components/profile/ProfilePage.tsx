@@ -2,7 +2,6 @@
 
 import { Button } from "@/components/ui/button";
 
-import { ChatNavbar } from "@/components/layout/ChatNavbar";
 import { WorkspaceSidebar } from "@/components/layout/WorkspaceSidebar";
 import { ProfileIdentityCard } from "@/components/profile/ProfileIdentityCard";
 import { ProfileSkeleton } from "@/components/profile/ProfileSkeleton";
@@ -19,8 +18,7 @@ export default function ProfilePage() {
     const budget = user?.cost_allowance;
     return (
         <>
-            <ChatNavbar isAuthenticated={!!user} onSignOut={signOut} />
-            <div className="ember-workspace-shell flex min-h-[calc(100dvh_-_76px)] [&>.ember-workspace]:flex-1 [&>.ember-workspace]:min-w-0 [&>.ember-workspace]:w-full [&>.ember-workspace]:mx-auto max-md:min-h-[calc(100dvh_-_70px)]">
+            <div className="ember-workspace-shell flex min-h-dvh [&>.ember-workspace]:flex-1 [&>.ember-workspace]:min-w-0 [&>.ember-workspace]:w-full [&>.ember-workspace]:mx-auto">
                 <WorkspaceSidebar userData={user} onSignOut={signOut} />
                 <main
                     className="ember-profile w-full min-w-0 max-w-275 mx-auto py-9.5 px-[clamp(20px,_4vw,_56px)] max-md:py-6 max-md:px-4.5"
