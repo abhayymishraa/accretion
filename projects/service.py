@@ -94,11 +94,11 @@ async def list_projects(db: AsyncSession, user: TokenUser) -> ProjectList:
     )
 
 
-async def cover(chat: Chat) -> bytes:
-    """The project's card image, made from a screenshot by its last succeeded run."""
-    if chat.cover_updated_at is None:
+async def cover(chat: Chat, cover_id: str) -> bytes:
+    """The project's current card image, made from a screenshot by its last succeeded run."""
+    if chat.cover_id != cover_id:
         raise CoverNotFound
-    return await read_object(f"covers/{chat.id}", agent_tools.MAX_COVER_BYTES)
+    return await read_object(f"covers/{chat.id}/{cover_id}", agent_tools.MAX_COVER_BYTES)
 
 
 async def rename_project(db: AsyncSession, project_id: str, user: TokenUser, title: str) -> ProjectRef:
@@ -119,12 +119,15 @@ async def delete_project(db: AsyncSession, project_id: str, user: TokenUser, bac
         # Checkpoint creation locks this same row before inserting its object key.
         await owned_chat(project_id, user, db, for_update=True)
         # After the lock, in one query: whether a build is open, and every stored object of the
-        # project (revisions, screenshots, run logs, and each run's archive key even while its
+        # project (revisions, screenshots, run logs, its cover, and each run's archive key even while its
         # upload is still running).
         stored = union(
             select(ProjectRevision.object_key).where(ProjectRevision.chat_id == project_id),
             select(RunScreenshot.object_key).join(Run).where(Run.chat_id == project_id),
             select(Run.log_key).where(Run.chat_id == project_id, Run.log_key.is_not(None)),
+            select(literal(f"covers/{project_id}/") + Chat.cover_id).where(
+                Chat.id == project_id, Chat.cover_id.is_not(None)
+            ),
             select(literal("logs/") + Run.id + literal(".jsonl.gz")).where(Run.chat_id == project_id),
         ).subquery()
         building, found = (
@@ -137,7 +140,7 @@ async def delete_project(db: AsyncSession, project_id: str, user: TokenUser, bac
         ).one()
         if project_id in agent_service.opening or building:
             raise ProjectBusy
-        keys = {*(found or []), f"legacy/{project_id}", f"covers/{project_id}"}
+        keys = {*(found or []), f"legacy/{project_id}"}
         # One statement records the retry intents and deletes the project, which revokes access
         # before any provider call.
         now = datetime.now(UTC)

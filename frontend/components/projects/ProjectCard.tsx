@@ -42,7 +42,7 @@ export function ProjectCard({
             >
                 {!compact && (
                     <div className="relative aspect-[16/10] overflow-hidden rounded-2xl border border-border bg-surface-2">
-                        <ProjectCover projectId={project.id} version={project.cover_updated_at} />
+                        <ProjectCover projectId={project.id} coverId={project.cover_id} />
                     </div>
                 )}
                 <h2

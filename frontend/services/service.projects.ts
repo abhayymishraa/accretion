@@ -27,13 +27,13 @@ export const projectService = {
         return response.data;
     },
 
-    // The card image; the route needs the session header, so it cannot be an <img src>. The version
-    // makes a new cover a new URL, so the browser keeps each one.
-    cover: async (id: string, version: string): Promise<Blob> => {
-        const response = await apiClient.get<Blob>(`/projects/${encodeURIComponent(id)}/cover`, {
-            params: { v: version },
-            responseType: "blob",
-        });
+    // The card image; the route needs the session header, so it cannot be an <img src>. Each cover
+    // has its own id, so the browser keeps each one.
+    cover: async (id: string, coverId: string): Promise<Blob> => {
+        const response = await apiClient.get<Blob>(
+            `/projects/${encodeURIComponent(id)}/covers/${encodeURIComponent(coverId)}`,
+            { responseType: "blob" },
+        );
         return response.data;
     },
 

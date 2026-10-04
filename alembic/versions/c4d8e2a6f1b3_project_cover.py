@@ -20,10 +20,10 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    """Add chats.cover_updated_at. Only added, so the release still serving keeps working; no backfill:
+    """Add chats.cover_id. Only added, so the release still serving keeps working; no backfill:
     existing projects get a cover from their next succeeded run that takes a screenshot."""
-    op.add_column("chats", sa.Column("cover_updated_at", sa.DateTime(timezone=True), nullable=True))
+    op.add_column("chats", sa.Column("cover_id", sa.String(length=32), nullable=True))
 
 
 def downgrade() -> None:
-    op.drop_column("chats", "cover_updated_at")
+    op.drop_column("chats", "cover_id")

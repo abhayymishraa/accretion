@@ -15,7 +15,7 @@ export interface Project {
     // Null until the first build saves; such a project is listed as a draft.
     latest_saved_revision_id: string | null;
     // Null until a succeeded run takes a screenshot; the card then shows a banner instead.
-    cover_updated_at: string | null;
+    cover_id: string | null;
     created_at: string;
     updated_at?: string;
 }

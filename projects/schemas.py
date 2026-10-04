@@ -14,7 +14,7 @@ class ProjectSummary(CustomModel):
     user_id: int
     latest_saved_revision_id: str | None = None
     latest_verified_revision_id: str | None = None
-    cover_updated_at: UtcDatetime | None = None
+    cover_id: str | None = None
     created_at: UtcDatetime
     updated_at: UtcDatetime
 

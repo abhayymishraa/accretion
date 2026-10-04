@@ -9,12 +9,12 @@ import { useState } from "react";
 /** The app as its last succeeded build looked, or the blue brand mark on a grid until there is one. */
 export function ProjectCover({
     projectId,
-    version,
+    coverId,
 }: {
     projectId: string;
-    version: string | null;
+    coverId: string | null;
 }) {
-    const { url, loading } = useProjectCover(projectId, version);
+    const { url, loading } = useProjectCover(projectId, coverId);
     const [loaded, setLoaded] = useState(false);
     if (!url && !loading)
         return (

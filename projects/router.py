@@ -38,10 +38,10 @@ async def list_user_projects(current_user: CurrentUser, db: DbSession) -> Projec
     return await service.list_projects(db, current_user)
 
 
-@router.get("/projects/{project_id}/cover", dependencies=[Autocommit])
-async def get_project_cover(project: OwnedProject) -> Response:
-    data = await service.cover(project)
-    # The client asks with ?v=<cover_updated_at>: a new cover is a new URL, so the browser may keep this one.
+@router.get("/projects/{project_id}/covers/{cover_id}", dependencies=[Autocommit])
+async def get_project_cover(cover_id: str, project: OwnedProject) -> Response:
+    data = await service.cover(project, cover_id)
+    # Stored once under a random id and never rewritten, so the browser may keep it.
     return Response(data, media_type="image/webp", headers={"Cache-Control": "private, max-age=31536000, immutable"})
 
 

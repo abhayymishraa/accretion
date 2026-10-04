@@ -13,7 +13,21 @@ from typing import Any
 from e2b import AsyncSandbox, SandboxException
 from e2b.exceptions import ServiceBusyException
 from fastapi import HTTPException
-from sqlalchemy import JSON, DateTime, Insert, String, Update, cast, exists, func, insert, literal, select, update
+from sqlalchemy import (
+    JSON,
+    DateTime,
+    Insert,
+    String,
+    Update,
+    cast,
+    delete,
+    exists,
+    func,
+    insert,
+    literal,
+    select,
+    update,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,7 +36,7 @@ from sqlalchemy.orm import aliased, joinedload
 from agent.sandbox.config import sandbox_settings
 from agent.storage.config import storage_settings
 from db.base import AsyncSessionLocal, AutocommitSessionLocal, bound
-from db.models import Chat, Message, Run, RunEvent, RunScreenshot, SandboxRuntime, User
+from db.models import Chat, Message, Run, RunEvent, RunScreenshot, SandboxRuntime, StorageDeletion, User
 from plans import month_window
 
 from ..budget.budget import BudgetLimitError, BudgetSpentError, has_budget_left, month_spend, remaining_in, require_left
@@ -722,15 +736,43 @@ class Service:
         return screenshot_id
 
     async def save_cover(self, live, screenshot: bytes) -> None:
-        """Make a screenshot the project's card image. After the reply: the user does not wait on it,
-        and a failure only leaves the previous cover."""
+        """Make a screenshot the project's card image, after the reply: the user does not wait on it.
+
+        Each cover is a new object, queued for deletion before it is uploaded. Publishing claims that
+        intent and queues the cover it replaces, in one transaction, and only while this run's revision
+        is still the project's latest verified one. A failed, cancelled or outdated publish keeps the
+        previous cover, and maintenance deletes the upload.
+        """
+        cover_id = uuid.uuid4().hex
+        key = f"covers/{live.chat_id}/{cover_id}"
         try:
             cover = await asyncio.to_thread(cover_image, screenshot)
             if len(cover) > MAX_COVER_BYTES:
                 return
-            await put_object(f"covers/{live.chat_id}", cover, "image/webp", chat_id=live.chat_id)
             async with AutocommitSessionLocal() as db:
-                await db.execute(update(Chat).where(Chat.id == live.chat_id).values(cover_updated_at=datetime.now(UTC)))
+                await db.execute(
+                    insert(StorageDeletion).values(bound(StorageDeletion, object_key=key, created_at=datetime.now(UTC)))
+                )
+            # ponytail: maintenance can take the intent before the upload starts and leak one small object.
+            await put_object(key, cover, "image/webp", chat_id=live.chat_id)
+            async with AsyncSessionLocal() as db:
+                chat = await db.get(Chat, live.chat_id, with_for_update=True)
+                if chat is None or chat.latest_verified_revision_id != live.revision_id:
+                    return
+                # No intent left: maintenance already deleted the upload.
+                claimed = await db.scalar(
+                    delete(StorageDeletion)
+                    .where(StorageDeletion.object_key == key)
+                    .returning(StorageDeletion.object_key)
+                )
+                if claimed is None:
+                    return
+                if chat.cover_id:
+                    db.add(
+                        StorageDeletion(object_key=f"covers/{chat.id}/{chat.cover_id}", created_at=datetime.now(UTC))
+                    )
+                chat.cover_id = cover_id
+                await db.commit()
         except (OSError, StorageError, SQLAlchemyError) as exc:
             logger.warning("Cover not saved run_id=%s error_type=%s", live.id, type(exc).__name__)
 
