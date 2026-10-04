@@ -15,7 +15,12 @@ import { Sparkles } from "lucide-react";
 import { ThinkingOrb } from "thinking-orbs";
 
 import { useChatWorkspace } from "@/hooks/chat/useChatWorkspace";
-import { useState } from "react";
+import { mentionTargets } from "@/hooks/chat/useComposerMenu";
+import { useProjectSkills } from "@/hooks/skills/useProjectSkills";
+import { useEffect, useState } from "react";
+
+// A "/name" in an earlier request: the history needs the project's skills to show it as a pill.
+const PICKED_SKILL = /(^|\s)\/[a-z0-9]/;
 export default function ChatWorkspace({ chatId }: { chatId: string }) {
     const {
         router,
@@ -65,6 +70,18 @@ export default function ChatWorkspace({ chatId }: { chatId: string }) {
     } = useChatWorkspace(chatId);
     // v0's panel toggle: the preview takes the whole width while the conversation is folded away.
     const [chatHidden, setChatHidden] = useState(false);
+    const projectSkills = useProjectSkills(chatId);
+    const { ensureLoaded } = projectSkills;
+    const usesSkill = messages.some(
+        (message) => message.role === "user" && PICKED_SKILL.test(message.content),
+    );
+    useEffect(() => {
+        if (usesSkill) ensureLoaded();
+    }, [usesSkill, ensureLoaded]);
+    const pills = {
+        targets: new Set(mentionTargets(projectFiles)),
+        skills: new Set((projectSkills.skills ?? []).map((skill) => skill.name)),
+    };
     return (
         <OpenFileContext value={openFile}>
             <div className="ember-builder relative flex h-dvh min-h-0 flex-col overflow-hidden bg-background">
@@ -177,6 +194,7 @@ export default function ChatWorkspace({ chatId }: { chatId: string }) {
                                         <MessageBubble
                                             key={message.id}
                                             message={message}
+                                            pills={pills}
                                             connected={connected}
                                             onWorkflowChanged={refreshHistory}
                                             canRespond={message.id === `run:${pendingDecisionId}`}
@@ -201,6 +219,12 @@ export default function ChatWorkspace({ chatId }: { chatId: string }) {
                                 </div>
                             </div>
                             <ChatInput
+                                projectSkills={projectSkills}
+                                onManageSkills={() => {
+                                    setShowPreview(true);
+                                    setMobilePane("preview");
+                                    setPreviewTab("skills");
+                                }}
                                 files={projectFiles}
                                 input={input}
                                 connected={connected}
@@ -265,6 +289,7 @@ export default function ChatWorkspace({ chatId }: { chatId: string }) {
                                     onRetry={preview.retry}
                                     chatHidden={chatHidden}
                                     onToggleChat={() => setChatHidden(!chatHidden)}
+                                    projectSkills={projectSkills}
                                 />
                             </>
                         )}

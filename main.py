@@ -24,6 +24,7 @@ from previews.router import router as previews_router
 from projects.router import router as projects_router
 from request_timing import request_timing
 from runs.router import router as runs_router
+from skills.router import router as skills_router
 
 
 @asynccontextmanager
@@ -66,5 +67,6 @@ for domain_router in (
     runs_router,
     files_router,
     previews_router,
+    skills_router,
 ):
     app.include_router(domain_router)

@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import re
 import time
 from base64 import b64encode
 from collections import Counter
@@ -30,13 +31,34 @@ from ..sandbox.check_data import CheckData
 from ..sandbox.commands import CommandStateError
 from ..sandbox.preview import PROXY_PORT, ensure_preview_current
 from ..tools.public_tools import encode_public, public_tool_details
-from ..tools.skills import RuntimeSkills
+from ..tools.skills import MAX_SKILL_BYTES, SKILL_NAME, RuntimeSkills, parse_skill
 from ..tools.tools import FileWriteError, WorkspaceTools, list_files, shrink_for_model
 from .agent import llm
 from .config import run_settings
 from .prompts import SYSTEM_PROMPT
 
 logger = logging.getLogger("webbuilder.runs")
+# Skills a project keeps for itself, in .agents/skills/<name>/SKILL.md: read every build, always on.
+_PROJECT_SKILL = re.compile(r"\.agents/skills/([^/]+)/SKILL\.md")
+_MAX_PROJECT_SKILLS = 50
+
+
+async def project_skills(workspace, paths: list[str]) -> list[dict[str, str]]:
+    """The project's own skills. A file that does not parse, or whose name is not its folder's, is skipped."""
+    found: list[dict[str, str]] = []
+    for path in paths:
+        folder = _PROJECT_SKILL.fullmatch(path)
+        if folder is None or len(found) == _MAX_PROJECT_SKILLS:
+            continue
+        try:
+            name, description, instructions = parse_skill(await workspace.read(path))
+        except (ValueError, SandboxException, httpx.HTTPError):
+            logger.warning("Project skill skipped path=%r", path)
+            continue
+        if name == folder[1] and SKILL_NAME.fullmatch(name) and len(instructions.encode()) <= MAX_SKILL_BYTES:
+            found.append({"name": name, "description": description, "instructions": instructions})
+    return found
+
 
 # Spec 5 stuck rail: the same call 4 times (Gemini CLI loop detection) or the same error
 # 3 times (OpenHands StuckDetector) gets one nudge, then the run pauses.
@@ -192,6 +214,8 @@ async def run_editor(
     inbox=None,
     migrate=None,
     save_screenshot: Callable[[bytes, str], Awaitable[str | None]] | None = None,
+    *,
+    skills: RuntimeSkills,
 ):
     workspace = WorkspaceTools(sandbox)
     if model is None:
@@ -220,7 +244,8 @@ async def run_editor(
         return {"ok": True, "decision": decision.model_dump()}
 
     tools[request_decision.name] = request_decision
-    skills = RuntimeSkills()
+    paths = await list_files(sandbox)
+    skills.add_project(await project_skills(workspace, paths))
     skill_prompt = skills.prompt()
     if skill_prompt:
         skill_tool = skills.tool()
@@ -239,10 +264,11 @@ async def run_editor(
     retry_above = 0
     max_repairs = 2
     context = await memory.build(prompt, metrics) if memory is not None else {}
-    paths = await list_files(sandbox)
     # Files the user named with "@" go to the model whole, as Cline sends them; excerpts skip them.
     # A named folder goes as its file list, capped, so one "@src/" cannot flood the context.
     mentioned_paths, mentioned_dirs = mentions(prompt, paths)
+    # Skills the user picked as "/name" go with the request, loaded, so the model need not call read_skill.
+    picked = skills.picked(prompt)
     folders = {folder: [path for path in paths if path.startswith(folder)][:200] for folder in mentioned_dirs}
     mentioned = {}
     for path in mentioned_paths:
@@ -319,6 +345,7 @@ async def run_editor(
                     "request": prompt,
                     **({"mentioned_files": mentioned} if mentioned else {}),
                     **({"mentioned_folders": folders} if folders else {}),
+                    **({"picked_skills": picked} if picked else {}),
                     "request_context": request_context,
                     "workspace": workspace_map(stack, paths),
                     "files": initial,
@@ -635,6 +662,8 @@ async def run_editor(
                     return {
                         "summary": response.text or "Application updated.",
                         "url": "https://" + sandbox.get_host(PROXY_PORT),
+                        # Read again: the build may have added one (skill-creator writes them).
+                        "project_skills": await project_skills(workspace, await list_files(sandbox)),
                     }
                 if repairs >= max_repairs:
                     raise VerificationError(

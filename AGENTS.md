@@ -154,11 +154,16 @@ Three levels, do not collapse them:
 - Body: model calls `read_skill(name)`. On demand.
 - References: `read_skill(name, resource)`. Allowlisted per skill in `REFERENCE_DIRECTORIES`.
 
+`REQUIRED_SKILLS` lists the platform skills a user cannot turn off, in a project or for the account. The API refuses the change (`SkillRequired`) and `for_project` ignores an older stored one. A name there must be a bundled skill; an import-time assert checks it.
+
+A skill is off in a project when it is in the project's `chats.disabled_skills` or the account's `users.disabled_skills`; the build reads both in its one query. Turning a skill back on for the account leaves each project's own list alone, so every project returns to its own choice. Deleting a library skill drops its name from the account list in the same statement.
+
 ### Adding a skill
 
 1. Vendor files into `agent/skills/<dir>/`.
-2. Register name -> dir in `SKILL_DIRECTORIES`.
+2. Register name -> dir in `SKILL_DIRECTORIES`, and its `(category, subcategory)` in `SKILL_CATEGORIES`; an import-time assert refuses a bundled skill without one. The order there is the order every skills menu shows.
 3. Add provenance entry: `repository`, `commit`, `upstream_prefix`, `directory`, `files` (sha256 per file), `upstream_git_blobs`. Put it in `agent/skills/design-sources.json` unless the skill belongs to an existing source file.
+   A skill written in this repository has no upstream: record only `directory` and `files` in `agent/skills/authored-sources.json`, which the sync script leaves out. Change its file, then its hash.
 4. Bundled references also need `REFERENCE_DIRECTORIES` entry, else they never load.
 5. Verify: catalog count rises, skill loads, no `no provenance record` warning at startup.
 

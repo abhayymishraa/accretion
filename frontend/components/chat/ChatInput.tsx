@@ -1,10 +1,11 @@
 import { ComposerMenu } from "@/components/chat/ComposerMenu";
 import { ConnectionPill } from "@/components/chat/ConnectionPill";
 import { ModelPicker } from "@/components/chat/ModelPicker";
-import { FileIcon } from "@/components/files/FileIcon";
+import { PromptMirror } from "@/components/chat/PromptMirror";
 import { Button } from "@/components/ui/button";
 import { useLightTheme } from "@/components/layout/ThemeProvider";
-import { mentionTargets, splitMentions, useComposerMenu } from "@/hooks/chat/useComposerMenu";
+import { useComposerMenu } from "@/hooks/chat/useComposerMenu";
+import type { ProjectSkills } from "@/hooks/skills/useProjectSkills";
 // Composer structure adapted from Beautiful UI ChatComposer, MIT © 2026 Shane Levine.
 // See ../ember/BEAUTIFUL-UI-LICENSE. The parent owns the real run lifecycle.
 import { ArrowUpIcon, StopIcon } from "@radix-ui/react-icons";
@@ -13,7 +14,7 @@ import type { ModelOption } from "@/types/models.type";
 import { EFFECTS } from "@/config/effects";
 import { BorderBeam } from "border-beam";
 import dynamic from "next/dynamic";
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 
 const MENU_ID = "chat-prompt-menu";
 const LiquidTools = dynamic(() => import("@/components/effects/LiquidTools"), { ssr: false });
@@ -25,6 +26,9 @@ const modes = [
 ];
 
 interface ChatInputProps {
+    projectSkills: ProjectSkills;
+    /** Opens the workspace's Skills tab. */
+    onManageSkills: () => void;
     files?: string[];
     input: string;
     connected: boolean;
@@ -42,6 +46,8 @@ interface ChatInputProps {
 }
 
 export function ChatInput({
+    projectSkills,
+    onManageSkills,
     files = [],
     input,
     connected,
@@ -60,13 +66,20 @@ export function ChatInput({
     // Typing stays open while building: the message becomes a steering update (spec 5).
     const canCompose = connected && !awaitingInput;
     const prompt = useRef<HTMLTextAreaElement>(null);
+    const { skills, ensureLoaded } = projectSkills;
     const menu = useComposerMenu({
         textarea: prompt,
         value: input,
         onChange: onInputChange,
         files,
+        skills,
         disabled: !canCompose,
     });
+    // Skills are fetched the first time "/" is used, not on page load.
+    const wantsSkills = menu.kind === "commands";
+    useEffect(() => {
+        if (wantsSkills) ensureLoaded();
+    }, [wantsSkills, ensureLoaded]);
     const light = useLightTheme();
     const mirror =
         "col-start-1 row-start-1 pl-[0.2em] text-[14.5px] leading-[1.65] max-md:text-[16px] wrap-anywhere";
@@ -109,6 +122,10 @@ export function ChatInput({
                     activeIndex={menu.activeIndex}
                     onHover={menu.setActiveIndex}
                     onPick={menu.accept}
+                    onManageSkills={() => {
+                        menu.close();
+                        onManageSkills();
+                    }}
                 />
                 {/* The beam rides the composer's border while a build runs and fades out when it ends. */}
                 <BorderBeam
@@ -134,36 +151,7 @@ export function ChatInput({
                                 aria-hidden="true"
                                 className={`${mirror} whitespace-pre-wrap text-foreground`}
                             >
-                                {splitMentions(input, new Set(mentionTargets(files))).map(
-                                    (part, index) =>
-                                        typeof part === "string" ? (
-                                            part
-                                        ) : (
-                                            <mark
-                                                key={index}
-                                                className={`rounded-[5px] bg-primary/15 text-[color-mix(in_oklab,var(--primary)_78%,var(--foreground))] ${part.path.endsWith("/") ? "[box-shadow:-0.15em_0_0_0_color-mix(in_oklab,var(--primary)_15%,transparent)]" : "[box-shadow:-0.15em_0_0_0_color-mix(in_oklab,var(--primary)_15%,transparent),0.12em_0_0_0_color-mix(in_oklab,var(--primary)_15%,transparent)]"}`}
-                                            >
-                                                {/* Visual only: the mirror must keep the textarea's exact
-                                                    widths or the caret drifts. Shadows widen the pill into the
-                                                    spaces around it, the icon sits left in the "@" slot with a
-                                                    gap before the name, and a folder's "/" is hidden but sent. */}
-                                                <span className="relative">
-                                                    <span className="invisible">@</span>
-                                                    <span className="absolute inset-y-0 left-[-0.05em] flex items-center [&_img]:size-[0.68em]">
-                                                        <FileIcon filename={part.path} />
-                                                    </span>
-                                                </span>
-                                                {part.path.endsWith("/") ? (
-                                                    <>
-                                                        {part.path.slice(0, -1)}
-                                                        <span className="text-transparent">/</span>
-                                                    </>
-                                                ) : (
-                                                    part.path
-                                                )}
-                                            </mark>
-                                        ),
-                                )}{" "}
+                                <PromptMirror text={input} files={files} skills={skills} />{" "}
                             </div>
                             <textarea
                                 id="chat-prompt"

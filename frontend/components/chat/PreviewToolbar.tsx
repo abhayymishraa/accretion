@@ -7,14 +7,32 @@ import {
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import type { WorkspaceTab } from "@/hooks/chat/useWorkspaceLayout";
 import { useProjectDownload } from "@/hooks/files/useProjectDownload";
-import { Ellipsis, FileCode, FolderArchive, Globe, Link2, PanelLeft, Plus, X } from "lucide-react";
+import {
+    BookOpen,
+    Ellipsis,
+    FileCode,
+    FolderArchive,
+    Globe,
+    Link2,
+    PanelLeft,
+    Plus,
+    X,
+    type LucideIcon,
+} from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
-type TabType = "preview" | "files";
+type ExtraTab = Exclude<WorkspaceTab, "preview">;
 
-/** The workspace panel's tab row, after v0: Preview stays, Code opens from "+", extras under •••. */
+// What "+" can open, in menu order.
+const EXTRA_TABS: { tab: ExtraTab; label: string; icon: LucideIcon }[] = [
+    { tab: "files", label: "Code", icon: FileCode },
+    { tab: "skills", label: "Skills", icon: BookOpen },
+];
+
+/** The workspace panel's tab row, after v0: Preview stays, Code and Skills open from "+", extras under •••. */
 export function PreviewToolbar({
     activeTab,
     onTabChange,
@@ -23,16 +41,21 @@ export function PreviewToolbar({
     projectId,
     revisionId,
 }: {
-    activeTab: TabType;
-    onTabChange: (tab: TabType) => void;
+    activeTab: WorkspaceTab;
+    onTabChange: (tab: WorkspaceTab) => void;
     chatHidden: boolean;
     onToggleChat: () => void;
     projectId: string;
     revisionId?: string | null;
 }) {
-    // A file opened from the run timeline switches to Code, which shows the tab without "+".
-    const [codeOpen, setCodeOpen] = useState(false);
-    const showCode = codeOpen || activeTab === "files";
+    // A tab opened from elsewhere (a file in the run timeline, "Manage skills" in the composer)
+    // switches to it without "+"; it stays in the row until closed.
+    const [opened, setOpened] = useState<ExtraTab[]>([]);
+    if (activeTab !== "preview" && !opened.includes(activeTab)) setOpened([...opened, activeTab]);
+    const close = (tab: ExtraTab) => {
+        setOpened(opened.filter((other) => other !== tab));
+        if (activeTab === tab) onTabChange("preview");
+    };
     const { isDownloading, handleDownloadAll } = useProjectDownload(projectId, revisionId);
     const copyLink = () =>
         navigator.clipboard.writeText(window.location.href).then(
@@ -59,29 +82,28 @@ export function PreviewToolbar({
                     <Globe size={14} />
                     Preview
                 </Button>
-                {showCode && (
-                    <span className="flex items-center">
-                        <Button
-                            variant="tab"
-                            className="pr-1.5"
-                            aria-pressed={activeTab === "files"}
-                            onClick={() => onTabChange("files")}
-                        >
-                            <FileCode size={14} />
-                            Code
-                        </Button>
-                        <button
-                            type="button"
-                            aria-label="Close Code"
-                            onClick={() => {
-                                setCodeOpen(false);
-                                onTabChange("preview");
-                            }}
-                            className="grid size-6 cursor-pointer place-items-center rounded-[6px] text-muted-foreground [transition:background-color_130ms_ease,color_130ms_ease] focus-visible:outline-2 focus-visible:outline-ring pointer-fine:hover:bg-surface-2 pointer-fine:hover:text-foreground"
-                        >
-                            <X size={13} />
-                        </button>
-                    </span>
+                {EXTRA_TABS.filter(({ tab }) => opened.includes(tab)).map(
+                    ({ tab, label, icon: Icon }) => (
+                        <span key={tab} className="flex items-center">
+                            <Button
+                                variant="tab"
+                                className="pr-1.5"
+                                aria-pressed={activeTab === tab}
+                                onClick={() => onTabChange(tab)}
+                            >
+                                <Icon size={14} />
+                                {label}
+                            </Button>
+                            <button
+                                type="button"
+                                aria-label={`Close ${label}`}
+                                onClick={() => close(tab)}
+                                className="grid size-6 cursor-pointer place-items-center rounded-[6px] text-muted-foreground [transition:background-color_130ms_ease,color_130ms_ease] focus-visible:outline-2 focus-visible:outline-ring pointer-fine:hover:bg-surface-2 pointer-fine:hover:text-foreground"
+                            >
+                                <X size={13} />
+                            </button>
+                        </span>
+                    ),
                 )}
             </div>
             <DropdownMenu>
@@ -91,15 +113,12 @@ export function PreviewToolbar({
                     </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" className="w-44">
-                    <DropdownMenuItem
-                        onSelect={() => {
-                            setCodeOpen(true);
-                            onTabChange("files");
-                        }}
-                    >
-                        <FileCode />
-                        Code
-                    </DropdownMenuItem>
+                    {EXTRA_TABS.map(({ tab, label, icon: Icon }) => (
+                        <DropdownMenuItem key={tab} onSelect={() => onTabChange(tab)}>
+                            <Icon />
+                            {label}
+                        </DropdownMenuItem>
+                    ))}
                 </DropdownMenuContent>
             </DropdownMenu>
             <DropdownMenu>

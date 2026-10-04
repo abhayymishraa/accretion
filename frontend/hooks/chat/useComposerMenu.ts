@@ -1,5 +1,7 @@
 "use client";
 
+import { PROMPTS, type PromptCategory } from "@/lib/chat/prompts";
+import type { ProjectSkill } from "@/types/skill.type";
 import { type RefObject, useLayoutEffect, useRef, useState } from "react";
 
 /**
@@ -11,13 +13,6 @@ import { type RefObject, useLayoutEffect, useRef, useState } from "react";
 const TRIGGER = /(?:^|\s)([@/])(\S*)$/;
 const MAX_CHOICES = 8;
 
-const promptCommands = [
-    { name: "Improve layout", prompt: "Improve the layout and spacing of this app. " },
-    { name: "Check accessibility", prompt: "Review and improve the accessibility of this app. " },
-    { name: "Fix an issue", prompt: "Fix this issue in my app: " },
-    { name: "Explain the code", prompt: "Explain how the current app works. " },
-];
-
 export type MenuKind = "files" | "commands";
 
 export interface MenuChoice {
@@ -27,6 +22,11 @@ export interface MenuChoice {
     insert: string;
     // Where the query matched inside the label, for highlighting.
     match?: [number, number];
+    // The menu's section headings; a heading shows where these change.
+    group?: string;
+    subgroup?: string;
+    skill?: ProjectSkill;
+    category?: PromptCategory;
 }
 
 interface Trigger {
@@ -62,22 +62,35 @@ export function mentionTargets(files: string[]): string[] {
     return [...targets];
 }
 
-const MENTION = /(^|\s)@([^\s@]+)/g;
+const MENTION = /(^|\s)([@/])([^\s@]+)/g;
 const TRAILING = /[.,;:!?)\]}'"]+$/;
+export const SKILL_NAME = /^[a-z0-9][a-z0-9-]*/;
+// Put before a picked skill so the composer has room to draw its icon where the "/" is. It is
+// whitespace to both parsers, and sending removes it.
+export const ICON_ROOM = "\u2003";
+
+type PromptPart = string | { path: string } | { skill: string };
 
 /**
- * The prompt cut around "@path" mentions of real project files and folders, by the backend's rule
- * (agent/context/context.py mentions), so the composer can highlight them.
+ * The prompt cut around "@path" mentions of real project files and folders, and "/name" picks of
+ * enabled skills, by the backend's rules (agent/context/context.py mentions, agent/tools/skills.py
+ * picked), so the composer can highlight them.
  */
-export function splitMentions(text: string, targets: Set<string>): (string | { path: string })[] {
-    const parts: (string | { path: string })[] = [];
+export function splitMentions(
+    text: string,
+    targets: Set<string>,
+    skills: Set<string>,
+): PromptPart[] {
+    const parts: PromptPart[] = [];
     let last = 0;
     for (const match of text.matchAll(MENTION)) {
-        const path = match[2].replace(TRAILING, "");
-        if (!targets.has(path)) continue;
-        const at = match.index + match[1].length;
-        parts.push(text.slice(last, at), { path });
-        last = at + 1 + path.length;
+        const [, space, sigil, rest] = match;
+        const name =
+            sigil === "@" ? rest.replace(TRAILING, "") : (SKILL_NAME.exec(rest)?.[0] ?? "");
+        if (!(sigil === "@" ? targets : skills).has(name)) continue;
+        const at = match.index + space.length;
+        parts.push(text.slice(last, at), sigil === "@" ? { path: name } : { skill: name });
+        last = at + 1 + name.length;
     }
     parts.push(text.slice(last));
     return parts;
@@ -111,13 +124,48 @@ function fileChoices(query: string, targets: string[]): MenuChoice[] {
     });
 }
 
-function buildChoices(kind: MenuKind, query: string, files: string[]): MenuChoice[] {
+const SOURCE_ORDER = { project: 0, library: 1, builtin: 2 } as const;
+
+function buildChoices(
+    kind: MenuKind,
+    query: string,
+    files: string[],
+    skills: ProjectSkill[],
+): MenuChoice[] {
     if (kind === "files") return fileChoices(query, mentionTargets(files));
     const needle = query.toLowerCase();
-    return promptCommands
-        .filter((command) => command.name.toLowerCase().includes(needle))
-        .slice(0, MAX_CHOICES)
-        .map((command) => ({ id: command.name, label: command.name, insert: command.prompt }));
+    // Prompts come after the skills, one subheading per category, as bolt.new lists them.
+    const prompts = PROMPTS.filter((prompt) => prompt.name.toLowerCase().includes(needle)).map(
+        (prompt) => ({
+            id: `prompt:${prompt.name}`,
+            label: prompt.name,
+            insert: `${prompt.prompt} `,
+            group: "Prompts",
+            subgroup: prompt.category,
+            category: prompt.category,
+        }),
+    );
+    // Every enabled skill, not a top few: the list scrolls. The user's own come first, the project's
+    // before the library's; built-ins keep the category order the API sends.
+    const picks = skills
+        .filter((skill) => skill.enabled && skill.name.includes(needle))
+        .sort((a, b) => SOURCE_ORDER[a.source] - SOURCE_ORDER[b.source])
+        .map((skill) => {
+            const at = skill.name.indexOf(needle);
+            return {
+                id: `skill:${skill.name}`,
+                label: skill.name,
+                detail: skill.description,
+                insert: `${ICON_ROOM}/${skill.name} `,
+                match: needle ? ([at, at + needle.length] as [number, number]) : undefined,
+                group: skill.category ?? "Your skills",
+                subgroup:
+                    skill.subcategory ??
+                    (skill.source === "project" ? "In this project" : "From your library"),
+                skill,
+            };
+        });
+    return [...picks, ...prompts];
 }
 
 export function useComposerMenu({
@@ -125,6 +173,7 @@ export function useComposerMenu({
     value,
     onChange,
     files,
+    skills,
     disabled,
 }: {
     // Owned by the composer so the element keeps a plain ref in its own render.
@@ -132,6 +181,8 @@ export function useComposerMenu({
     value: string;
     onChange: (next: string) => void;
     files: string[];
+    // Null until the "/" menu has opened once and fetched them.
+    skills: ProjectSkill[] | null;
     disabled: boolean;
 }) {
     const pendingCaret = useRef<number | null>(null);
@@ -139,7 +190,7 @@ export function useComposerMenu({
     const [dismissedKey, setDismissedKey] = useState<string | null>(null);
     const [activeIndex, setActiveIndex] = useState(0);
 
-    const choices = trigger ? buildChoices(trigger.kind, trigger.query, files) : [];
+    const choices = trigger ? buildChoices(trigger.kind, trigger.query, files, skills ?? []) : [];
     // Escape suppresses one trigger run, keyed by kind and position, so deleting it
     // and starting a fresh mention in the same column opens the menu again.
     const triggerKey = trigger ? `${trigger.kind}:${trigger.start}` : null;
@@ -179,7 +230,12 @@ export function useComposerMenu({
     function accept(choice: MenuChoice) {
         if (!trigger) return;
         const caret = textarea.current?.selectionStart ?? value.length;
-        const head = value.slice(0, trigger.start) + choice.insert;
+        // A pick made again after backspacing over one reuses the room it left.
+        const before = value.slice(0, trigger.start);
+        const head =
+            (choice.insert.startsWith(ICON_ROOM) && before.endsWith(ICON_ROOM)
+                ? before.slice(0, -1)
+                : before) + choice.insert;
         onChange(head + value.slice(caret));
         pendingCaret.current = head.length;
         setTrigger(null);
