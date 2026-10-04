@@ -7,6 +7,10 @@ class ProjectNotFound(NotFound):
     DETAIL = "Project not found"
 
 
+class CoverNotFound(NotFound):
+    DETAIL = "Project has no cover image"
+
+
 class ChatNotFound(NotFound):
     DETAIL = "Chat not found"
 

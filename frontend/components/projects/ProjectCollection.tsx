@@ -4,20 +4,14 @@ import { ProjectDeleteDialog } from "./ProjectDeleteDialog";
 
 import { useProjectCollection } from "@/hooks/projects/useProjectCollection";
 
+import { ProjectCard } from "@/components/projects/ProjectCard";
 import { ProjectCollectionSkeleton } from "@/components/projects/ProjectCollectionSkeleton";
 import styles from "@/components/projects/project-shelf.module.css";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { projectName, type ProjectPeriod, type ProjectSort } from "@/lib/projects/filters";
-import { ArrowUpRight, ChevronDown, FolderOpen, Search, Trash2 } from "lucide-react";
+import { ArrowUpRight, ChevronDown, FolderOpen, Search } from "lucide-react";
 import Link from "next/link";
-
-function createdLabel(value: string) {
-    const date = new Date(value);
-    return Number.isFinite(date.getTime())
-        ? date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
-        : "Date unavailable";
-}
 
 export function ProjectCollection({
     compact = false,
@@ -51,13 +45,12 @@ export function ProjectCollection({
         deletingId,
         deleteError,
         setDeleteError,
-        moveSpotlight,
         deleteProject,
         visible,
         narrowed,
         changed,
         resetFilters,
-    } = useProjectCollection(compact, onOpen);
+    } = useProjectCollection(onOpen);
 
     return (
         <div>
@@ -168,7 +161,9 @@ export function ProjectCollection({
                     </Button>
                 </div>
             ) : !visible.length ? (
-                <div className="flex flex-col items-center gap-4 rounded-2xl border border-dashed border-border px-6 py-16 text-center text-muted-foreground">
+                <div
+                    className={`flex flex-col items-center gap-4 rounded-2xl border border-dashed border-border px-6 py-16 text-center text-muted-foreground ${projects.length ? "" : styles.firstRun}`}
+                >
                     <FolderOpen size={30} aria-hidden="true" />
                     <h2 className="text-xl text-foreground">
                         {projects.length
@@ -200,81 +195,24 @@ export function ProjectCollection({
                     className={
                         compact
                             ? "flex flex-col gap-3"
-                            : "grid grid-cols-1 gap-x-9 gap-y-10 px-1 pb-3 md:grid-cols-2"
+                            : "grid grid-cols-1 gap-x-6 gap-y-6 px-1 pb-3 md:grid-cols-2 xl:grid-cols-3"
                     }
                 >
                     {visible.map((project) => (
-                        <article
+                        <ProjectCard
                             key={project.id}
-                            className={`${styles.cardEnter} flex min-w-0 flex-col ${compact ? "rounded-xl border border-border bg-card" : "h-full"}`}
-                        >
-                            <div
-                                className={`relative isolate flex min-w-0 flex-1 ${compact ? "" : styles.card}`}
-                            >
-                                {!compact && (
-                                    <div
-                                        aria-hidden="true"
-                                        className="pointer-events-none absolute inset-0 -z-10 -translate-x-0.5 translate-y-1.5 rounded-[24px] border border-foreground/25 bg-surface-2"
-                                    />
-                                )}
-                                <Link
-                                    href={`/chat/${project.id}`}
-                                    onClick={onOpen}
-                                    onPointerEnter={compact ? undefined : moveSpotlight}
-                                    onPointerMove={compact ? undefined : moveSpotlight}
-                                    className={`relative isolate flex min-w-0 flex-1 flex-col text-foreground no-underline focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-4 ${compact ? "gap-3 rounded-xl p-4" : `${styles.paper} min-h-72 rounded-[24px] border border-foreground/55 bg-card p-6 sm:p-8`}`}
-                                >
-                                    {!compact && (
-                                        <div className="flex items-center justify-between gap-3 text-accent-foreground">
-                                            <span className="font-mono text-xs uppercase tracking-widest">
-                                                Project
-                                            </span>
-                                            <ArrowUpRight
-                                                size={22}
-                                                strokeWidth={1.5}
-                                                aria-hidden="true"
-                                            />
-                                        </div>
-                                    )}
-                                    <h2
-                                        className={`wrap-anywhere ${compact ? "text-base font-medium" : "flex-1 py-8 font-mono text-[clamp(24px,2.4vw,30px)] font-medium leading-[1.25] tracking-[-.04em]"}`}
-                                    >
-                                        {projectName(project)}
-                                    </h2>
-                                    <span
-                                        className={`flex items-center gap-2 text-muted-foreground ${compact ? "text-xs" : "font-mono text-xs uppercase tracking-wide"}`}
-                                    >
-                                        <span aria-hidden="true" className="text-accent-foreground">
-                                            &gt;
-                                        </span>{" "}
-                                        Open workspace
-                                    </span>
-                                </Link>
-                            </div>
-                            <div
-                                className={`flex min-h-12 items-center justify-between gap-2 px-2 ${compact ? "" : "mt-2"}`}
-                            >
-                                <p className="text-xs text-muted-foreground">
-                                    Created {createdLabel(project.created_at)}
-                                </p>
-                                <Button
-                                    variant="utility"
-                                    aria-label={`Delete ${projectName(project)}`}
-                                    disabled={deletingId !== null}
-                                    onClick={(event) => {
-                                        deleteTrigger.current = event.currentTarget;
-                                        setDeleteError("");
-                                        setDeleteTitle(projectName(project));
-                                        setDialogMotion(event.detail > 0 ? "open" : null);
-                                        setPendingDelete(project);
-                                    }}
-                                    className="shrink-0 px-2"
-                                >
-                                    <Trash2 size={14} aria-hidden="true" />
-                                    <span className={compact ? "" : "sr-only"}>Delete</span>
-                                </Button>
-                            </div>
-                        </article>
+                            project={project}
+                            compact={compact}
+                            deleting={deletingId !== null}
+                            onOpen={onOpen}
+                            onDelete={(event) => {
+                                deleteTrigger.current = event.currentTarget;
+                                setDeleteError("");
+                                setDeleteTitle(projectName(project));
+                                setDialogMotion(event.detail > 0 ? "open" : null);
+                                setPendingDelete(project);
+                            }}
+                        />
                     ))}
                 </div>
             )}

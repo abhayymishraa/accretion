@@ -1,5 +1,6 @@
 "use client";
 import { Button } from "@/components/ui/button";
+import { ErrorBox } from "@/components/ui/ErrorBox";
 import * as Dialog from "@radix-ui/react-dialog";
 import styles from "./project-shelf.module.css";
 export function ProjectDeleteDialog({
@@ -52,11 +53,9 @@ export function ProjectDeleteDialog({
                         and its chat, saved files, and run history will be permanently removed. Its
                         preview will be stopped. This cannot be undone in Accretion.
                     </Dialog.Description>
-                    {error && (
-                        <p role="alert" className="mt-4 text-sm text-destructive">
-                            {error}
-                        </p>
-                    )}
+                    <div className="[&>[data-error-box]]:mt-4">
+                        <ErrorBox message={error} />
+                    </div>
                     <div className="mt-6 flex flex-wrap justify-end gap-3">
                         <Dialog.Close asChild>
                             <Button variant="secondary" disabled={deleting}>
