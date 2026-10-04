@@ -154,7 +154,13 @@ apiClient.interceptors.response.use(
 
         // FastAPI validation errors contain objects, not a displayable string.
         let errorMessage = error.message || "Something went wrong. Please try again.";
-        if (error.config?.url === "/auth/verification/confirm" && error.response?.status === 422) {
+        if (!error.response && error.code !== "ERR_CANCELED") {
+            // No answer at all (offline, server down, timed out): Axios's own "Network Error" means nothing here.
+            errorMessage = "Can't reach Accretion. Check your connection and try again.";
+        } else if (
+            error.config?.url === "/auth/verification/confirm" &&
+            error.response?.status === 422
+        ) {
             errorMessage = "This verification link is invalid or expired. Request a new one.";
         } else if (typeof detail === "string" && detail.trim()) {
             errorMessage = detail;
