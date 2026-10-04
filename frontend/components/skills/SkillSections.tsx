@@ -6,7 +6,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import type { SkillDraft, SkillSummary } from "@/types/skill.type";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import Image from "next/image";
-import type { CSSProperties, ReactNode } from "react";
+import { Fragment, type CSSProperties, type ReactNode } from "react";
 import { type AddSkillActions, AddSkillMenu } from "./AddSkillMenu";
 import { SkillCard } from "./SkillCard";
 import styles from "./skills.module.css";
@@ -250,32 +250,55 @@ export function BuiltinSkills({
                 <NoMatch query={query} />
             ) : (
                 <ul className="divide-y divide-border border border-border">
-                    {shown.map((skill, index) => (
-                        <li
-                            key={skill.name}
-                            className={`${styles.rise} flex items-center gap-3 pr-4 [transition:background-color_140ms_ease] pointer-fine:hover:bg-surface-1`}
-                            style={slot(index)}
-                        >
-                            <button
-                                type="button"
-                                onClick={() => onPreview(skill)}
-                                aria-label={`Preview /${skill.name}`}
-                                className={`flex min-h-14 min-w-0 flex-1 items-center py-2.5 pl-4 text-left [transition:opacity_150ms_ease,scale_100ms_var(--ease-out)] active:scale-[0.99] motion-reduce:active:scale-100 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring ${skill.off_everywhere ? "opacity-50" : ""}`}
-                            >
-                                <span className="min-w-0 flex-1">
-                                    <code
-                                        className={`${styles.chip} inline-block max-w-full truncate px-1.5 py-0.5 font-mono text-[12px] leading-none`}
+                    {shown.map((skill, index) => {
+                        const previous = shown[index - 1];
+                        const newCategory = skill.category !== previous?.category;
+                        return (
+                            <Fragment key={skill.name}>
+                                {/* Built-ins arrive grouped: a heading where the category changes,
+                                    a subheading where the subcategory does; both rise with the row. */}
+                                {newCategory && (
+                                    <li
+                                        className={`${styles.rise} bg-surface-1 px-4 pt-3 pb-1.5 text-[12.5px] font-medium text-foreground`}
+                                        style={slot(index)}
                                     >
-                                        /{skill.name}
-                                    </code>
-                                    <span className="mt-1 block truncate text-[13px] text-muted-foreground">
-                                        {skill.description}
-                                    </span>
-                                </span>
-                            </button>
-                            <EverywhereToggle skill={skill} onToggle={onToggle} />
-                        </li>
-                    ))}
+                                        {skill.category}
+                                    </li>
+                                )}
+                                {(newCategory || skill.subcategory !== previous?.subcategory) && (
+                                    <li
+                                        className={`${styles.rise} px-4 pt-2 pb-1 text-[11.5px] text-muted-foreground`}
+                                        style={slot(index)}
+                                    >
+                                        {skill.subcategory}
+                                    </li>
+                                )}
+                                <li
+                                    className={`${styles.rise} flex items-center gap-3 pr-4 [transition:background-color_140ms_ease] pointer-fine:hover:bg-surface-1`}
+                                    style={slot(index)}
+                                >
+                                    <button
+                                        type="button"
+                                        onClick={() => onPreview(skill)}
+                                        aria-label={`Preview /${skill.name}`}
+                                        className={`flex min-h-14 min-w-0 flex-1 items-center py-2.5 pl-4 text-left [transition:opacity_150ms_ease,scale_100ms_var(--ease-out)] active:scale-[0.99] motion-reduce:active:scale-100 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring ${skill.off_everywhere ? "opacity-50" : ""}`}
+                                    >
+                                        <span className="min-w-0 flex-1">
+                                            <code
+                                                className={`${styles.chip} inline-block max-w-full truncate px-1.5 py-0.5 font-mono text-[12px] leading-none`}
+                                            >
+                                                /{skill.name}
+                                            </code>
+                                            <span className="mt-1 block truncate text-[13px] text-muted-foreground">
+                                                {skill.description}
+                                            </span>
+                                        </span>
+                                    </button>
+                                    <EverywhereToggle skill={skill} onToggle={onToggle} />
+                                </li>
+                            </Fragment>
+                        );
+                    })}
                 </ul>
             )}
         </section>

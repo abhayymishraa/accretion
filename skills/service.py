@@ -12,7 +12,7 @@ from sqlalchemy.dialects.postgresql import insert as upsert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from agent.tools.skills import REQUIRED_SKILLS, bundled, bundled_catalog
+from agent.tools.skills import REQUIRED_SKILLS, SKILL_CATEGORIES, bundled, bundled_catalog
 from auth.schemas import TokenUser
 from db.base import bound
 from db.models import Chat, Skill, User, library_rows
@@ -32,11 +32,23 @@ from skills.schemas import (
     SkillUpdate,
 )
 
+# Categories, then subcategories, in the order SKILL_CATEGORIES first names them.
+_GROUP_ORDER = list(dict.fromkeys(SKILL_CATEGORIES.values()))
+
 
 def _builtin() -> list[SkillSummary]:
+    """Built-in skills grouped as the menus show them: by category and subcategory, then by name."""
+    catalog = bundled_catalog()
     return [
-        SkillSummary(name=name, description=description, source="builtin", required=name in REQUIRED_SKILLS)
-        for name, description in sorted(bundled_catalog().items())
+        SkillSummary(
+            name=name,
+            description=catalog[name],
+            source="builtin",
+            required=name in REQUIRED_SKILLS,
+            category=SKILL_CATEGORIES[name][0],
+            subcategory=SKILL_CATEGORIES[name][1],
+        )
+        for name in sorted(catalog, key=lambda name: (_GROUP_ORDER.index(SKILL_CATEGORIES[name]), name))
     ]
 
 

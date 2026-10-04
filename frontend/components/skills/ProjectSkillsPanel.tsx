@@ -6,7 +6,7 @@ import type { ProjectSkills } from "@/hooks/skills/useProjectSkills";
 import type { ProjectSkill } from "@/types/skill.type";
 import { ArrowUpRight, Check } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useState, type ReactNode } from "react";
 import styles from "./skills.module.css";
 import { SkillSearch } from "./SkillFilters";
 import { matches } from "./SkillSections";
@@ -41,23 +41,29 @@ function Section({
                 <span className="text-[11.5px] text-muted-foreground">{note}</span>
             </div>
             <ul className="flex flex-col">
-                {skills.map((skill) => (
-                    <li
-                        key={skill.name}
-                        className="flex items-center gap-3 rounded-[8px] px-2 py-1.5 [transition:background-color_130ms_ease] pointer-fine:hover:bg-surface-2"
-                    >
-                        <div
-                            className={`min-w-0 flex-1 [transition:opacity_150ms_ease] ${skill.enabled ? "" : "opacity-50"}`}
-                        >
-                            <p className="truncate font-mono text-[12px] text-foreground">
-                                /{skill.name}
-                            </p>
-                            <p className="mt-0.5 line-clamp-2 text-[12px] leading-[1.5] text-muted-foreground">
-                                {skill.description}
-                            </p>
-                        </div>
-                        {action(skill)}
-                    </li>
+                {skills.map((skill, index) => (
+                    <Fragment key={skill.name}>
+                        {/* Built-ins arrive grouped: a subheading wherever the subcategory changes. */}
+                        {skill.subcategory &&
+                            skill.subcategory !== skills[index - 1]?.subcategory && (
+                                <li className="px-2 pt-2 pb-0.5 text-[11px] text-muted-foreground">
+                                    {skill.subcategory}
+                                </li>
+                            )}
+                        <li className="flex items-center gap-3 rounded-[8px] px-2 py-1.5 [transition:background-color_130ms_ease] pointer-fine:hover:bg-surface-2">
+                            <div
+                                className={`min-w-0 flex-1 [transition:opacity_150ms_ease] ${skill.enabled ? "" : "opacity-50"}`}
+                            >
+                                <p className="truncate font-mono text-[12px] text-foreground">
+                                    /{skill.name}
+                                </p>
+                                <p className="mt-0.5 line-clamp-2 text-[12px] leading-[1.5] text-muted-foreground">
+                                    {skill.description}
+                                </p>
+                            </div>
+                            {action(skill)}
+                        </li>
+                    </Fragment>
                 ))}
             </ul>
         </section>
@@ -178,12 +184,20 @@ export function ProjectSkillsPanel({ projectSkills }: { projectSkills: ProjectSk
                             skills={of("library")}
                             action={toggle}
                         />
-                        <Section
-                            title="Built in"
-                            note="Included with Accretion"
-                            skills={of("builtin")}
-                            action={toggle}
-                        />
+                        {/* Built-ins by category, in the order the API groups them. */}
+                        {[...new Set(of("builtin").map((skill) => skill.category))].map(
+                            (category) => (
+                                <Section
+                                    key={category}
+                                    title={category ?? "Built in"}
+                                    note="Included with Accretion"
+                                    skills={of("builtin").filter(
+                                        (skill) => skill.category === category,
+                                    )}
+                                    action={toggle}
+                                />
+                            ),
+                        )}
                     </>
                 ) : (
                     <div className="flex flex-col gap-1.5 p-4" aria-label="Loading skills">

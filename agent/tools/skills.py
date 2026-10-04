@@ -41,6 +41,32 @@ SKILL_DIRECTORIES = {
 # them off. skills/service.py refuses the change; for_project ignores an older stored one.
 REQUIRED_SKILLS = frozenset({"agent-browser", "find-skills", "skill-creator", "vercel-react-best-practices"})
 assert REQUIRED_SKILLS <= SKILL_DIRECTORIES.keys(), "a required skill must be a bundled one"
+# Where each bundled skill sits in the skills menus, as (category, subcategory). The order here is
+# the order the menus show: categories, then subcategories, as they first appear.
+SKILL_CATEGORIES = {
+    "design-taste-frontend": ("Design", "Direction & style"),
+    "design-taste-frontend-v1": ("Design", "Direction & style"),
+    "frontend-design": ("Design", "Direction & style"),
+    "gpt-taste": ("Design", "Direction & style"),
+    "high-end-visual-design": ("Design", "Direction & style"),
+    "impeccable": ("Design", "Direction & style"),
+    "industrial-brutalist-ui": ("Design", "Direction & style"),
+    "minimalist-ui": ("Design", "Direction & style"),
+    "redesign-existing-projects": ("Design", "Direction & style"),
+    "stitch-design-taste": ("Design", "Direction & style"),
+    "ui-ux-pro-max": ("Design", "Direction & style"),
+    "emil-design-eng": ("Design", "Motion & polish"),
+    "brandkit": ("Design", "Images & brand"),
+    "image-to-code": ("Design", "Images & brand"),
+    "imagegen-frontend-mobile": ("Design", "Images & brand"),
+    "imagegen-frontend-web": ("Design", "Images & brand"),
+    "vercel-react-best-practices": ("Engineering", "React & Next.js"),
+    "full-output-enforcement": ("Engineering", "Output"),
+    "agent-browser": ("Platform", "Browser"),
+    "find-skills": ("Platform", "Skills"),
+    "skill-creator": ("Platform", "Skills"),
+}
+assert SKILL_CATEGORIES.keys() == SKILL_DIRECTORIES.keys(), "every bundled skill needs exactly one category"
 # Only these bundled reference directories are exposed, never project files or scripts.
 REFERENCE_DIRECTORIES = {
     "ui-ux-pro-max": "references",

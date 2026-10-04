@@ -46,8 +46,10 @@ class SkillSummary(CustomModel):
     source: Literal["builtin", "library", "project"]
     # Library skills only.
     id: str | None = None
-    # Built-in skills only: a platform skill the user cannot turn off.
+    # Built-in skills only: a platform skill the user cannot turn off, and where it sits in the menus.
     required: bool = False
+    category: str | None = None
+    subcategory: str | None = None
     # Turned off for the whole account, so no project can use it.
     off_everywhere: bool = False
 

@@ -6,8 +6,11 @@ export interface SkillSummary {
     source: SkillSource;
     // Library skills only.
     id?: string | null;
-    // Built-in skills only: a platform skill that stays on in every project.
+    // Built-in skills only: a platform skill that stays on in every project, and where the menus
+    // file it. Built-ins arrive grouped in this order.
     required: boolean;
+    category: string | null;
+    subcategory: string | null;
     // Turned off for the whole account, so no project can use it.
     off_everywhere: boolean;
 }

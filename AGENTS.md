@@ -161,7 +161,7 @@ A skill is off in a project when it is in the project's `chats.disabled_skills` 
 ### Adding a skill
 
 1. Vendor files into `agent/skills/<dir>/`.
-2. Register name -> dir in `SKILL_DIRECTORIES`.
+2. Register name -> dir in `SKILL_DIRECTORIES`, and its `(category, subcategory)` in `SKILL_CATEGORIES`; an import-time assert refuses a bundled skill without one. The order there is the order every skills menu shows.
 3. Add provenance entry: `repository`, `commit`, `upstream_prefix`, `directory`, `files` (sha256 per file), `upstream_git_blobs`. Put it in `agent/skills/design-sources.json` unless the skill belongs to an existing source file.
    A skill written in this repository has no upstream: record only `directory` and `files` in `agent/skills/authored-sources.json`, which the sync script leaves out. Change its file, then its hash.
 4. Bundled references also need `REFERENCE_DIRECTORIES` entry, else they never load.
