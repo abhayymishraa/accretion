@@ -44,6 +44,11 @@ class BudgetLimitError(Exception):
     pass
 
 
+class SpendMissing(ValueError):
+    """A settlement for a reservation that does not exist. Raised, not ignored: a missing record must
+    never release money. A caller that has confirmed there is nothing left to settle may catch it."""
+
+
 class BudgetSpentError(BudgetLimitError):
     """The monthly budget cannot cover the next call: a stopping point, not a fault."""
 
@@ -234,4 +239,4 @@ async def settle(entry_id, amount=None, details=None):
             .returning(SpendEntry.id)
         )
         if settled is None and await db.get(SpendEntry, entry_id) is None:
-            raise ValueError("Spend reservation is missing")
+            raise SpendMissing("Spend reservation is missing")
