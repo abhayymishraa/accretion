@@ -10,10 +10,13 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
     false,
+    func,
+    select,
     text,
 )
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from plans import DEFAULT_PLAN
@@ -41,6 +44,8 @@ class User(Base):
     plan: Mapped[str] = mapped_column(String(32), nullable=False, default=DEFAULT_PLAN, server_default=DEFAULT_PLAN)
     # The user's last pick, pre-filling the picker in the prompt box (spec 4.2, dyad's selectedModel).
     default_model_choice: Mapped[str] = mapped_column(String(128), default="auto", server_default="auto")
+    # Skills turned off for the whole account: no project uses them. Each project's own list is kept.
+    disabled_skills: Mapped[list[str]] = mapped_column(ARRAY(String(64)), server_default="{}", default=list)
 
     # A User can have many Chats.
     # back_populates="user" links back to the user field in the Chat model.
@@ -70,6 +75,11 @@ class Chat(Base):
     # Kept separate: failed drafts must not replace the last verified build.
     latest_saved_revision_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     latest_verified_revision_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    # Skills are on unless named here: built-in and library skills the user turned off for this project.
+    disabled_skills: Mapped[list[str]] = mapped_column(ARRAY(String(64)), server_default="{}", default=list)
+    # The project's own skills (.agents/skills) as of its last successful build: name, description and
+    # instructions. Always on; written by the build's finish statement, read by the skills list.
+    project_skills: Mapped[list[dict[str, str]]] = mapped_column(JSONB, server_default="[]", default=list)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
@@ -84,6 +94,33 @@ class Chat(Base):
     # the session, so latest_revision_in finds it without a query. Never lazily loaded.
     latest_saved_revision: Mapped["ProjectRevision | None"] = relationship(
         primaryjoin="foreign(Chat.latest_saved_revision_id) == ProjectRevision.id", viewonly=True, lazy="raise"
+    )
+
+
+class Skill(Base):
+    """A skill the user wrote: SKILL.md fields stored as columns. Read by the skills API and by every build."""
+
+    __tablename__ = "skills"
+    __table_args__ = (UniqueConstraint("user_id", "name"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    # Indexed by the (user_id, name) unique constraint, whose index leads with user_id.
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"))
+    name: Mapped[str] = mapped_column(String(64))
+    description: Mapped[str] = mapped_column(String(1024))
+    instructions: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+
+
+def library_rows(owner, *columns):
+    """An owner's library skills as one JSON array of the given columns, for a query that also reads
+    something else: the skills list, a project's skills, a build's setup."""
+    pairs = [part for column in columns for part in (column.key, column)]
+    return (
+        select(func.coalesce(func.json_agg(func.json_build_object(*pairs)), func.json_build_array()))
+        .where(Skill.user_id == owner)
+        .scalar_subquery()
     )
 
 

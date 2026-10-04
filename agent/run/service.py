@@ -22,7 +22,7 @@ from sqlalchemy.orm import aliased, joinedload
 from agent.sandbox.config import sandbox_settings
 from agent.storage.config import storage_settings
 from db.base import AsyncSessionLocal, AutocommitSessionLocal, bound
-from db.models import Chat, Message, Run, RunEvent, RunScreenshot, SandboxRuntime, User
+from db.models import Chat, Message, Run, RunEvent, RunScreenshot, SandboxRuntime, Skill, User, library_rows
 from plans import month_window
 
 from ..budget.budget import BudgetLimitError, BudgetSpentError, has_budget_left, month_spend, remaining_in, require_left
@@ -49,6 +49,7 @@ from ..storage.persistence import (
 )
 from ..storage.storage import StorageError
 from ..tools.public_tools import EDIT_TOOLS, edit_summary
+from ..tools.skills import RuntimeSkills
 from ..tools.tools import ROOT, FileWriteError
 from . import bus
 from .config import run_settings
@@ -83,6 +84,18 @@ async def chat_kit(chat_id):
     """The kit a project started from (Chat.kit)."""
     async with AutocommitSessionLocal() as db:
         return usable_kit(await db.scalar(select(Chat.kit).where(Chat.id == chat_id)))
+
+
+async def build_setup(chat_id):
+    """In one query: the project's kit, and its skills (the owner's library less those turned off for the
+    project or for the whole account; RuntimeSkills keeps the required ones)."""
+    library = library_rows(Chat.user_id, Skill.name, Skill.description, Skill.instructions)
+    account = select(User.disabled_skills).where(User.id == Chat.user_id).scalar_subquery()
+    async with AutocommitSessionLocal() as db:
+        kit, disabled, rows, account_off = (
+            await db.execute(select(Chat.kit, Chat.disabled_skills, library, account).where(Chat.id == chat_id))
+        ).one()
+    return usable_kit(kit), RuntimeSkills.for_project([*disabled, *account_off], rows)
 
 
 async def open_run(db: AsyncSession, chat_id: str) -> str | None:
@@ -908,6 +921,9 @@ class Service:
         reusable = status == "succeeded" and live.revision_id
         if reusable:
             changes["latest_verified_revision_id"] = live.revision_id
+        if result and "project_skills" in result:
+            # Stored when written, so the skills list reads it from the project row, not the sandbox.
+            changes["project_skills"] = result["project_skills"]
         if changes:
             ctes.append(
                 update(Chat)
@@ -1047,7 +1063,8 @@ class Service:
                 await self.emit(live, "stage", message="Choosing how to build it")
                 await pick_kit(live)
             await self.open_sandbox(live)
-            stack = KITS[await chat_kit(live.chat_id)].model_dump()
+            kit, skills = await build_setup(live.chat_id)
+            stack = KITS[kit].model_dump()
             result = await run_editor(
                 live.sandbox,
                 live.prompt,
@@ -1067,6 +1084,7 @@ class Service:
                 else None,
                 migrate=lambda: migrations.gate(live.sandbox, stack, allow_data_loss=approved_data_loss(live)),
                 save_screenshot=lambda data, media_type: self.save_screenshot(live, data, media_type),
+                skills=skills,
             )
             if "decision" in result:
                 current = await latest_revision(live.chat_id)
