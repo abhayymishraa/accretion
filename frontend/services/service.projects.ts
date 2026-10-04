@@ -27,6 +27,16 @@ export const projectService = {
         return response.data;
     },
 
+    // The card image; the route needs the session header, so it cannot be an <img src>. The version
+    // makes a new cover a new URL, so the browser keeps each one.
+    cover: async (id: string, version: string): Promise<Blob> => {
+        const response = await apiClient.get<Blob>(`/projects/${encodeURIComponent(id)}/cover`, {
+            params: { v: version },
+            responseType: "blob",
+        });
+        return response.data;
+    },
+
     /**
      * Get list of user's projects
      */

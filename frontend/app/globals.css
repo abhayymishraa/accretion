@@ -392,3 +392,19 @@
         }
     }
 }
+
+/* A deleted project leaves its grid (useProjectCollection.deleteProject): the other cards slide into
+   its place, and it fades out where it was. Started only without reduced motion. */
+::view-transition-group(*.project) {
+    animation-duration: 260ms;
+    animation-timing-function: var(--ease-out);
+}
+::view-transition-old(*.project):only-child {
+    animation: project-out 180ms var(--ease-out) both;
+}
+@keyframes project-out {
+    to {
+        opacity: 0;
+        transform: scale(0.97);
+    }
+}
