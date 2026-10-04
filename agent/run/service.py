@@ -120,7 +120,8 @@ async def build_setup(chat_id):
         kit, disabled, rows, account_off = (
             await db.execute(select(Chat.kit, Chat.disabled_skills, library, account).where(Chat.id == chat_id))
         ).one()
-    return usable_kit(kit), RuntimeSkills.for_project([*disabled, *account_off], rows)
+    # Reads and hashes the bundled skill files: off the event loop.
+    return usable_kit(kit), await asyncio.to_thread(RuntimeSkills.for_project, [*disabled, *account_off], rows)
 
 
 async def open_run(db: AsyncSession, chat_id: str) -> str | None:
@@ -990,7 +991,7 @@ class Service:
         reusable = status == "succeeded" and live.revision_id
         if reusable:
             changes["latest_verified_revision_id"] = live.revision_id
-        if result and "project_skills" in result:
+        if status == "succeeded" and result and "project_skills" in result:
             # Stored when written, so the skills list reads it from the project row, not the sandbox.
             changes["project_skills"] = result["project_skills"]
         if changes:

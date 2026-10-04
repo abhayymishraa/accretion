@@ -117,7 +117,11 @@ async def _skill_files(client: httpx.AsyncClient, url: str) -> tuple[str, str, s
     api = f"https://api.github.com/repos/{owner}/{repo}"
     if ref is None:
         ref = str((await _get(client, api)).json()["default_branch"])
-    tree = (await _get(client, f"{api}/git/trees/{ref}?recursive=1")).json()["tree"]
+    listing = (await _get(client, f"{api}/git/trees/{ref}?recursive=1")).json()
+    # GitHub leaves entries out of a very large tree; a partial list would hide skills that exist.
+    if listing.get("truncated"):
+        raise SkillImportInvalid("This repository is too large to list. Link a folder in it instead.")
+    tree = listing["tree"]
     paths = [
         entry["path"]
         for entry in tree

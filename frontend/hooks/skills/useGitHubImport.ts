@@ -2,7 +2,7 @@
 
 import { skillService } from "@/services/service.skills";
 import type { GitHubSkills, ImportResult } from "@/types/skill.type";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useSWRConfig } from "swr";
 import { message } from "./useSkillLibrary";
 
@@ -14,20 +14,26 @@ export function useGitHubImport() {
     const [result, setResult] = useState<ImportResult | null>(null);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState("");
+    // Bumped by each request and by reset: a reply that arrives after either is dropped, so closing
+    // the sheet mid-search cannot refill it.
+    const generation = useRef(0);
 
     async function discover(url: string) {
+        const run = ++generation.current;
         setBusy(true);
         setError("");
         setResult(null);
         try {
             const next = await skillService.discoverGitHub(url);
+            if (run !== generation.current) return;
             setFound(next);
             setChosen(new Set(next.skills.map((skill) => skill.path)));
         } catch (reason) {
+            if (run !== generation.current) return;
             setFound(null);
             setError(message(reason, "Could not read that repository. Try again."));
         } finally {
-            setBusy(false);
+            if (run === generation.current) setBusy(false);
         }
     }
 
@@ -40,19 +46,24 @@ export function useGitHubImport() {
     }
 
     async function importChosen(url: string) {
+        const run = ++generation.current;
         setBusy(true);
         setError("");
         try {
-            setResult(await skillService.importGitHub(url, [...chosen]));
+            const imported = await skillService.importGitHub(url, [...chosen]);
             await refresh(["/skills"]);
+            if (run === generation.current) setResult(imported);
         } catch (reason) {
-            setError(message(reason, "Could not import these skills. Try again."));
+            if (run === generation.current)
+                setError(message(reason, "Could not import these skills. Try again."));
         } finally {
-            setBusy(false);
+            if (run === generation.current) setBusy(false);
         }
     }
 
     function reset() {
+        generation.current++;
+        setBusy(false);
         setFound(null);
         setChosen(new Set());
         setResult(null);
