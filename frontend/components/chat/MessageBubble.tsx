@@ -2,6 +2,7 @@
 
 import { splitMentions } from "@/hooks/chat/useComposerMenu";
 import type { Message, WorkflowProposal } from "@/types/chat.type";
+import { ScrollText } from "lucide-react";
 import { Streamdown } from "streamdown";
 import { RunActivity } from "./RunActivity";
 import { WorkflowCard } from "./WorkflowCard";
@@ -52,7 +53,17 @@ export function MessageBubble({
                                         key={index}
                                         className="rounded-[4px] bg-primary-foreground/18 px-1 py-px font-mono text-[0.92em]"
                                     >
-                                        {"skill" in part ? `/${part.skill}` : `@${part.path}`}
+                                        {"skill" in part ? (
+                                            <>
+                                                <ScrollText
+                                                    aria-label="Skill"
+                                                    className="mr-1 inline size-[0.95em] -translate-y-px"
+                                                />
+                                                {part.skill}
+                                            </>
+                                        ) : (
+                                            `@${part.path}`
+                                        )}
                                     </span>
                                 ),
                         )}

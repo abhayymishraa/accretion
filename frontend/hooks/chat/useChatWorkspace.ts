@@ -20,6 +20,7 @@ import {
 
 import { useProjectFiles } from "@/hooks/files/useProjectFiles";
 import { useChatHistory } from "./useChatHistory";
+import { ICON_ROOM } from "./useComposerMenu";
 import { useChatConnection } from "./useChatConnection";
 import { useModelChoice } from "./useModelChoice";
 import { useWorkspaceLayout } from "./useWorkspaceLayout";
@@ -184,7 +185,7 @@ export function useChatWorkspace(chatId: string) {
 
     const handleSendMessage = async (e: React.FormEvent) => {
         e.preventDefault();
-        const prompt = input.trim();
+        const prompt = input.replaceAll(ICON_ROOM, "").trim();
         if (!prompt) return;
         if (isBuilding) {
             // A running build takes the message as a steering update (spec 5).

@@ -20,11 +20,24 @@
     transition-duration: 150ms;
 }
 
+/* A menu that mounts already open (the command menu's side panel) still eases in. */
+@starting-style {
+    .menu[data-state="open"] {
+        opacity: 0;
+        scale: 0.97;
+    }
+}
+
 /* Gentler, not zero: the menu still appears and disappears, just without the
    scale reading as movement. */
 @media (prefers-reduced-motion: reduce) {
     .menu {
         scale: 1;
         transition-duration: 0s;
+    }
+    @starting-style {
+        .menu[data-state="open"] {
+            scale: 1;
+        }
     }
 }

@@ -1,5 +1,6 @@
 "use client";
 
+import { PROMPTS, type PromptCategory } from "@/lib/chat/prompts";
 import type { ProjectSkill } from "@/types/skill.type";
 import { type RefObject, useLayoutEffect, useRef, useState } from "react";
 
@@ -12,13 +13,6 @@ import { type RefObject, useLayoutEffect, useRef, useState } from "react";
 const TRIGGER = /(?:^|\s)([@/])(\S*)$/;
 const MAX_CHOICES = 8;
 
-const promptCommands = [
-    { name: "Improve layout", prompt: "Improve the layout and spacing of this app. " },
-    { name: "Check accessibility", prompt: "Review and improve the accessibility of this app. " },
-    { name: "Fix an issue", prompt: "Fix this issue in my app: " },
-    { name: "Explain the code", prompt: "Explain how the current app works. " },
-];
-
 export type MenuKind = "files" | "commands";
 
 export interface MenuChoice {
@@ -28,7 +22,11 @@ export interface MenuChoice {
     insert: string;
     // Where the query matched inside the label, for highlighting.
     match?: [number, number];
-    skill?: boolean;
+    // The menu's section headings; a heading shows where these change.
+    group?: string;
+    subgroup?: string;
+    skill?: ProjectSkill;
+    category?: PromptCategory;
 }
 
 interface Trigger {
@@ -67,6 +65,9 @@ export function mentionTargets(files: string[]): string[] {
 const MENTION = /(^|\s)([@/])([^\s@]+)/g;
 const TRAILING = /[.,;:!?)\]}'"]+$/;
 export const SKILL_NAME = /^[a-z0-9][a-z0-9-]*/;
+// Put before a picked skill so the composer has room to draw its icon where the "/" is. It is
+// whitespace to both parsers, and sending removes it.
+export const ICON_ROOM = "\u2003";
 
 type PromptPart = string | { path: string } | { skill: string };
 
@@ -123,6 +124,8 @@ function fileChoices(query: string, targets: string[]): MenuChoice[] {
     });
 }
 
+const SOURCE_ORDER = { project: 0, library: 1, builtin: 2 } as const;
+
 function buildChoices(
     kind: MenuKind,
     query: string,
@@ -131,25 +134,38 @@ function buildChoices(
 ): MenuChoice[] {
     if (kind === "files") return fileChoices(query, mentionTargets(files));
     const needle = query.toLowerCase();
-    const commands = promptCommands
-        .filter((command) => command.name.toLowerCase().includes(needle))
-        .map((command) => ({ id: command.name, label: command.name, insert: command.prompt }));
-    // Every enabled skill, not a top few: the list scrolls. The user's own come before built-ins.
+    // Prompts come after the skills, one subheading per category, as bolt.new lists them.
+    const prompts = PROMPTS.filter((prompt) => prompt.name.toLowerCase().includes(needle)).map(
+        (prompt) => ({
+            id: `prompt:${prompt.name}`,
+            label: prompt.name,
+            insert: `${prompt.prompt} `,
+            group: "Prompts",
+            subgroup: prompt.category,
+            category: prompt.category,
+        }),
+    );
+    // Every enabled skill, not a top few: the list scrolls. The user's own come first, the project's
+    // before the library's; built-ins keep the category order the API sends.
     const picks = skills
         .filter((skill) => skill.enabled && skill.name.includes(needle))
-        .sort((a, b) => Number(a.source === "builtin") - Number(b.source === "builtin"))
+        .sort((a, b) => SOURCE_ORDER[a.source] - SOURCE_ORDER[b.source])
         .map((skill) => {
             const at = skill.name.indexOf(needle);
             return {
                 id: `skill:${skill.name}`,
                 label: skill.name,
                 detail: skill.description,
-                insert: `/${skill.name} `,
+                insert: `${ICON_ROOM}/${skill.name} `,
                 match: needle ? ([at, at + needle.length] as [number, number]) : undefined,
-                skill: true,
+                group: skill.category ?? "Your skills",
+                subgroup:
+                    skill.subcategory ??
+                    (skill.source === "project" ? "In this project" : "From your library"),
+                skill,
             };
         });
-    return [...commands, ...picks];
+    return [...picks, ...prompts];
 }
 
 export function useComposerMenu({
@@ -214,7 +230,12 @@ export function useComposerMenu({
     function accept(choice: MenuChoice) {
         if (!trigger) return;
         const caret = textarea.current?.selectionStart ?? value.length;
-        const head = value.slice(0, trigger.start) + choice.insert;
+        // A pick made again after backspacing over one reuses the room it left.
+        const before = value.slice(0, trigger.start);
+        const head =
+            (choice.insert.startsWith(ICON_ROOM) && before.endsWith(ICON_ROOM)
+                ? before.slice(0, -1)
+                : before) + choice.insert;
         onChange(head + value.slice(caret));
         pendingCaret.current = head.length;
         setTrigger(null);
