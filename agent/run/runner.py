@@ -40,6 +40,12 @@ from .prompts import SYSTEM_PROMPT
 logger = logging.getLogger("webbuilder.runs")
 # Skills a project keeps for itself, in .agents/skills/<name>/SKILL.md: read every build, always on.
 _PROJECT_SKILL = re.compile(r"\.agents/skills/([^/]+)/SKILL\.md")
+# What a final reply written for a developer contains: code spans, API paths, a method with a path, file names.
+_TECHNICAL = re.compile(r"`|/api/|\b(?:GET|POST|PUT|PATCH|DELETE) /|\b[\w-]+\.(?:tsx?|jsx?|py|css|json|sql)\b")
+_BROWSER_STEP = re.compile(r"agent-browser\s+(\w+)")
+# Browser steps that create or change data in the app, and those that load the page afresh from the server.
+_ACTS = frozenset({"click", "fill", "type", "press", "select", "check", "uncheck", "upload", "drag"})
+_LOADS = frozenset({"reload", "open"})
 _MAX_PROJECT_SKILLS = 50
 
 
@@ -103,6 +109,22 @@ def _last_sent_agents_md(messages):
 
 
 _MANIFESTS = ("package.json", "requirements.txt", "pyproject.toml")
+
+
+def saves_data(path, stack):
+    """A path that decides what the app stores: migrations, a backend service's folder, or an API route."""
+    backends = [
+        f"{service['cwd'].rstrip('/')}/" for service in stack["services"] if service["port"] != stack["preview_port"]
+    ]
+    return path.startswith((*stack.get("migrations", []), *backends)) or "/api/" in f"/{path}"
+
+
+def reads_technical(text, stack):
+    """A reply that shows code, paths, file names, or this project's technology names (its kit name)."""
+    names = [name.strip() for name in stack.get("name", "").split("+") if name.strip()]
+    return bool(_TECHNICAL.search(text)) or any(
+        re.search(rf"\b{re.escape(name)}\b", text) for name in (*names, "API", "endpoint", "backend", "frontend")
+    )
 
 
 def workspace_map(stack, paths):
@@ -400,6 +422,9 @@ async def run_editor(
     # Spec 5: each rail nudges once, then pauses. Notes are flushed after a batch's tool
     # results, so a nudge never separates a tool call from its result.
     nudged: set[str] = set()
+    # Proof that saved data survives: after the backend changes, use the app, then load the page afresh.
+    # Seeing the screen update proves nothing; it can change before the server has saved anything.
+    data_check: Literal["done", "changed", "used"] = "done"
     notes: list[str] = []
     stop: str | None = None
     repairs = metrics.get("repairs", 0)
@@ -498,6 +523,7 @@ async def run_editor(
 
     async def run_call(call):
         """Run one tool call and publish its events. Rails are applied afterwards, in order."""
+        nonlocal data_check
         stage = {
             "read_files": "Inspecting existing files",
             "read_skill": "Loading relevant guidance",
@@ -524,6 +550,14 @@ async def run_editor(
                     f"Unknown tool {call['name']!r}: it does not exist. Available tools: {', '.join(sorted(tools))}"
                 )
             result = await tools[call["name"]].ainvoke(call["args"])
+            if any(saves_data(path, stack) for path in result.get("changed_files") or []):
+                data_check = "changed"
+            elif call["name"] == "execute_command" and result.get("ok") and data_check != "done":
+                for step in _BROWSER_STEP.findall(call["args"].get("command", "")):
+                    if step in _ACTS:
+                        data_check = "used"
+                    elif step in _LOADS and data_check == "used":
+                        data_check = "done"
         except Exception as exc:
             result = {"ok": False, "error": str(exc)[:2000]}
             if isinstance(exc, (CommandStateError, FileWriteError)):
@@ -661,6 +695,26 @@ async def run_editor(
                 # OpenHands: an empty reply gets one nudge before it is treated as done.
                 nudged.add("empty")
                 messages.append(HumanMessage(content="Call a tool to continue, or reply with what you changed."))
+                continue
+            # Each reminder once, and before the gate below discards the rows the browser check created.
+            if not calls and data_check != "done" and "data_check" not in nudged:
+                nudged.add("data_check")
+                messages.append(
+                    HumanMessage(
+                        content="You changed how the app saves data but did not use the app and then reload the page"
+                        " to confirm the data is still there. Do that now in the browser, or say plainly in your"
+                        " reply that saving was not checked."
+                    )
+                )
+                continue
+            if not calls and "plain_reply" not in nudged and reads_technical(response.text, stack):
+                nudged.add("plain_reply")
+                messages.append(
+                    HumanMessage(
+                        content="Rewrite your reply for someone who does not read code: say what they can now see and"
+                        " do, without code, paths, file names, or technology names. Reply with the text only."
+                    )
+                )
                 continue
             if not calls:
                 # Before the gate: its migrations then land on the user's data, not on test rows.
