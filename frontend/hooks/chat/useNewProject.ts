@@ -1,6 +1,6 @@
 "use client";
 
-import { clearSession } from "@/lib/auth/session";
+import { useSignOut } from "@/hooks/auth/useSignOut";
 
 import {
     LEGACY_PROJECT_DRAFT_KEY,
@@ -78,11 +78,12 @@ export function useNewProject() {
         };
     }, [router]);
 
+    const signOut = useSignOut();
+    // useSignOut also drops the SWR cache, so the next account never sees this one's skills.
     const handleSignOut = () => {
-        clearSession();
+        signOut();
         setIsAuthenticated(false);
         setUserData(null);
-        router.push("/");
     };
 
     const handleSubmit = async (e: React.FormEvent) => {

@@ -305,8 +305,10 @@ export function useComposerMenu({
                     syncFromEvent(event.currentTarget);
             },
             onKeyDown: (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+                // While an input method composes (Japanese, Chinese, Korean), its keys are its own.
+                if (event.nativeEvent.isComposing) return;
                 if (handleKeyDown(event)) return;
-                if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+                if (event.key === "Enter" && !event.shiftKey) {
                     event.preventDefault();
                     if (canSend) event.currentTarget.form?.requestSubmit();
                 }

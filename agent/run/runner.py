@@ -43,8 +43,9 @@ _PROJECT_SKILL = re.compile(r"\.agents/skills/([^/]+)/SKILL\.md")
 # What a final reply written for a developer contains: code spans, API paths, a method with a path, file names.
 _TECHNICAL = re.compile(r"`|/api/|\b(?:GET|POST|PUT|PATCH|DELETE) /|\b[\w-]+\.(?:tsx?|jsx?|py|css|json|sql)\b")
 _BROWSER_STEP = re.compile(r"agent-browser\s+(\w+)")
-# Browser steps that create or change data in the app, and those that load the page afresh from the server.
-_ACTS = frozenset({"click", "fill", "type", "press", "select", "check", "uncheck", "upload", "drag"})
+# Browser steps that can submit or change data (typing into a field alone saves nothing), and those that load
+# the page afresh from the server.
+_ACTS = frozenset({"click", "press", "select", "check", "uncheck", "upload", "drag"})
 _LOADS = frozenset({"reload", "open"})
 _MAX_PROJECT_SKILLS = 50
 
