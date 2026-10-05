@@ -1,7 +1,7 @@
 import type { ToolCall } from "@/types/chat.type";
 
 const labels: Record<string, string> = {
-    read_skill: "Read skill",
+    read_skill: "Loaded skill",
     read_files: "Read files",
     write_files: "Edit files",
     edit_file: "Edit file",

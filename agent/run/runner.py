@@ -269,6 +269,24 @@ async def run_editor(
     mentioned_paths, mentioned_dirs = mentions(prompt, paths)
     # Skills the user picked as "/name" go with the request, loaded, so the model need not call read_skill.
     picked = skills.picked(prompt)
+    # Each one gets the row a skill the model loads with read_skill gets, as the run's first step, so the
+    # user sees it was used. Once: a resumed run already has them.
+    if not metrics.get("turns"):
+        for name, loaded in picked.items():
+            call_id, args = f"picked:{name}", {"name": name}
+            await emit(
+                "tool_started", call_id=call_id, name="read_skill", details=public_tool_details("read_skill", args=args)
+            )
+            detail = public_tool_details("read_skill", args=args, result=loaded)
+            await emit(
+                "tool_completed",
+                call_id=call_id,
+                name="read_skill",
+                ok=True,
+                duration_ms=0,
+                details=detail,
+                output=encode_public(detail),
+            )
     folders = {folder: [path for path in paths if path.startswith(folder)][:200] for folder in mentioned_dirs}
     mentioned = {}
     for path in mentioned_paths:

@@ -1117,7 +1117,8 @@ class Service:
         status, reason, result = "failed", "The run failed. Submit a new request to retry.", None
         diagnose_sandbox = False
         try:
-            await self.emit(live, "run_started", message="Starting your request")
+            # No message: the client shows any message it does not file elsewhere as the reply.
+            await self.emit(live, "run_started")
             await self.emit(live, "stage", message="Understanding your request")
             model = await self.model_for(live)
             live.workflow = await select_workflow(live, model=model)

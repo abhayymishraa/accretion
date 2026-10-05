@@ -48,7 +48,7 @@ const VERBS: Record<LineKind, [string, string]> = {
     run: ["Ran", "Running"],
     search: ["Searched", "Searching"],
     list: ["Listed files", "Listing files"],
-    guide: ["Read guidance", "Reading guidance"],
+    guide: ["Loaded skill", "Loading skill"],
     other: ["Used", "Using"],
 };
 
