@@ -160,35 +160,7 @@ export function ChatInput({
                                 className={`${mirror} w-full resize-none overflow-hidden border-0 bg-transparent p-0 text-transparent caret-foreground outline-none placeholder:text-muted-foreground focus-visible:outline-none disabled:cursor-not-allowed`}
                                 value={input}
                                 disabled={!canCompose}
-                                role="combobox"
-                                aria-autocomplete="list"
-                                aria-expanded={menu.open}
-                                aria-controls={menu.open ? MENU_ID : undefined}
-                                aria-activedescendant={
-                                    menu.open ? `${MENU_ID}-${menu.activeIndex}` : undefined
-                                }
-                                onChange={(event) => {
-                                    onInputChange(event.target.value);
-                                    menu.syncFromEvent(event.currentTarget);
-                                }}
-                                onClick={(event) => menu.syncFromEvent(event.currentTarget)}
-                                onBlur={menu.close}
-                                onKeyUp={(event) => {
-                                    if (event.key.startsWith("Arrow") || event.key === "Home")
-                                        menu.syncFromEvent(event.currentTarget);
-                                }}
-                                onKeyDown={(event) => {
-                                    if (menu.handleKeyDown(event)) return;
-                                    if (
-                                        event.key === "Enter" &&
-                                        !event.shiftKey &&
-                                        !event.nativeEvent.isComposing
-                                    ) {
-                                        event.preventDefault();
-                                        if (canCompose && input.trim())
-                                            event.currentTarget.form?.requestSubmit();
-                                    }
-                                }}
+                                {...menu.fieldProps(MENU_ID, canCompose && !!input.trim())}
                                 placeholder={
                                     awaitingInput
                                         ? "Answer or dismiss the proposal above to continue"

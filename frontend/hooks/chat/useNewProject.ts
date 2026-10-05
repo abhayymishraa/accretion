@@ -14,6 +14,7 @@ import { starterBriefs } from "@/lib/projects/starterBriefs";
 import { authService } from "@/services/service.auth";
 import { projectService } from "@/services/service.projects";
 import { type UserData } from "@/types/auth.type";
+import { sendable } from "./useComposerMenu";
 import { useModelChoice } from "./useModelChoice";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
@@ -92,7 +93,7 @@ export function useNewProject() {
         setError("");
 
         try {
-            const response = await projectService.createChat(input.trim(), modelChoice.choice);
+            const response = await projectService.createChat(sendable(input), modelChoice.choice);
             try {
                 sessionStorage.removeItem(PROJECT_DRAFT_KEY);
             } catch {
