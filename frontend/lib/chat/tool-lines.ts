@@ -180,7 +180,7 @@ const PHRASES: Record<LineKind, [string, string]> = {
     run: ["ran a command", "ran commands"],
     search: ["searched the code", "searched the code"],
     list: ["listed files", "listed files"],
-    guide: ["read guidance", "read guidance"],
+    guide: ["loaded a skill", "loaded skills"],
     other: ["used a tool", "used tools"],
 };
 

@@ -20,17 +20,13 @@ import {
 
 import { useProjectFiles } from "@/hooks/files/useProjectFiles";
 import { useChatHistory } from "./useChatHistory";
-import { ICON_ROOM } from "./useComposerMenu";
+import { sendable } from "./useComposerMenu";
 import { useChatConnection } from "./useChatConnection";
 import { useModelChoice } from "./useModelChoice";
 import { useWorkspaceLayout } from "./useWorkspaceLayout";
 
 // The session whose balance this page has loaded: another sign-in loads its own.
 let balanceSession: string | null = null;
-
-// The room the composer puts before a picked skill, which always follows a space or the start. An em
-// space typed between words is left alone.
-const PICK_ROOMS = new RegExp(`(^|\\s)${ICON_ROOM}`, "g");
 
 export function useChatWorkspace(chatId: string) {
     const router = useRouter();
@@ -189,7 +185,7 @@ export function useChatWorkspace(chatId: string) {
 
     const handleSendMessage = async (e: React.FormEvent) => {
         e.preventDefault();
-        const prompt = input.replace(PICK_ROOMS, "$1").trim();
+        const prompt = sendable(input);
         if (!prompt) return;
         if (isBuilding) {
             // A running build takes the message as a steering update (spec 5).

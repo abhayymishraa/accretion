@@ -66,7 +66,7 @@ export default function ChatPage() {
                                     </Button>
                                 </div>
                             </header>
-                            <div className="relative mt-[clamp(40px,calc(20dvh_-_48px),152px)] w-full max-w-2xl">
+                            <div className="relative mt-[clamp(40px,calc(20dvh_-_48px),152px)] w-full max-w-xl">
                                 <div
                                     className="pointer-events-none absolute -inset-x-4 top-6 h-56 rounded-t-xl border border-border/50 [mask-image:linear-gradient(#0008,transparent_92%)] lg:-inset-x-20"
                                     aria-hidden="true"

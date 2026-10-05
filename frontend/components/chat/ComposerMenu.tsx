@@ -80,7 +80,8 @@ interface ComposerMenuProps {
     activeIndex: number;
     onHover: (index: number) => void;
     onPick: (choice: MenuChoice) => void;
-    onManageSkills: () => void;
+    // Absent where there is no project whose skills to manage (the new project page).
+    onManageSkills?: () => void;
 }
 
 export function ComposerMenu({
@@ -177,7 +178,7 @@ export function ComposerMenu({
                             );
                         })}
                     </ul>
-                    {kind === "commands" && (
+                    {kind === "commands" && onManageSkills && (
                         <button
                             type="button"
                             // Keeps the menu from closing on blur before the click lands.

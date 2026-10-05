@@ -68,6 +68,12 @@ export const SKILL_NAME = /^[a-z0-9][a-z0-9-]*/;
 // Put before a picked skill so the composer has room to draw its icon where the "/" is. It is
 // whitespace to both parsers, and sending removes it.
 export const ICON_ROOM = "\u2003";
+// The room before each picked skill, which always follows a space or the start. An em space typed
+// between words is left alone.
+const PICK_ROOMS = new RegExp(`(^|\\s)${ICON_ROOM}`, "g");
+
+/** The prompt as it is sent: trimmed, without the room the composer drew picked skills in. */
+export const sendable = (text: string) => text.replace(PICK_ROOMS, "$1").trim();
 
 type PromptPart = string | { path: string } | { skill: string };
 
@@ -279,14 +285,44 @@ export function useComposerMenu({
         return false;
     }
 
+    /** The prompt textarea's wiring: a combobox over the menu, and Enter sends when canSend. */
+    function fieldProps(listId: string, canSend: boolean) {
+        return {
+            role: "combobox" as const,
+            "aria-autocomplete": "list" as const,
+            "aria-expanded": open,
+            "aria-controls": open ? listId : undefined,
+            "aria-activedescendant": open ? `${listId}-${active}` : undefined,
+            onChange: (event: React.ChangeEvent<HTMLTextAreaElement>) => {
+                onChange(event.target.value);
+                syncFromEvent(event.currentTarget);
+            },
+            onClick: (event: React.MouseEvent<HTMLTextAreaElement>) =>
+                syncFromEvent(event.currentTarget),
+            onBlur: close,
+            onKeyUp: (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+                if (event.key.startsWith("Arrow") || event.key === "Home")
+                    syncFromEvent(event.currentTarget);
+            },
+            onKeyDown: (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+                // While an input method composes (Japanese, Chinese, Korean), its keys are its own.
+                if (event.nativeEvent.isComposing) return;
+                if (handleKeyDown(event)) return;
+                if (event.key === "Enter" && !event.shiftKey) {
+                    event.preventDefault();
+                    if (canSend) event.currentTarget.form?.requestSubmit();
+                }
+            },
+        };
+    }
+
     return {
         open,
         kind: trigger?.kind ?? null,
         choices,
         activeIndex: active,
         setActiveIndex,
-        syncFromEvent,
-        handleKeyDown,
+        fieldProps,
         accept,
         close,
         openKind,

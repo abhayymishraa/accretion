@@ -1,6 +1,6 @@
 "use client";
 
-import { clearSession } from "@/lib/auth/session";
+import { useSignOut } from "@/hooks/auth/useSignOut";
 
 import {
     LEGACY_PROJECT_DRAFT_KEY,
@@ -14,6 +14,7 @@ import { starterBriefs } from "@/lib/projects/starterBriefs";
 import { authService } from "@/services/service.auth";
 import { projectService } from "@/services/service.projects";
 import { type UserData } from "@/types/auth.type";
+import { sendable } from "./useComposerMenu";
 import { useModelChoice } from "./useModelChoice";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
@@ -77,11 +78,12 @@ export function useNewProject() {
         };
     }, [router]);
 
+    const signOut = useSignOut();
+    // useSignOut also drops the SWR cache, so the next account never sees this one's skills.
     const handleSignOut = () => {
-        clearSession();
+        signOut();
         setIsAuthenticated(false);
         setUserData(null);
-        router.push("/");
     };
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -92,7 +94,7 @@ export function useNewProject() {
         setError("");
 
         try {
-            const response = await projectService.createChat(input.trim(), modelChoice.choice);
+            const response = await projectService.createChat(sendable(input), modelChoice.choice);
             try {
                 sessionStorage.removeItem(PROJECT_DRAFT_KEY);
             } catch {

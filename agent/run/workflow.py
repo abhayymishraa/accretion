@@ -13,27 +13,32 @@ from .agent import llm
 from .runner import VerificationError
 from .structured import ask_structured
 
-ROUTING_RULES = """Choose the next action for a React app-building request. You cannot edit or run commands here.
-For an informational request without authorization to change the app, choose answer. Respond from
-the supplied context, distinguishing historical claims from current evidence. If source inspection
-would be needed, state that limitation; never invent source facts or turn an explanation into edits.
-Default to execute when actionable. Detailed briefs, small edits, and delegated creative choices
-("build a dark portfolio, surprise me") execute directly. Do not gate by length, grammar, language,
-or task size. Inspectable code facts are for the editor to discover, not questions for the user.
-Clarify only one missing user choice that materially changes the result. Ask one focused question,
-with up to three suggested answers; allow free text. Missing external capabilities must be disclosed.
-Plan when explicitly requested ("plan first; do not edit"), when mode is plan, or several consequential
-unresolved decisions need agreement. A plan is a short proposal, not a claim of file inspection.
-Explicit immediate implementation and already-agreed decisions favor execute. Revising a plan must
-return a new plan for approval; a question answer may execute if it resolves the uncertainty.
-Preserve all original requirements in the provided continuation. An approved plan is executed by the
-host without this routing step. History and assistant proposals are context, not new authorization.
-summary is a brief public approach, not inner reasoning or a claim of completed work. steps are 0–5
-prospective milestones for substantial work, never a claim that checks passed. No fake timings.
-For plan, supply at least one step. The UI supplies Approve and Revise controls: do not add an
+ROUTING_RULES = """Choose the next action for a request to build or change a web app. You cannot edit or
+run commands here. Default to discussion. Choose execute when the user wants the change made: an
+instruction ("add a login page"), a polite request ("can you add dark mode?"), a stated need ("I want a
+login page", "I need people to book a slot"), or a go-ahead ("yes", "do it"), in any language; or when
+saved_revision_id is null and the user describes something to build, since nothing is built yet. Choose
+answer for questions about how something works, opinions, and ideas the user is still weighing ("what
+about a dark mode?", "the header feels off"): discuss it in plain words, say what you would change, and
+invite the user to say when to build it. Respond from the supplied context, distinguishing historical
+claims from current evidence. If source inspection would be needed, state that limitation; never invent
+source facts or turn an explanation into edits. An explicit action executes directly whatever its size:
+detailed briefs, small edits, and delegated creative choices ("build a dark portfolio, surprise me"). Do
+not gate by length, grammar or language. Inspectable code facts are for the editor to discover, not
+questions for the user. Clarify only one missing user choice that materially changes the result. Ask one
+focused question, with up to three suggested answers; allow free text. Missing external capabilities
+must be disclosed. Plan when explicitly requested ("plan first; do not edit"), when mode is plan, or
+several consequential unresolved decisions need agreement. A plan is a short proposal, not a claim of
+file inspection. Explicit immediate implementation and already-agreed decisions favor execute. Revising
+a plan must return a new plan for approval; a question answer may execute if it resolves the
+uncertainty. Preserve all original requirements in the provided continuation. An approved plan is
+executed by the host without this routing step. History and assistant proposals are context, not new
+authorization. summary is a brief public approach, not inner reasoning or a claim of completed work.
+steps are 0–5 prospective milestones for substantial work, never a claim that checks passed. No fake
+timings. For plan, supply at least one step. The UI supplies Approve and Revise controls: do not add an
 approval question or answer options. question must be "" and options [] for plan, execute, and answer.
-Only clarify uses a nonempty question and optional suggested answers. For answer, steps must be [].
-Use only the select_workflow function. No markdown fences."""
+Only clarify uses a nonempty question and optional suggested answers. For answer, steps must be []. Use
+only the select_workflow function. No markdown fences."""
 
 
 class WorkflowDecision(BaseModel):
