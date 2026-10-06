@@ -19,6 +19,7 @@ from sqlalchemy import (
     Insert,
     String,
     Update,
+    all_,
     cast,
     delete,
     exists,
@@ -38,6 +39,7 @@ from agent.storage.config import storage_settings
 from db.base import AsyncSessionLocal, AutocommitSessionLocal, bound
 from db.models import (
     Chat,
+    McpServer,
     Message,
     Run,
     RunEvent,
@@ -73,6 +75,8 @@ from ..storage.persistence import (
     save_revision,
 )
 from ..storage.storage import StorageError
+from ..tools.mcp import DEFAULT_SERVERS, Server
+from ..tools.mcp_tools import McpTools
 from ..tools.public_tools import EDIT_TOOLS, edit_summary
 from ..tools.skills import RuntimeSkills
 from ..tools.tools import MAX_COVER_BYTES, ROOT, FileWriteError, cover_image
@@ -111,17 +115,38 @@ async def chat_kit(chat_id):
         return usable_kit(await db.scalar(select(Chat.kit).where(Chat.id == chat_id)))
 
 
+_SERVER_FIELDS = ("id", "name", "title", "description", "url", "auth", "header_name", "secret", "tools")
+
+
 async def build_setup(chat_id):
-    """In one query: the project's kit, and its skills (the owner's library less those turned off for the
-    project or for the whole account; RuntimeSkills keeps the required ones)."""
+    """In one query: the project's kit, its skills (the owner's library less those turned off for the project or
+    for the whole account; RuntimeSkills keeps the required ones), and its MCP servers (the owner's servers that
+    are on for the account and not turned off for the project)."""
     library = library_rows(Chat.user_id, Skill.name, Skill.description, Skill.instructions)
     account = select(User.disabled_skills).where(User.id == Chat.user_id).scalar_subquery()
+    pairs = [part for name in _SERVER_FIELDS for part in (name, getattr(McpServer, name))]
+    servers = (
+        select(func.coalesce(func.json_agg(func.json_build_object(*pairs)), func.json_build_array()))
+        .where(
+            McpServer.user_id == Chat.user_id,
+            McpServer.enabled,
+            McpServer.name != all_(Chat.disabled_mcp_servers),
+        )
+        .scalar_subquery()
+    )
     async with AutocommitSessionLocal() as db:
-        kit, disabled, rows, account_off = (
-            await db.execute(select(Chat.kit, Chat.disabled_skills, library, account).where(Chat.id == chat_id))
+        kit, disabled, rows, account_off, connected = (
+            await db.execute(
+                select(Chat.kit, Chat.disabled_skills, library, account, servers).where(Chat.id == chat_id)
+            )
         ).one()
+    # Only the tools the user approved reach the build. Defaults go last: their names are reserved, and last
+    # means a user's server could not replace one even if a name slipped through.
+    owned = [Server(**{**row, "tools": [tool for tool in row["tools"] if tool.get("approved")]}) for row in connected]
+    mcp = McpTools([*owned, *DEFAULT_SERVERS.values()])
     # Reads and hashes the bundled skill files: off the event loop.
-    return usable_kit(kit), await asyncio.to_thread(RuntimeSkills.for_project, [*disabled, *account_off], rows)
+    skills = await asyncio.to_thread(RuntimeSkills.for_project, [*disabled, *account_off], rows)
+    return usable_kit(kit), skills, mcp
 
 
 async def open_run(db: AsyncSession, chat_id: str) -> str | None:
@@ -1136,7 +1161,7 @@ class Service:
                 await self.emit(live, "stage", message="Choosing how to build it")
                 await pick_kit(live)
             await self.open_sandbox(live)
-            kit, skills = await build_setup(live.chat_id)
+            kit, skills, mcp = await build_setup(live.chat_id)
             stack = KITS[kit].model_dump()
             result = await run_editor(
                 live.sandbox,
@@ -1158,6 +1183,7 @@ class Service:
                 migrate=lambda: migrations.gate(live.sandbox, stack, allow_data_loss=approved_data_loss(live)),
                 save_screenshot=lambda data, media_type: self.save_screenshot(live, data, media_type),
                 skills=skills,
+                mcp=mcp,
             )
             if "decision" in result:
                 current = await latest_revision(live.chat_id)
