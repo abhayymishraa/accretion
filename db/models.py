@@ -77,6 +77,8 @@ class Chat(Base):
     latest_verified_revision_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     # Skills are on unless named here: built-in and library skills the user turned off for this project.
     disabled_skills: Mapped[list[str]] = mapped_column(ARRAY(String(64)), server_default="{}")
+    # Connected MCP servers are on unless named here: the user's servers turned off for this project.
+    disabled_mcp_servers: Mapped[list[str]] = mapped_column(ARRAY(String(64)), server_default="{}")
     # The project's own skills (.agents/skills) as of its last successful build: name, description and
     # instructions. Always on; written by the build's finish statement, read by the skills list.
     project_skills: Mapped[list[dict[str, str]]] = mapped_column(JSONB, server_default="[]")
@@ -112,6 +114,36 @@ class Skill(Base):
     name: Mapped[str] = mapped_column(String(64))
     description: Mapped[str] = mapped_column(String(1024))
     instructions: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+
+
+class McpServer(Base):
+    """An MCP server the user connected: where it is, how it signs in, and the tools the user approved. Read by
+    the connections API and by every build."""
+
+    __tablename__ = "mcp_servers"
+    __table_args__ = (UniqueConstraint("user_id", "name"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    # Indexed by the (user_id, name) unique constraint, whose index leads with user_id.
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"))
+    # The slug the model and the "/" picker use; never one of agent/tools/mcp.py's reserved names.
+    name: Mapped[str] = mapped_column(String(64))
+    title: Mapped[str] = mapped_column(String(120))
+    description: Mapped[str] = mapped_column(String(1024), server_default="")
+    url: Mapped[str] = mapped_column(String(2048))
+    # "none", "header" (a secret header, e.g. an API key) or "oauth".
+    auth: Mapped[str] = mapped_column(String(16))
+    header_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    # Encrypted (agent/tools/mcp.py): the header value, or the OAuth tokens and client registration.
+    secret: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # The server's tools as last listed: name, description, input schema, read_only, fingerprint, approved.
+    tools: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, server_default="[]")
+    # The account switch: off in every project, credentials kept.
+    enabled: Mapped[bool] = mapped_column(Boolean, server_default=text("true"))
+    # The logo as a data URI: the one the user uploaded, else the one the server names for itself.
+    icon: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
