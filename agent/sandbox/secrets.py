@@ -19,13 +19,14 @@ from db.base import AsyncSessionLocal
 from .kits import Kit
 from .models import ProjectSecret
 
+_PROJECT_SECRETS = b"accretion project secrets v1"
 
-def _fernet() -> Fernet:
+
+def fernet(purpose: bytes) -> Fernet:
+    """A key derived from SECRET_KEY for one purpose, so one purpose's ciphertext never opens another's."""
     if not auth_settings.SECRET_KEY:
-        raise ValueError("SECRET_KEY is required to encrypt project secrets")
-    key = HKDF(algorithm=hashes.SHA256(), length=32, salt=None, info=b"accretion project secrets v1").derive(
-        auth_settings.SECRET_KEY.encode()
-    )
+        raise ValueError("SECRET_KEY is required to encrypt secrets")
+    key = HKDF(algorithm=hashes.SHA256(), length=32, salt=None, info=purpose).derive(auth_settings.SECRET_KEY.encode())
     return Fernet(base64.urlsafe_b64encode(key))
 
 
@@ -40,12 +41,12 @@ async def ensure_secrets(chat_id: str, kit: Kit) -> dict[str, str]:
     """The project's .env values, generating any the kit needs that do not exist yet."""
     async with AsyncSessionLocal.begin() as db:
         row = await db.get(ProjectSecret, chat_id, with_for_update=True)
-        values: dict[str, str] = json.loads(_fernet().decrypt(row.ciphertext)) if row else {}
+        values: dict[str, str] = json.loads(fernet(_PROJECT_SECRETS).decrypt(row.ciphertext)) if row else {}
         missing = [name for name in kit.env if name not in values]
         for name in missing:
             values[name] = secrets.token_urlsafe(24)
         if missing or row is None:
-            ciphertext = _fernet().encrypt(json.dumps(values).encode())
+            ciphertext = fernet(_PROJECT_SECRETS).encrypt(json.dumps(values).encode())
             if row is None:
                 db.add(ProjectSecret(chat_id=chat_id, ciphertext=ciphertext))
             else:
