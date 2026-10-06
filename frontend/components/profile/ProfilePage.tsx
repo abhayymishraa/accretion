@@ -137,7 +137,11 @@ export default function ProfilePage() {
                                 className="ember-profile-status min-h-6 mt-5 text-accent-foreground text-[14px]"
                                 role="status"
                             >
-                                {message}
+                                {message && (
+                                    <span key={message} data-loaded-in>
+                                        {message}
+                                    </span>
+                                )}
                             </p>
                         </div>
                     )}

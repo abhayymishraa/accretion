@@ -192,13 +192,14 @@ export default function WaitlistPage() {
                             {questions.map(({ q, a }) => (
                                 <details
                                     key={q}
+                                    data-faq
                                     className="group border-b border-[var(--hairline)]"
                                 >
                                     <summary className="flex cursor-pointer list-none items-center justify-between gap-4 py-4 text-[15px] font-medium [&::-webkit-details-marker]:hidden">
                                         {q}
                                         <span
                                             aria-hidden
-                                            className="text-[var(--ink-tertiary)] transition-transform duration-200 ease-out group-open:rotate-45"
+                                            className="text-[var(--ink-tertiary)] group-open:rotate-45"
                                         >
                                             +
                                         </span>
