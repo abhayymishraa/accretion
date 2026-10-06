@@ -82,7 +82,7 @@ export function FileViewer({ files, projectId, revisionId, openedFile }: FileVie
                             </div>
                             <button
                                 onClick={handleDownloadFile}
-                                className="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-[6px] bg-surface-2 px-2.5 text-[11.5px] text-muted-foreground [transition:background-color_130ms_ease,color_130ms_ease] pointer-fine:hover:bg-accent pointer-fine:hover:text-accent-foreground"
+                                className="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-[6px] bg-surface-2 px-2.5 text-[11.5px] text-muted-foreground [transition:background-color_130ms_ease,color_130ms_ease,scale_100ms_var(--ease-out)] active:scale-[0.97] motion-reduce:active:scale-100 pointer-fine:hover:bg-accent pointer-fine:hover:text-accent-foreground"
                             >
                                 <Download className="w-3 h-3" />
                                 Download
