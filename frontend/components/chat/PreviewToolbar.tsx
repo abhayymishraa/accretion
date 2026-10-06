@@ -11,6 +11,7 @@ import type { WorkspaceTab } from "@/hooks/chat/useWorkspaceLayout";
 import { useProjectDownload } from "@/hooks/files/useProjectDownload";
 import {
     BookOpen,
+    Plug,
     Ellipsis,
     FileCode,
     FolderArchive,
@@ -30,9 +31,11 @@ type ExtraTab = Exclude<WorkspaceTab, "preview">;
 const EXTRA_TABS: { tab: ExtraTab; label: string; icon: LucideIcon }[] = [
     { tab: "files", label: "Code", icon: FileCode },
     { tab: "skills", label: "Skills", icon: BookOpen },
+    { tab: "connectors", label: "Connectors", icon: Plug },
 ];
 
-/** The workspace panel's tab row, after v0: Preview stays, Code and Skills open from "+", extras under •••. */
+/** The workspace panel's tab row, after v0: Preview stays, Code, Skills and Connectors open from "+", extras under
+ * •••. */
 export function PreviewToolbar({
     activeTab,
     onTabChange,
