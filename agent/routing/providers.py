@@ -4,7 +4,8 @@ Our own thin layer over LangChain's provider packages, calling each provider's
 API directly with no gateway in the path (spec section 1). OpenAI uses the
 Responses API; OpenRouter uses its OpenAI-compatible Chat Completions; Gemini
 uses its native API, because its OpenAI-compatible endpoint drops the thought
-signatures that multi-turn tool calls require.
+signatures that multi-turn tool calls require; Anthropic uses its Messages API,
+with automatic prompt caching.
 
 The helpers below exist because the three wires disagree on call options.
 Gemini rejects any call kwarg it does not know, so call sites never pass
@@ -15,8 +16,11 @@ import asyncio
 import functools
 from typing import Any
 
+import anthropic
 import httpx
+import httpx2
 from google.genai import Client, types
+from langchain_anthropic import ChatAnthropic
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -29,7 +33,12 @@ from .config import routing_settings
 from .registry import MAX_OUTPUT_TOKENS, MODELS, ModelEntry
 
 _TIMEOUT_SECONDS = 90
-_KEYS = {"openai": "OPENAI_API_KEY", "gemini": "GEMINI_API_KEY", "openrouter": "OPENROUTER_API_KEY"}
+_KEYS = {
+    "openai": "OPENAI_API_KEY",
+    "gemini": "GEMINI_API_KEY",
+    "openrouter": "OPENROUTER_API_KEY",
+    "anthropic": "ANTHROPIC_API_KEY",
+}
 
 
 class _RefuseSync(httpx.BaseTransport):
@@ -40,6 +49,15 @@ class _RefuseSync(httpx.BaseTransport):
     """
 
     def handle_request(self, request: httpx.Request) -> httpx.Response:
+        raise NotImplementedError("Synchronous model calls are not metered")
+
+
+class _NoSyncClient:
+    """Anthropic's sync client (token counting) carries no spend hooks and would block the loop. It refuses before
+    the SDK sends, since the SDK reports a refusing transport as a connection error and the estimator's byte-count
+    fallback needs NotImplementedError."""
+
+    def __getattr__(self, name: str) -> Any:
         raise NotImplementedError("Synchronous model calls are not metered")
 
 
@@ -79,6 +97,27 @@ def chat_model(model_id: str) -> BaseChatModel:
             ),
         )
         return gemini
+    if entry.provider == "anthropic":
+        claude = ChatAnthropic(
+            model=model_id,
+            api_key=key,
+            max_tokens=MAX_OUTPUT_TOKENS,
+            default_request_timeout=_TIMEOUT_SECONDS,
+            max_retries=1,
+            # Anthropic's automatic caching: one top-level marker, and the API moves the cache point to the last
+            # cacheable block as the conversation grows. Anthropic caches only where asked; the others on their own.
+            model_kwargs={"cache_control": {"type": "ephemeral"}},
+        )
+        # The clients are cached properties: set them so the async one carries the spend hooks and the sync one
+        # (token counting) refuses, as for Gemini.
+        claude.__dict__["_async_client"] = anthropic.AsyncClient(
+            api_key=key,
+            max_retries=1,
+            timeout=_TIMEOUT_SECONDS,
+            http_client=httpx2.AsyncClient(event_hooks=_hooks()),
+        )
+        claude.__dict__["_client"] = _NoSyncClient()
+        return claude
     common: dict[str, Any] = {
         "model": model_id,
         "api_key": key,
@@ -101,8 +140,9 @@ def bind_tools(model: BaseChatModel, tools: list[Any], *, parallel: bool = True,
 
 
 def cache_options(model: BaseChatModel, key: str) -> dict[str, str]:
-    """Gemini caches implicitly and rejects `prompt_cache_key`; the OpenAI-shaped wires accept it."""
-    return {} if isinstance(model, ChatGoogleGenerativeAI) else {"prompt_cache_key": key}
+    """Gemini caches implicitly and rejects `prompt_cache_key`; Anthropic caches through its marker set on the client;
+    the OpenAI-shaped wires accept the key."""
+    return {} if isinstance(model, (ChatGoogleGenerativeAI, ChatAnthropic)) else {"prompt_cache_key": key}
 
 
 def limit_output(model: BaseChatModel, max_tokens: int, *, reasoning: bool = True) -> BaseChatModel:
@@ -119,6 +159,9 @@ def limit_output(model: BaseChatModel, max_tokens: int, *, reasoning: bool = Tru
         update: dict[str, Any] = {"max_output_tokens": max_tokens}
         if not reasoning:
             update["reasoning_effort"] = None
+    elif isinstance(model, ChatAnthropic):
+        # Current Claude models think adaptively and cannot turn it off; only the ceiling changes.
+        update = {"max_tokens": max_tokens}
     else:
         assert isinstance(model, ChatOpenAI)
         update = {"max_tokens": max_tokens}
@@ -135,6 +178,7 @@ def output_truncated(metadata: dict[str, Any]) -> bool:
     """
     return (
         metadata.get("finish_reason") in ("length", "MAX_TOKENS", "MALFORMED_FUNCTION_CALL")
+        or metadata.get("stop_reason") == "max_tokens"
         or (metadata.get("incomplete_details") or {}).get("reason") == "max_output_tokens"
     )
 
@@ -143,6 +187,8 @@ def entry_for(model: BaseChatModel) -> ModelEntry:
     """The registry entry behind a client, including copies made by limit_output."""
     if isinstance(model, ChatGoogleGenerativeAI):
         return MODELS[model.model.removeprefix("models/")]
+    if isinstance(model, ChatAnthropic):
+        return MODELS[model.model]
     assert isinstance(model, ChatOpenAI)
     return MODELS[model.model_name]
 

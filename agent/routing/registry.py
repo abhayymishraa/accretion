@@ -50,13 +50,19 @@ class ModelEntry(BaseModel):
 
     id: str
     name: str
-    provider: Literal["openai", "gemini", "openrouter"]
+    provider: Literal["openai", "gemini", "openrouter", "anthropic"]
     context_window: int = Field(gt=0)
     attachment: bool
     auto: bool
     cost: Rates
     long_context: LongContext | None = None
     card: Card
+
+    @property
+    def defers_tools(self) -> bool:
+        """The API keeps a tool marked defer_loading out of the cached prefix until a tool_reference loads it.
+        Anthropic's does; the other providers here get loaded tools bound in full instead."""
+        return self.provider == "anthropic"
 
 
 def _load() -> tuple[dict[str, ModelEntry], str, Rates]:
