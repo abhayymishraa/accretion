@@ -67,6 +67,12 @@ def public_tool_details(name, *, args=None, result=None, diffs=None, screenshots
     """
     fields = {"version": 1, "kind": name[:80]}
     args = args if isinstance(args, dict) else {}
+    called = args.get("tool_name") if name == "call_mcp_tool" and isinstance(args.get("tool_name"), str) else name
+    if called.startswith("mcp__"):
+        # Which service and tool only: its arguments and results are the user's data from that service.
+        service, _, tool_name = called[len("mcp__") :].partition("__")
+        fields.update(service=service[:80], tool_name=tool_name[:80])
+        args = {}
     changes = args.get("files") if isinstance(args.get("files"), list) else []
     if result is None:
         paths = []

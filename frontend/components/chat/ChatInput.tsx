@@ -5,6 +5,7 @@ import { PromptMirror } from "@/components/chat/PromptMirror";
 import { Button } from "@/components/ui/button";
 import { useLightTheme } from "@/components/layout/ThemeProvider";
 import { useComposerMenu } from "@/hooks/chat/useComposerMenu";
+import { useProjectConnections } from "@/hooks/connections/useProjectConnections";
 import type { ProjectSkills } from "@/hooks/skills/useProjectSkills";
 // Composer structure adapted from Beautiful UI ChatComposer, MIT © 2026 Shane Levine.
 // See ../ember/BEAUTIFUL-UI-LICENSE. The parent owns the real run lifecycle.
@@ -26,9 +27,10 @@ const modes = [
 ];
 
 interface ChatInputProps {
+    projectId: string;
     projectSkills: ProjectSkills;
-    /** Opens the workspace's Skills tab. */
-    onManageSkills: () => void;
+    /** Opens the workspace's Skills or Connectors tab. */
+    onManage: (tab: "skills" | "connectors") => void;
     files?: string[];
     input: string;
     connected: boolean;
@@ -46,8 +48,9 @@ interface ChatInputProps {
 }
 
 export function ChatInput({
+    projectId,
     projectSkills,
-    onManageSkills,
+    onManage,
     files = [],
     input,
     connected,
@@ -67,19 +70,23 @@ export function ChatInput({
     const canCompose = connected && !awaitingInput;
     const prompt = useRef<HTMLTextAreaElement>(null);
     const { skills, ensureLoaded } = projectSkills;
+    const { connections, ensureLoaded: loadConnections } = useProjectConnections(projectId);
     const menu = useComposerMenu({
         textarea: prompt,
         value: input,
         onChange: onInputChange,
         files,
         skills,
+        services: connections,
         disabled: !canCompose,
     });
-    // Skills are fetched the first time "/" is used, not on page load.
+    // Skills and connections are fetched the first time "/" is used, not on page load.
     const wantsSkills = menu.kind === "commands";
     useEffect(() => {
-        if (wantsSkills) ensureLoaded();
-    }, [wantsSkills, ensureLoaded]);
+        if (!wantsSkills) return;
+        ensureLoaded();
+        loadConnections();
+    }, [wantsSkills, ensureLoaded, loadConnections]);
     const light = useLightTheme();
     const mirror =
         "col-start-1 row-start-1 pl-[0.2em] text-[14.5px] leading-[1.65] max-md:text-[16px] wrap-anywhere";
@@ -122,9 +129,9 @@ export function ChatInput({
                     activeIndex={menu.activeIndex}
                     onHover={menu.setActiveIndex}
                     onPick={menu.accept}
-                    onManageSkills={() => {
+                    onManage={(tab) => {
                         menu.close();
-                        onManageSkills();
+                        onManage(tab);
                     }}
                 />
                 {/* The beam rides the composer's border while a build runs and fades out when it ends. */}
@@ -151,7 +158,12 @@ export function ChatInput({
                                 aria-hidden="true"
                                 className={`${mirror} whitespace-pre-wrap text-foreground`}
                             >
-                                <PromptMirror text={input} files={files} skills={skills} />{" "}
+                                <PromptMirror
+                                    text={input}
+                                    files={files}
+                                    skills={skills}
+                                    services={connections}
+                                />{" "}
                             </div>
                             <textarea
                                 id="chat-prompt"

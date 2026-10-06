@@ -11,6 +11,7 @@ class RoutingConfig(BaseConfig):
     OPENAI_API_KEY: str = ""
     GEMINI_API_KEY: str = ""
     OPENROUTER_API_KEY: str = ""
+    ANTHROPIC_API_KEY: str = ""
     TYPESAFE_API_KEY: str = ""
 
     # Shadow mode (spec 4.1 step 4): Auto runs on DEFAULT_MODEL while Jev's pick is

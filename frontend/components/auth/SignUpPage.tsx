@@ -1,6 +1,7 @@
 "use client";
 
 import { AUTH_SWITCH_LINK, AuthFrame } from "@/components/auth/AuthFrame";
+import styles from "@/components/auth/auth.module.css";
 import { ErrorBox } from "@/components/ui/ErrorBox";
 import { SocialLogin } from "@/components/auth/SocialLogin";
 import { Button } from "@/components/ui/button";
@@ -28,11 +29,14 @@ export default function SignUpPage() {
     if (registered)
         return (
             <AuthFrame signup>
-                <p role="status">
+                <p role="status" style={{ ["--i" as string]: 0 }} className={styles.rise}>
                     You&apos;re on the waitlist. We sent a link to {email}: open it within 30
                     minutes to confirm your spot. We&apos;ll email you again when you&apos;re in.
                 </p>
-                <p className={AUTH_SWITCH_LINK}>
+                <p
+                    style={{ ["--i" as string]: 1 }}
+                    className={`${AUTH_SWITCH_LINK} ${styles.rise}`}
+                >
                     <Link href="/verify-email">Resend verification email</Link>
                 </p>
             </AuthFrame>

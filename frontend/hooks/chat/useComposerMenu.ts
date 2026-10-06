@@ -1,6 +1,7 @@
 "use client";
 
 import { PROMPTS, type PromptCategory } from "@/lib/chat/prompts";
+import type { ProjectConnection } from "@/types/connection.type";
 import type { ProjectSkill } from "@/types/skill.type";
 import { type RefObject, useLayoutEffect, useRef, useState } from "react";
 
@@ -26,6 +27,7 @@ export interface MenuChoice {
     group?: string;
     subgroup?: string;
     skill?: ProjectSkill;
+    service?: ProjectConnection;
     category?: PromptCategory;
 }
 
@@ -137,6 +139,7 @@ function buildChoices(
     query: string,
     files: string[],
     skills: ProjectSkill[],
+    services: ProjectConnection[],
 ): MenuChoice[] {
     if (kind === "files") return fileChoices(query, mentionTargets(files));
     const needle = query.toLowerCase();
@@ -171,7 +174,20 @@ function buildChoices(
                 skill,
             };
         });
-    return [...picks, ...prompts];
+    // Connected services go in as "/name" like a skill: the build then reaches for that service's tools. They
+    // come first: a project has a few, and they would otherwise sit below dozens of skills.
+    const connected = services
+        .filter((service) => service.enabled && service.connected && service.name.includes(needle))
+        .map((service) => ({
+            id: `service:${service.name}`,
+            label: service.name,
+            detail: service.description || service.title,
+            insert: `${ICON_ROOM}/${service.name} `,
+            group: "Connections",
+            subgroup: "Connected services",
+            service,
+        }));
+    return [...connected, ...picks, ...prompts];
 }
 
 export function useComposerMenu({
@@ -180,6 +196,7 @@ export function useComposerMenu({
     onChange,
     files,
     skills,
+    services,
     disabled,
 }: {
     // Owned by the composer so the element keeps a plain ref in its own render.
@@ -189,6 +206,7 @@ export function useComposerMenu({
     files: string[];
     // Null until the "/" menu has opened once and fetched them.
     skills: ProjectSkill[] | null;
+    services?: ProjectConnection[] | null;
     disabled: boolean;
 }) {
     const pendingCaret = useRef<number | null>(null);
@@ -196,7 +214,9 @@ export function useComposerMenu({
     const [dismissedKey, setDismissedKey] = useState<string | null>(null);
     const [activeIndex, setActiveIndex] = useState(0);
 
-    const choices = trigger ? buildChoices(trigger.kind, trigger.query, files, skills ?? []) : [];
+    const choices = trigger
+        ? buildChoices(trigger.kind, trigger.query, files, skills ?? [], services ?? [])
+        : [];
     // Escape suppresses one trigger run, keyed by kind and position, so deleting it
     // and starting a fresh mention in the same column opens the menu again.
     const triggerKey = trigger ? `${trigger.kind}:${trigger.start}` : null;

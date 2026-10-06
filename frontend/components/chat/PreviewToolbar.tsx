@@ -11,6 +11,7 @@ import type { WorkspaceTab } from "@/hooks/chat/useWorkspaceLayout";
 import { useProjectDownload } from "@/hooks/files/useProjectDownload";
 import {
     BookOpen,
+    Plug,
     Ellipsis,
     FileCode,
     FolderArchive,
@@ -30,9 +31,11 @@ type ExtraTab = Exclude<WorkspaceTab, "preview">;
 const EXTRA_TABS: { tab: ExtraTab; label: string; icon: LucideIcon }[] = [
     { tab: "files", label: "Code", icon: FileCode },
     { tab: "skills", label: "Skills", icon: BookOpen },
+    { tab: "connectors", label: "Connectors", icon: Plug },
 ];
 
-/** The workspace panel's tab row, after v0: Preview stays, Code and Skills open from "+", extras under •••. */
+/** The workspace panel's tab row, after v0: Preview stays, Code, Skills and Connectors open from "+", extras under
+ * •••. */
 export function PreviewToolbar({
     activeTab,
     onTabChange,
@@ -98,7 +101,7 @@ export function PreviewToolbar({
                                 type="button"
                                 aria-label={`Close ${label}`}
                                 onClick={() => close(tab)}
-                                className="grid size-6 cursor-pointer place-items-center rounded-[6px] text-muted-foreground [transition:background-color_130ms_ease,color_130ms_ease] focus-visible:outline-2 focus-visible:outline-ring pointer-fine:hover:bg-surface-2 pointer-fine:hover:text-foreground"
+                                className="grid size-6 cursor-pointer place-items-center rounded-[6px] text-muted-foreground [transition:background-color_130ms_ease,color_130ms_ease,scale_100ms_var(--ease-out)] active:scale-[0.97] motion-reduce:active:scale-100 focus-visible:outline-2 focus-visible:outline-ring pointer-fine:hover:bg-surface-2 pointer-fine:hover:text-foreground"
                             >
                                 <X size={13} />
                             </button>

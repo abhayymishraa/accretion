@@ -27,6 +27,7 @@ COPY runs/ ./runs/
 COPY files/ ./files/
 COPY previews/ ./previews/
 COPY skills/ ./skills/
+COPY connections/ ./connections/
 USER app
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=6s --start-period=60s --retries=3 \

@@ -9,7 +9,9 @@ because only the current model's signatures are ever validated.
 
 from typing import Any
 
-from langchain_core.messages import AIMessage, BaseMessage
+from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
+
+from .registry import MODELS
 
 # Gemini's thought signatures and its raw function-call echo; OpenAI and OpenRouter reasoning.
 _REPLAY_ONLY = ("__gemini_function_call_thought_signatures__", "function_call", "reasoning", "reasoning_content")
@@ -18,10 +20,29 @@ _BLOCK_SIGNATURES = ("signature", "thought_signature", "extras")
 
 
 def for_model(messages: list[BaseMessage], model_id: str) -> list[BaseMessage]:
+    defers = MODELS[model_id].defers_tools
     return [
-        _rewrite(message) if isinstance(message, AIMessage) and not _same_model(message, model_id) else message
+        _rewrite(message)
+        if isinstance(message, AIMessage) and not _same_model(message, model_id)
+        else _as_text(message)
+        if isinstance(message, ToolMessage) and not defers
+        else message
         for message in messages
     ]
+
+
+def _as_text(message: ToolMessage) -> ToolMessage:
+    """tool_reference blocks are read only by an API that defers tools; elsewhere they become the tools' names,
+    which the run binds in full (McpTools.preload)."""
+    # Text content holds no blocks; checking first skips walking a long tool output character by character.
+    if not isinstance(message.content, list):
+        return message
+    names = [
+        block["tool_name"]
+        for block in message.content
+        if isinstance(block, dict) and block.get("type") == "tool_reference"
+    ]
+    return message.model_copy(update={"content": "Loaded tools: " + ", ".join(names)}) if names else message
 
 
 def _same_model(message: AIMessage, model_id: str) -> bool:

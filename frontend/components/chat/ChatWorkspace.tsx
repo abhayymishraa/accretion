@@ -219,11 +219,12 @@ export default function ChatWorkspace({ chatId }: { chatId: string }) {
                                 </div>
                             </div>
                             <ChatInput
+                                projectId={chatId}
                                 projectSkills={projectSkills}
-                                onManageSkills={() => {
+                                onManage={(tab) => {
                                     setShowPreview(true);
                                     setMobilePane("preview");
-                                    setPreviewTab("skills");
+                                    setPreviewTab(tab);
                                 }}
                                 files={projectFiles}
                                 input={input}

@@ -148,7 +148,7 @@ def _library_entry(row: dict[str, str]) -> dict[str, Any]:
 
 
 # "/name" at the start of the request or after whitespace, as the composer inserts a picked skill.
-_PICKED = re.compile(rf"(?:^|\s)/({SKILL_NAME.pattern})")
+PICKED = re.compile(rf"(?:^|\s)/({SKILL_NAME.pattern})")
 
 
 class RuntimeSkills:
@@ -329,7 +329,7 @@ class RuntimeSkills:
 
     def picked(self, prompt: str) -> dict[str, dict[str, Any]]:
         """Skills the user picked as "/name" in the request, loaded now so their bodies go out with it."""
-        return {name: self.load(name) for name in dict.fromkeys(_PICKED.findall(prompt)) if name in self.entries}
+        return {name: self.load(name) for name in dict.fromkeys(PICKED.findall(prompt)) if name in self.entries}
 
     def tool(self):
         @tool

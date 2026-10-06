@@ -30,6 +30,7 @@ from ..sandbox import migrations
 from ..sandbox.check_data import CheckData
 from ..sandbox.commands import CommandStateError
 from ..sandbox.preview import PROXY_PORT, ensure_preview_current
+from ..tools.mcp_tools import McpTools
 from ..tools.public_tools import encode_public, public_tool_details
 from ..tools.skills import MAX_SKILL_BYTES, SKILL_NAME, RuntimeSkills, parse_skill
 from ..tools.tools import FileWriteError, WorkspaceTools, list_files, shrink_for_model
@@ -72,7 +73,7 @@ async def project_skills(workspace, paths: list[str]) -> list[dict[str, str]]:
 REPEAT_LIMIT = 4
 ERROR_REPEAT_LIMIT = 3
 # Safe to run together: they only read (spec 5, Codex RwLock).
-READ_ONLY = frozenset({"read_files", "read_skill", "search_project_history"})
+READ_ONLY = frozenset({"read_files", "read_skill", "search_project_history", "tool_search"})
 
 
 class RunLimitError(Exception):
@@ -239,6 +240,7 @@ async def run_editor(
     save_screenshot: Callable[[bytes, str], Awaitable[str | None]] | None = None,
     *,
     skills: RuntimeSkills,
+    mcp: McpTools,
 ):
     workspace = WorkspaceTools(sandbox)
     if model is None:
@@ -273,6 +275,11 @@ async def run_editor(
     if skill_prompt:
         skill_tool = skills.tool()
         tools[skill_tool.name] = skill_tool
+    mcp_prompt = mcp.prompt()
+    # Present with or without connected services, so the first one a user connects changes neither the tool list
+    # nor the system prompt, the start of the cached prefix.
+    for mcp_tool in (mcp.search_tool(), mcp.call_tool()):
+        tools[mcp_tool.name] = mcp_tool
     if memory is not None:
         history_tool = memory.tool()
         tools[history_tool.name] = history_tool
@@ -354,13 +361,29 @@ async def run_editor(
 
     workspace.before_browser = before_browser
     agents_md = (await read_project_file(workspace, "AGENTS.md") or "")[:20000]
-    formatted_tools = [convert_to_openai_tool(t) for t in tools.values()]
-    bound = bind_tools(model, formatted_tools)
-    tool_schema = json.dumps(formatted_tools, ensure_ascii=False)
     chat_id = getattr(memory, "chat_id", None)
-    prior = await load_transcript(chat_id) if chat_id else []
+    raw_prior = await load_transcript(chat_id) if chat_id else []
+    # Connected-service tools the chat already used or found load first, before the history is rewritten for
+    # this model, which turns tool_reference blocks into text for a model that cannot read them.
+    mcp.preload(prompt, raw_prior, defers=entry_for(model).defers_tools)
     # The previous run may have used another model; its signed replay data is not ours.
-    prior = for_model(prior, entry_for(model).id)
+    prior = for_model(raw_prior, entry_for(model).id)
+    builtin_tools = [convert_to_openai_tool(t) for name, t in tools.items() if name != "call_mcp_tool"]
+
+    def tool_list(chosen):
+        """The tool list for a model never changes during a run, so the cached prefix holds. A model that defers
+        tools gets every approved one, the unloaded ones deferred; another gets the fixed call_mcp_tool."""
+        if entry_for(chosen).defers_tools:
+            return [*builtin_tools, *mcp.with_deferred()]
+        return [*builtin_tools, convert_to_openai_tool(tools["call_mcp_tool"])]
+
+    def schema_of(listed):
+        # A deferred definition reaches the context only when a tool_reference loads it.
+        return json.dumps([item for item in listed if not item.get("defer_loading")], ensure_ascii=False)
+
+    formatted_tools = tool_list(model)
+    bound = bind_tools(model, formatted_tools)
+    tool_schema = schema_of(formatted_tools)
     if prior:
         # Earlier turns are real messages now, so the blob must not repeat them.
         context = {key: value for key, value in context.items() if key not in ("recent_messages", "initial_request")}
@@ -372,6 +395,7 @@ async def run_editor(
             + "\n"
             + CONTEXT_RULES
             + skill_prompt
+            + mcp_prompt
             + "\nInitial files may be excerpts. Read complete files before replacing them."
         ),
         *prior,
@@ -387,6 +411,22 @@ async def run_editor(
                     **({"mentioned_files": mentioned} if mentioned else {}),
                     **({"mentioned_folders": folders} if folders else {}),
                     **({"picked_skills": picked} if picked else {}),
+                    # Connected-service tools by name only; tool_search fetches a definition before a call.
+                    # Which services the project has, here and not in the system prompt: a change costs no cache.
+                    **({"connected_services": services} if (services := mcp.services()) else {}),
+                    **({"deferred_tools": deferred} if (deferred := mcp.deferred()) else {}),
+                    # Tools of a "/service" pick, in full, for a model without deferred tools: after the prefix.
+                    **(
+                        {"picked_service_tools": picks}
+                        if not entry_for(model).defers_tools and (picks := mcp.picked(prompt))
+                        else {}
+                    ),
+                    # On a model that defers tools a pick stays deferred, so the tool list holds; the model fetches it.
+                    **(
+                        {"picked_tools": names}
+                        if entry_for(model).defers_tools and (names := mcp.picked_names(prompt))
+                        else {}
+                    ),
                     "request_context": request_context,
                     "workspace": workspace_map(stack, paths),
                     "files": initial,
@@ -440,7 +480,7 @@ async def run_editor(
             return None
 
     async def reclaim_context(limit, trigger):
-        nonlocal messages, summary, stored
+        nonlocal messages, summary, stored, formatted_tools, bound, tool_schema
         await emit("stage", message="Reclaiming conversation context")
         uncompacted = messages
         messages, report = await compact(
@@ -464,6 +504,13 @@ async def run_editor(
             stored = await replace_transcript(chat_id, without_preview_images(messages)[1:])
         if messages is not uncompacted:
             await emit("stage", message="Context automatically compacted", compacted=True)
+            if entry_for(model).defers_tools:
+                # Compaction may drop the tool_reference that loaded a tool; bind the loaded ones in full instead.
+                # It has already changed the prefix, so the cache loses nothing more.
+                mcp.visible = set(mcp.loaded)
+                formatted_tools = tool_list(model)
+                bound = bind_tools(model, formatted_tools)
+                tool_schema = schema_of(formatted_tools)
         return report
 
     def nudge(reason, text, stop_message):
@@ -494,7 +541,7 @@ async def run_editor(
         """Spec 6: back off and retry a transient provider error up to 4 times (none when the
         account is out of credit), then move to the next model at the same cost level (Auto only)
         and cool the failed one down."""
-        nonlocal model, bound, window, window_limit, ceiling, messages
+        nonlocal model, bound, window, window_limit, ceiling, messages, formatted_tools, tool_schema
         for attempt in range(5):
             try:
                 return await invoke_with_usage(bound, messages, **cache_options(model, cache_key))
@@ -516,7 +563,9 @@ async def run_editor(
         metrics.setdefault("model_switches", []).append({"from": failed, "to": replacement})
         metrics["model"] = replacement
         model = chat_model(replacement)
+        formatted_tools = tool_list(model)
         bound = bind_tools(model, formatted_tools)
+        tool_schema = schema_of(formatted_tools)
         window = entry_for(model).context_window
         window_limit, ceiling = context_limit(window), hard_limit(window)
         messages = for_model(messages, replacement)
@@ -528,11 +577,12 @@ async def run_editor(
         stage = {
             "read_files": "Inspecting existing files",
             "read_skill": "Loading relevant guidance",
+            "call_mcp_tool": "Using a connected service",
             "write_files": "Editing project files",
             "edit_file": "Editing project files",
             "edit_files": "Editing project files",
             "execute_command": "Running a workspace command",
-        }.get(call["name"])
+        }.get(call["name"], "Using a connected service" if call["name"] in mcp.by_name else None)
         if stage:
             await emit("stage", message=stage)
         await emit(
@@ -544,13 +594,16 @@ async def run_editor(
         started = time.monotonic()
         fatal_error = None
         try:
-            if call["name"] not in tools:
+            if call["name"] in mcp.by_name:
+                result = await mcp.call(call["name"], call["args"])
+            elif call["name"] not in tools:
                 # An older run in this chat's transcript may have called a tool that has since been
                 # removed (inspect_preview), and the model copies it; name what exists instead.
                 raise ValueError(
                     f"Unknown tool {call['name']!r}: it does not exist. Available tools: {', '.join(sorted(tools))}"
                 )
-            result = await tools[call["name"]].ainvoke(call["args"])
+            else:
+                result = await tools[call["name"]].ainvoke(call["args"])
             if any(saves_data(path, stack) for path in result.get("changed_files") or []):
                 data_check = "changed"
             elif call["name"] == "execute_command" and result.get("ok") and data_check != "done":
@@ -793,9 +846,11 @@ async def run_editor(
                             f"Stopped after repeated {call['name']} failures without progress",
                         )
                 attached += images
+                # A custom tool search answers a model that defers tools with tool_reference blocks (Anthropic).
+                defers = call["name"] == "tool_search" and entry_for(model).defers_tools
                 messages.append(
                     ToolMessage(
-                        content=json.dumps(result, ensure_ascii=False),
+                        content=mcp.references(result) if defers else json.dumps(result, ensure_ascii=False),
                         tool_call_id=call["id"],
                         status="success" if result.get("ok") else "error",
                     )

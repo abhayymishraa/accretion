@@ -4,3 +4,5 @@ out/
 build/
 package-lock.json
 next-env.d.ts
+# Vendored engine, kept byte-for-byte apart from its export line.
+components/mcp/hairline/kernel.js

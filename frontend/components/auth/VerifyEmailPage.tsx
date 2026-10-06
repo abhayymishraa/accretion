@@ -50,6 +50,8 @@ export default function VerifyEmailPage() {
             )}
             {message && (
                 <p
+                    key={message}
+                    data-loaded-in
                     role="status"
                     className="ember-helper text-[12px] leading-[1.6] text-muted-foreground mt-4"
                 >

@@ -1,0 +1,77 @@
+/* The Connectors pages in the dark theme: the page, panel, card, line and text colours of the settings pages
+   they follow. Theme tokens are redefined for this subtree only, so every control inside picks them up; the
+   light theme keeps the app's own tokens. */
+:global(:root:not([data-theme="light"])) .panel {
+    --background: #111114;
+    --surface-1: #171719;
+    --surface-2: #1d1d21;
+    --surface-3: #141417;
+    --card: #171719;
+    --border: #2c2c30;
+    --hairline: #2c2c30;
+    --input: #2c2c30;
+    --foreground: #f9f6f9;
+    --muted-foreground: #a4a3ac;
+    --primary: #1488fc;
+    --accent-foreground: #1488fc;
+    --ring: #1488fc;
+}
+
+/* Fades in what replaces a loading state, or a panel that opens: opacity only. */
+.reveal {
+    animation: reveal 180ms var(--ease-out);
+}
+@keyframes reveal {
+    from {
+        opacity: 0;
+    }
+}
+
+/* The grid's cards fade in one after another; reduced motion drops the delay. */
+.cascade {
+    animation: reveal 180ms var(--ease-out) backwards;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    .cascade {
+        animation-delay: calc(var(--i, 0) * 30ms);
+    }
+    /* A new state badge (a saved key turns "Needs a key" into "Connected") settles in. */
+    .badge {
+        animation: badge 200ms var(--ease-out);
+    }
+    @keyframes badge {
+        from {
+            opacity: 0;
+            transform: scale(0.96);
+        }
+    }
+    /* Page entrance: the header rises into place once. */
+    .rise {
+        animation: rise 280ms var(--ease-out) backwards;
+    }
+    @keyframes rise {
+        from {
+            opacity: 0;
+            transform: translateY(8px);
+        }
+    }
+    /* An inline question (remove, key form) settles into the slot the button left. */
+    .ask {
+        animation: ask 160ms var(--ease-out);
+    }
+    @keyframes ask {
+        from {
+            opacity: 0;
+            transform: translateY(-4px);
+        }
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .rise,
+    .ask,
+    .badge {
+        animation: reveal 160ms ease backwards;
+    }
+}

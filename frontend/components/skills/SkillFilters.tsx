@@ -20,19 +20,22 @@ const SCOPES: { value: SkillScope; label: string }[] = [
     { value: "builtin", label: "Built in" },
 ];
 
-/** Search by name or description; the Skills page and the project's Skills tab size it their own way. */
+/** Search by name or description; the Skills page and the project's Skills and Connectors tabs size it their
+ * own way. */
 export function SkillSearch({
     value,
     onChange,
     className,
+    label = "Search skills",
 }: {
     value: string;
     onChange: (value: string) => void;
     className: string;
+    label?: string;
 }) {
     return (
         <label className="relative min-w-0 flex-1">
-            <span className="sr-only">Search skills</span>
+            <span className="sr-only">{label}</span>
             <Search
                 size={14}
                 aria-hidden="true"
@@ -43,7 +46,7 @@ export function SkillSearch({
                 type="search"
                 value={value}
                 onChange={(event) => onChange(event.target.value)}
-                placeholder="Search skills"
+                placeholder={label}
                 className={`pl-9 pointer-coarse:h-11 pointer-coarse:text-[16px] ${className}`}
             />
         </label>

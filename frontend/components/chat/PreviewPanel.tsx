@@ -3,6 +3,7 @@ import { EFFECTS } from "@/config/effects";
 import dynamic from "next/dynamic";
 import type { OpenedFile, WorkspaceTab } from "@/hooks/chat/useWorkspaceLayout";
 import type { ProjectSkills } from "@/hooks/skills/useProjectSkills";
+import { ProjectConnections } from "@/components/mcp/ProjectConnections";
 import { ProjectSkillsPanel } from "@/components/skills/ProjectSkillsPanel";
 import { Button } from "@/components/ui/button";
 import { ErrorBox } from "@/components/ui/ErrorBox";
@@ -169,15 +170,17 @@ export function PreviewPanel({
                                 title="App preview"
                                 sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-modals"
                             />
-                            {paintedKey !== frameKey && (
-                                <div
-                                    className={`${STATE_CLASS} pointer-events-none absolute inset-0`}
-                                >
-                                    {BUILD_LOADER}
-                                    <h2>{LOADING_TITLE}</h2>
-                                    <p role="status">{LOADING_DESCRIPTION}</p>
-                                </div>
-                            )}
+                            {/* Stays mounted and fades out on the iframe's own curve, so the two crossfade. */}
+                            <div
+                                aria-hidden={paintedKey === frameKey}
+                                className={`${STATE_CLASS} pointer-events-none absolute inset-0 [transition:opacity_200ms_var(--ease-out)] motion-reduce:[transition:opacity_120ms_var(--ease-out)] ${paintedKey === frameKey ? "opacity-0" : ""}`}
+                            >
+                                {BUILD_LOADER}
+                                <h2>{LOADING_TITLE}</h2>
+                                <p role={paintedKey === frameKey ? undefined : "status"}>
+                                    {LOADING_DESCRIPTION}
+                                </p>
+                            </div>
                         </>
                     ) : (
                         <div className={STATE_CLASS}>
@@ -216,6 +219,7 @@ export function PreviewPanel({
                 </div>
             )}
             {activeTab === "skills" && <ProjectSkillsPanel projectSkills={projectSkills} />}
+            {activeTab === "connectors" && <ProjectConnections projectId={projectId} />}
         </section>
     );
 }

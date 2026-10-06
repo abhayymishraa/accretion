@@ -92,7 +92,7 @@ export function RunActivity({
                         type="button"
                         aria-expanded={expanded}
                         onClick={() => setExpanded(!expanded)}
-                        className={`group flex min-w-0 cursor-pointer items-center gap-1.5 rounded-[6px] text-left text-[13.5px] [transition:color_130ms_ease] focus-visible:outline-2 focus-visible:outline-ring ${
+                        className={`group flex min-w-0 cursor-pointer items-center gap-1.5 rounded-[6px] text-left text-[13.5px] [transition:color_130ms_ease,opacity_180ms_var(--ease-out)] starting:opacity-0 focus-visible:outline-2 focus-visible:outline-ring ${
                             failed
                                 ? "text-destructive"
                                 : "text-muted-foreground pointer-fine:hover:text-foreground"

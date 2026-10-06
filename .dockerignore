@@ -79,3 +79,5 @@
 !db/*.py
 !skills/
 !skills/*.py
+!connections/
+!connections/*.py

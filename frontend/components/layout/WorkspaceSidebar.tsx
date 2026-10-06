@@ -5,7 +5,7 @@ import { SIDEBAR_ROW, SidebarProjects } from "@/components/layout/SidebarProject
 import { buttonVariants } from "@/components/ui/button";
 import { SIDEBAR_WIDTH, useSidebarLayout, useSidebarResize } from "@/hooks/layout/useSidebarLayout";
 import type { UserData } from "@/types/auth.type";
-import { LayoutGrid, Plus, ScrollText, Search } from "lucide-react";
+import { LayoutGrid, Plug, Plus, ScrollText, Search } from "lucide-react";
 import Link from "next/link";
 import { useRef, useState, type CSSProperties } from "react";
 
@@ -19,7 +19,7 @@ export function WorkspaceSidebar({
     userData,
     onSignOut,
 }: {
-    current?: "new" | "projects" | "skills";
+    current?: "new" | "projects" | "skills" | "connections";
     userData: UserData | null;
     onSignOut: () => void;
 }) {
@@ -112,6 +112,15 @@ export function WorkspaceSidebar({
                 >
                     <ScrollText size={15} aria-hidden="true" />
                     <span className={LABEL}>Skills</span>
+                </Link>
+                <Link
+                    href="/connectors"
+                    title="Connectors"
+                    aria-current={current === "connections" ? "page" : undefined}
+                    className={RAIL_ROW}
+                >
+                    <Plug size={15} aria-hidden="true" />
+                    <span className={LABEL}>Connectors</span>
                 </Link>
             </nav>
             {/* Logo, actions and account stay put; only the lists scroll, as in shadcn's SidebarContent. */}
