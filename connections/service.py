@@ -202,7 +202,14 @@ async def add_server(db: AsyncSession, user: TokenUser, payload: ServerCreate) -
         raise ServerNameTaken from None
     assert row is not None, "INSERT ... RETURNING returns the row"
     # An open server lists its tools at once, for the user to approve; the others list them once signed in.
-    return _detail(await _refresh(db, row) if auth == "none" else row)
+    if auth == "none":
+        try:
+            row = await _refresh(db, row)
+        except ServerUnavailable:
+            # The row is saved already: a retry here would hit the name conflict. The user lists the tools again
+            # from the service's page.
+            pass
+    return _detail(row)
 
 
 async def save_key(db: AsyncSession, user: TokenUser, server_id: str, payload: KeySave) -> ServerDetail:

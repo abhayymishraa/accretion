@@ -45,10 +45,14 @@ export function serviceEntries(catalog: CatalogConnection[], servers: Connection
     return entries;
 }
 
-/** The entry a detail page shows: by catalog id, or by server id. */
+/** The entry a detail page shows: by catalog id, server id, or server name (the workspace tab links by name). */
 export function findEntry(entries: ServiceEntry[], key: string) {
     const id = decodeURIComponent(key);
-    return entries.find((entry) => entry.key === id || entry.server?.id === id) ?? null;
+    return (
+        entries.find(
+            (entry) => entry.key === id || entry.server?.id === id || entry.server?.name === id,
+        ) ?? null
+    );
 }
 
 /** The state a card and a detail page show: none until the service is added. */

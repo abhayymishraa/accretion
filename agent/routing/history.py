@@ -34,6 +34,9 @@ def for_model(messages: list[BaseMessage], model_id: str) -> list[BaseMessage]:
 def _as_text(message: ToolMessage) -> ToolMessage:
     """tool_reference blocks are read only by an API that defers tools; elsewhere they become the tools' names,
     which the run binds in full (McpTools.preload)."""
+    # Text content holds no blocks; checking first skips walking a long tool output character by character.
+    if not isinstance(message.content, list):
+        return message
     names = [
         block["tool_name"]
         for block in message.content

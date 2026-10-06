@@ -67,6 +67,8 @@ RESERVED_NAMES = frozenset({"default", "platform", "accretion", *DEFAULT_SERVERS
 CALL_SECONDS = 60
 CONNECT_SECONDS = 15
 MAX_TOOLS = 200
+# A server that keeps returning a cursor must not hold a build or a request forever.
+MAX_PAGES = 50
 # Claude Code's MCP output limit, with its estimate of a token as four characters. Over the limit, the result is
 # cut to the limit's length in characters and ends with Claude Code's notice.
 MAX_RESULT_TOKENS = 25_000
@@ -94,6 +96,7 @@ _PLATFORM_HEADERS = {
 REDIRECT_URI = f"{settings.FRONTEND_URL}/connectors/callback"
 # A server's logo is stored on its row as a data URI, so a page never loads an image from the server's host.
 ICON_BYTES = 32_768
+_ICON_DOWNLOAD_BYTES = 512 * 1024
 # The image types a logo may be, told by its first bytes, never by what the server or the upload claims.
 _ICON_MAGIC = [
     (b"\x89PNG\r\n\x1a\n", "image/png"),
@@ -188,7 +191,7 @@ class _StoredTokens:
     """The SDK's TokenStorage over our encrypted row: refreshed tokens are saved back as soon as they arrive."""
 
     def __init__(self, server: Server) -> None:
-        self.server_id = server.id
+        self.server = server
         self.data = unseal(server.secret)
 
     async def get_tokens(self) -> OAuthToken | None:
@@ -207,8 +210,11 @@ class _StoredTokens:
         await self._save()
 
     async def _save(self) -> None:
+        secret = seal(self.data)
         async with AutocommitSessionLocal() as db:
-            await db.execute(update(McpServer).where(McpServer.id == self.server_id).values(secret=seal(self.data)))
+            await db.execute(update(McpServer).where(McpServer.id == self.server.id).values(secret=secret))
+        # A build keeps one Server for the run: the next call must send the rotated refresh token, not the old one.
+        self.server.secret = secret
 
 
 class _Provider(OAuthClientProvider):
@@ -278,7 +284,9 @@ async def list_tools(server: Server) -> tuple[list[dict[str, Any]], str | None]:
         # ponytail: the first icon the server lists; pick by size or theme if servers start listing several.
         icon = info.icons[0].src if info and info.icons else None
         cursor = None
-        while len(found) < MAX_TOOLS:
+        for _ in range(MAX_PAGES):
+            if len(found) >= MAX_TOOLS:
+                break
             page = await client.list_tools(cursor=cursor)
             found += [
                 {
@@ -311,6 +319,9 @@ def _one_icon(body: bytes) -> bytes:
     except struct.error:
         return body
     fits = [entry for entry in entries if 0 < entry[0] <= 64] or entries
+    if not fits:
+        # An ICO with no images: nothing to show, so no logo.
+        return b""
     width, height, colors, _, planes, bits, size, offset = max(fits, key=lambda entry: entry[0] or 256)
     image = body[offset : offset + size]
     if image.startswith(_ICON_MAGIC[0][0]):
@@ -352,12 +363,19 @@ async def fetch_icon(src: str) -> str | None:
     """The logo a server names, fetched once through the public-only client. None when it cannot be used."""
     if src.startswith("data:"):
         return data_uri_icon(src)
+    body = b""
     try:
-        async with _http() as http:
-            answer = await http.get(src)
+        async with _http() as http, http.stream("GET", src) as answer:
+            if answer.status_code != 200:
+                return None
+            async for chunk in answer.aiter_bytes():
+                body += chunk
+                # An ICO may hold many sizes before one is cut out; anything larger is not a logo.
+                if len(body) > _ICON_DOWNLOAD_BYTES:
+                    return None
     except (httpx2.HTTPError, McpError):
         return None
-    return icon_uri(answer.content) if answer.status_code == 200 else None
+    return icon_uri(body)
 
 
 async def call_tool(server: Server, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
@@ -366,7 +384,7 @@ async def call_tool(server: Server, name: str, arguments: dict[str, Any]) -> dic
     async with connect(server) as client:
         current: dict[str, str] = {}
         cursor = None
-        while True:
+        for _ in range(MAX_PAGES):
             page = await client.list_tools(cursor=cursor)
             current |= {tool.name: fingerprint(tool) for tool in page.tools}
             cursor = page.next_cursor
