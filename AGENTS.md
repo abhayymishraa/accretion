@@ -95,6 +95,7 @@ General rules, learned cutting round trips across this app. The section above re
 
 Measure, don't guess:
 
+- Each run's metrics carry `cache_hit_rate`: cached input over all input, `None` when a provider does not report it. The prompt cache is the main cost saving; group runs by `metrics.model` to see a model that stops caching.
 - Count statements with SQLAlchemy `before_cursor_execute`. Time through a delay proxy. The `begin` event fires under AUTOCOMMIT too, but nothing goes on the wire.
 - Rewrote a read? Diff its output against the old code on real data, including error cases. Trip counts miss wrong answers.
 - Before adding machinery, check how mature open-source apps solve the same path. Match the best; stop there.

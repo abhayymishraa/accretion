@@ -112,6 +112,11 @@ def request_bound(request):
         if body.get("cachedContent") or any(set(tool) != {"functionDeclarations"} for tool in body.get("tools", [])):
             raise BudgetLimitError("Hosted model tools require separate cost accounting.")
         return match.group(1), (body.get("generationConfig") or {}).get("maxOutputTokens"), False
+    if path.endswith("/v1/messages"):
+        # Anthropic's own tools (web search, code execution) bill separately; ours have no type or "custom".
+        if any(tool.get("type", "custom") != "custom" for tool in body.get("tools", [])):
+            raise BudgetLimitError("Hosted model tools require separate cost accounting.")
+        return body["model"], body.get("max_tokens"), body.get("stream")
     if path.endswith("/v1/systemone"):
         # Jev bills input only and has no output ceiling to send. One token keeps the
         # shared "bounded output" check honest without pricing anything extra.
@@ -124,6 +129,15 @@ def response_usage(path, payload):
     if path.endswith("/v1/systemone"):
         usage = payload.get("usage") or {}
         return usage.get("input_tokens"), usage.get("output_tokens"), 0, 0
+    if path.endswith("/v1/messages"):
+        usage = payload.get("usage") or {}
+        # input_tokens counts only what follows the last cache point; the cache reads and writes are the rest.
+        after, read, written = (
+            usage.get(key) for key in ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")
+        )
+        read, written = read if type(read) is int else 0, written if type(written) is int else 0
+        inputs = after + read + written if type(after) is int else None
+        return inputs, usage.get("output_tokens"), read, written
     if path.endswith(":generateContent"):
         usage = payload.get("usageMetadata") or {}
         # Gemini bills thinking as output and omits counts that are zero.

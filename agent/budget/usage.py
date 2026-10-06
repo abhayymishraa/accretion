@@ -112,3 +112,6 @@ def record_usage(metrics, response, *, phase, estimated_input=None):
     for key in ("cached_input_tokens", "cache_write_tokens", "uncached_input_tokens"):
         known = [call[key] for call in calls if call[key] is not None]
         metrics[key] = sum(known) if len(known) == len(calls) else None
+    # The share of the run's input read from the prompt cache, so a model that stops caching shows at once.
+    cached, inputs = metrics["cached_input_tokens"], metrics.get("input_tokens")
+    metrics["cache_hit_rate"] = round(cached / inputs, 4) if cached is not None and inputs else None
