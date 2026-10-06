@@ -17,6 +17,7 @@ from auth.router import router as auth_router
 from auth.router import users_router
 from auth.social import configure_sessions, social_router
 from config import settings
+from connections.router import router as connections_router
 from db.base import engine
 from files.router import router as files_router
 from health.router import router as health_router
@@ -68,5 +69,6 @@ for domain_router in (
     files_router,
     previews_router,
     skills_router,
+    connections_router,
 ):
     app.include_router(domain_router)
