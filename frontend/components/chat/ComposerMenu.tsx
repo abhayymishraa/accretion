@@ -1,12 +1,14 @@
 import type { MenuChoice, MenuKind } from "@/hooks/chat/useComposerMenu";
 import styles from "@/components/chat/menu.module.css";
 import { FileIcon } from "@/components/files/FileIcon";
+import { ServiceIcon } from "@/components/mcp/ServiceLogo";
 import type { PromptCategory } from "@/lib/chat/prompts";
 import {
     Accessibility,
     Gauge,
     Hand,
     Lock,
+    Plug,
     ScrollText,
     Search,
     Settings2,
@@ -41,8 +43,8 @@ const PROMPT_ICONS: Record<PromptCategory, LucideIcon> = {
 
 /** The highlighted skill or prompt in full, beside the list, as bolt.new's command menu shows it. */
 function Detail({ choice, open }: { choice: MenuChoice; open: boolean }) {
-    const skill = choice.skill;
-    if (!skill && !choice.category) return null;
+    const { skill, service } = choice;
+    if (!skill && !service && !choice.category) return null;
     return (
         // Moves with the menu: same styles, same open state.
         <aside
@@ -53,7 +55,11 @@ function Detail({ choice, open }: { choice: MenuChoice; open: boolean }) {
         >
             <div className="border-b border-hairline px-3.5 py-2.5">
                 <p className="truncate text-[12.5px] text-foreground">
-                    {skill ? <span className="font-mono">/{skill.name}</span> : choice.label}
+                    {skill || service ? (
+                        <span className="font-mono">/{choice.label}</span>
+                    ) : (
+                        choice.label
+                    )}
                 </p>
                 <p className="mt-0.5 flex items-center gap-1 text-[11px] text-muted-foreground">
                     {choice.group} › {choice.subgroup}
@@ -66,7 +72,11 @@ function Detail({ choice, open }: { choice: MenuChoice; open: boolean }) {
                 </p>
             </div>
             <p className="px-3.5 py-3 text-[12.5px] leading-[1.55] text-muted-foreground">
-                {skill ? skill.description : choice.insert}
+                {skill
+                    ? skill.description
+                    : service
+                      ? `${service.title}. ${service.description || `${service.tool_count} tools`}`
+                      : choice.insert}
             </p>
         </aside>
     );
@@ -80,9 +90,15 @@ interface ComposerMenuProps {
     activeIndex: number;
     onHover: (index: number) => void;
     onPick: (choice: MenuChoice) => void;
-    // Absent where there is no project whose skills to manage (the new project page).
-    onManageSkills?: () => void;
+    // Opens the workspace tab for skills or connectors. Absent where there is no project (the new project page).
+    onManage?: (tab: "skills" | "connectors") => void;
 }
+
+// The menu's ways out to the workspace tabs that turn "/" choices on and off.
+const MANAGE = [
+    { tab: "skills", label: "Manage skills", icon: Settings2 },
+    { tab: "connectors", label: "Manage connectors", icon: Plug },
+] as const;
 
 export function ComposerMenu({
     id,
@@ -92,7 +108,7 @@ export function ComposerMenu({
     activeIndex,
     onHover,
     onPick,
-    onManageSkills,
+    onManage,
 }: ComposerMenuProps) {
     // The list scrolls; keep the row the arrow keys reach in view. Headings sit between rows, so
     // the row is found by its id, not its position.
@@ -156,6 +172,13 @@ export function ComposerMenu({
                                         className="flex w-full min-w-0 items-center gap-2.5 rounded-[7px] px-2.5 py-1.5 text-left aria-selected:bg-surface-1"
                                     >
                                         {kind === "files" && <FileIcon filename={choice.label} />}
+                                        {choice.service && (
+                                            <ServiceIcon
+                                                id={choice.service.name}
+                                                icon={choice.service.icon}
+                                                className="size-4 text-muted-foreground"
+                                            />
+                                        )}
                                         {Icon && (
                                             <Icon
                                                 aria-hidden="true"
@@ -178,17 +201,22 @@ export function ComposerMenu({
                             );
                         })}
                     </ul>
-                    {kind === "commands" && onManageSkills && (
-                        <button
-                            type="button"
-                            // Keeps the menu from closing on blur before the click lands.
-                            onMouseDown={(event) => event.preventDefault()}
-                            onClick={onManageSkills}
-                            className="mt-1 flex h-9 w-full items-center gap-2.5 rounded-[7px] border-t border-hairline px-2.5 text-left text-[13px] text-muted-foreground pointer-coarse:h-11 pointer-fine:hover:bg-surface-1 pointer-fine:hover:text-foreground"
-                        >
-                            <Settings2 aria-hidden="true" className="size-4" />
-                            Manage skills
-                        </button>
+                    {kind === "commands" && onManage && (
+                        <div className="mt-1 grid grid-cols-2 gap-1 border-t border-hairline pt-1">
+                            {MANAGE.map(({ tab, label, icon: Icon }) => (
+                                <button
+                                    key={tab}
+                                    type="button"
+                                    // Keeps the menu from closing on blur before the click lands.
+                                    onMouseDown={(event) => event.preventDefault()}
+                                    onClick={() => onManage(tab)}
+                                    className="flex h-9 w-full items-center gap-2 rounded-[7px] px-2.5 text-left text-[13px] text-muted-foreground pointer-coarse:h-11 pointer-fine:hover:bg-surface-1 pointer-fine:hover:text-foreground"
+                                >
+                                    <Icon aria-hidden="true" className="size-4 shrink-0" />
+                                    <span className="truncate">{label}</span>
+                                </button>
+                            ))}
+                        </div>
                     )}
                     <p className="px-2.5 pt-1.5 pb-1 text-[11px] text-muted-foreground">
                         {kind === "files" ? "Enter to reference" : "Enter to insert"}

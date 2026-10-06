@@ -1,4 +1,5 @@
 import { FileIcon } from "@/components/files/FileIcon";
+import { ServiceIcon } from "@/components/mcp/ServiceLogo";
 import { ICON_ROOM, mentionTargets, splitMentions } from "@/hooks/chat/useComposerMenu";
 import type { ProjectSkill } from "@/types/skill.type";
 import { ScrollText } from "lucide-react";
@@ -18,12 +19,19 @@ export function PromptMirror({
     text,
     files,
     skills,
+    services,
 }: {
     text: string;
     files: string[];
     skills: ProjectSkill[] | null;
+    // Connected services picked as "/name" show as the same tag, with the service's logo.
+    services?: { name: string; icon: string | null }[] | null;
 }) {
-    const skillNames = new Set((skills ?? []).filter((skill) => skill.enabled).map((s) => s.name));
+    const serviceIcons = new Map((services ?? []).map((service) => [service.name, service.icon]));
+    const skillNames = new Set([
+        ...(skills ?? []).filter((skill) => skill.enabled).map((s) => s.name),
+        ...serviceIcons.keys(),
+    ]);
     const parts = splitMentions(text, new Set(mentionTargets(files)), skillNames);
     // A pick from the menu ends the text before it with ICON_ROOM; its pill draws over that room.
     const picked = (index: number) => {
@@ -52,7 +60,15 @@ export function PromptMirror({
                                 {ICON_ROOM}/{part.skill}
                             </span>
                             <span className="absolute inset-y-0 left-0 flex items-center gap-[0.22em] rounded-[3px] bg-primary/15 px-1.5 whitespace-nowrap text-[color-mix(in_oklab,var(--primary)_78%,var(--foreground))]">
-                                <ScrollText aria-hidden="true" className="size-[0.85em]" />
+                                {serviceIcons.has(part.skill) ? (
+                                    <ServiceIcon
+                                        id={part.skill}
+                                        icon={serviceIcons.get(part.skill)}
+                                        className="size-[0.85em]"
+                                    />
+                                ) : (
+                                    <ScrollText aria-hidden="true" className="size-[0.85em]" />
+                                )}
                                 <span className="text-[0.92em] font-medium text-foreground">
                                     {part.skill}
                                 </span>
