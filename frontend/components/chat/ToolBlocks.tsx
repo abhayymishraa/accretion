@@ -73,7 +73,7 @@ export function DiffCard({ diff }: { diff: FileDiff }) {
             <div
                 tabIndex={0}
                 aria-label={`Changes to ${diff.path}`}
-                className="max-h-68 overflow-auto font-mono text-[12px] leading-[1.7] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
+                className="relative max-h-68 overflow-auto font-mono text-[12px] leading-[1.7] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
             >
                 {diff.hunks.map((hunk, index) => (
                     <div key={index} className="min-w-max [&+&]:border-t-4 [&+&]:border-surface-3">
