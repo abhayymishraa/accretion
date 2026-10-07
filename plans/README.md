@@ -22,6 +22,7 @@ agent, or with `improve-animations execute plans/<file>`.
 | 014 | [Press response on the tab close button and Download](014-press-close-download.md) | LOW | DONE |
 | 015 | [Fade the sidebar's project list with the collapse](015-sidebar-list-fade.md) | LOW | TODO |
 | 016 | [Let a newly opened workspace tab settle into the toolbar](016-opened-tab-enter.md) | LOW | TODO |
+| 017 | [Let the connector and skill-card errors settle in like their siblings](017-inline-error-ask.md) | LOW | TODO |
 
 ## Order and dependencies
 
@@ -39,3 +40,5 @@ rename-width fix). Commit that work before executing them.
 009-014 come from the whole-frontend pass (2026-10-07). They touch different files and are independent. 009 has the most leverage: every preview open ends on a hard cut today. 012 needs a feel check first, since `@starting-style` also fades done labels once on a history load.
 
 015-016 come from the third whole-frontend pass (2026-10-07). They are independent. 015 first: clipped names in a widening sidebar are the one visibly wrong frame left. Both carry a feel-check stop condition. After this pass, further motion would be motion for its own sake.
+
+017 comes from the fourth pass (2026-10-08), on the connector and skill screens added since. It is independent of 015-016; run it after them. It reuses each module's `ask` class and adds no CSS.
