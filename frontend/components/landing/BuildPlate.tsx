@@ -15,9 +15,46 @@ const plateBlur = readFileSync(
 // anything, so the headline should not name one thing.
 const THINGS = ["a habit tracker", "a dashboard", "an internal tool", "a portfolio", "a shop"];
 
-// Named because it is true of every project it writes, not because a logo row
-// looked good here. Borrowed-credibility strips are the thing this replaces.
-const WRITES = ["React", "Vite", "TypeScript", "Tailwind"];
+// Stacks a user can ask for by name; with none named, it picks one. The last item says the list is not the limit.
+const STACKS = [
+    "React",
+    "Next.js",
+    "Vue",
+    "FastAPI",
+    "Django",
+    "Express",
+    "Postgres",
+    "MongoDB",
+    "and more",
+];
+
+// Not built yet: labelled as next, never shown as something it does today.
+const NEXT = ["Slide decks", "PDFs", "Reports", "Documents"];
+
+/** One labelled row of names under the plate, revealed after the paragraph above it. */
+function Strip({ label, items, at }: { label: string; items: string[]; at: number }) {
+    return (
+        <div className="relative flex flex-wrap items-center justify-center gap-x-5 gap-y-2.5 px-6 md:gap-x-6 md:gap-y-3">
+            <p
+                style={{ ["--i" as string]: at }}
+                // The label takes its own line, so it heads its names instead of wrapping in among them, and the row stays
+                // inside the blueprint's vertical rules.
+                className={`${styles.reveal} font-mono text-[11px] tracking-[0.18em] text-muted-foreground uppercase basis-full text-center`}
+            >
+                {label}
+            </p>
+            {items.map((name, index) => (
+                <span
+                    key={name}
+                    style={{ ["--i" as string]: at + 0.15 + index * 0.15 }}
+                    className={`${styles.reveal} text-[15px] font-medium tracking-[-0.01em] text-foreground/55`}
+                >
+                    {name}
+                </span>
+            ))}
+        </div>
+    );
+}
 
 export function BuildPlate() {
     return (
@@ -85,27 +122,14 @@ export function BuildPlate() {
                 className={`${styles.reveal} relative z-10 mx-auto mt-6 max-w-[46ch] px-6 text-center`}
             >
                 <p className="text-[15.5px] leading-[1.7] text-muted-foreground text-pretty">
-                    Plain words in, a real project out. Accretion writes the source, installs it,
-                    runs the build and shows you the running app.
+                    Plain words in, a working app out: screens, a server and a real database. It
+                    checks each change in a browser before you see it.
                 </p>
             </div>
 
-            <div className="relative mx-auto mt-14 flex max-w-[56rem] flex-wrap items-center justify-center gap-x-9 gap-y-3 border-t border-border px-6 pt-6">
-                <p
-                    style={{ ["--i" as string]: 3 }}
-                    className={`${styles.reveal} font-mono text-[11px] tracking-[0.18em] text-muted-foreground uppercase`}
-                >
-                    What it writes
-                </p>
-                {WRITES.map((name, index) => (
-                    <span
-                        key={name}
-                        style={{ ["--i" as string]: 3.3 + index * 0.3 }}
-                        className={`${styles.reveal} text-[15px] font-medium tracking-[-0.01em] text-foreground/55`}
-                    >
-                        {name}
-                    </span>
-                ))}
+            <div className="mx-auto mt-14 grid max-w-[56rem] gap-8 border-t border-border pt-6 md:gap-7">
+                <Strip label="Any stack you name" items={STACKS} at={3} />
+                <Strip label="Coming next" items={NEXT} at={4.5} />
             </div>
         </section>
     );

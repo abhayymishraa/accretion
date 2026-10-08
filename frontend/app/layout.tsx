@@ -18,17 +18,19 @@ const dmSans = DM_Sans({
     variable: "--font-dm-sans",
 });
 
+const DESCRIPTION =
+    "Describe an app in plain words. Accretion plans it with you, then builds it with a real server and database.";
+
 export const metadata: Metadata = {
     metadataBase: new URL(process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000"),
     title: "Accretion",
-    description: "Build React applications with AI",
+    description: DESCRIPTION,
     icons: {
         icon: { url: "/brand/accretion-mark.svg", type: "image/svg+xml" },
     },
     openGraph: {
         title: "Accretion",
-        description:
-            "Build applications faster with AI-powered code generation and intelligent development assistance.",
+        description: DESCRIPTION,
         images: [
             {
                 url: "/brand/accretion-social.png",
@@ -42,8 +44,7 @@ export const metadata: Metadata = {
     twitter: {
         card: "summary_large_image",
         title: "Accretion",
-        description:
-            "Build applications faster with AI-powered code generation and intelligent development assistance.",
+        description: DESCRIPTION,
         images: ["/brand/accretion-social.png"],
     },
 };
