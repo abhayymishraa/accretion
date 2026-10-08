@@ -1,5 +1,5 @@
 import LandingPage from "@/components/landing/LandingPage";
-import { SITE_URL as BASE } from "@/config/env";
+import { SITE_URL } from "@/config/env";
 import type { Metadata } from "next";
 
 // The landing page carries the descriptive title search results show; app pages keep their own short titles.
@@ -15,18 +15,18 @@ const STRUCTURED_DATA = {
     "@graph": [
         {
             "@type": "Organization",
-            "@id": `${BASE}/#organization`,
+            "@id": `${SITE_URL}/#organization`,
             name: "Accretion",
-            url: BASE,
-            logo: `${BASE}/brand/icon-512.png`,
+            url: SITE_URL,
+            logo: `${SITE_URL}/brand/icon-512.png`,
             sameAs: ["https://github.com/abhayymishraa/accretion"],
         },
         {
             "@type": "WebSite",
-            "@id": `${BASE}/#website`,
+            "@id": `${SITE_URL}/#website`,
             name: "Accretion",
-            url: BASE,
-            publisher: { "@id": `${BASE}/#organization` },
+            url: SITE_URL,
+            publisher: { "@id": `${SITE_URL}/#organization` },
         },
     ],
 };
