@@ -3,10 +3,11 @@
 
 Each source pins a repository, a commit and a sha256 per vendored file. This
 re-vendors the skill directories at upstream HEAD, deletes files upstream has
-removed, and regenerates the hashes so agent/skills.py keeps verifying real
+removed, and regenerates the hashes so agent/tools/skills.py keeps verifying real
 content. License files are skipped: upstream keeps them at repository root,
 they change rarely, and overwriting legal text automatically is not this
 workflow's job.
+Test files are skipped too: no test suites live in this repository, bundled skills included.
 """
 
 import base64
@@ -31,6 +32,10 @@ def is_license(key):
     return pathlib.PurePosixPath(key).name.upper().startswith("LICENSE")
 
 
+def is_test(key):
+    return "tests" in pathlib.PurePosixPath(key).parts
+
+
 def sync(entry, dry_run):
     repo, prefix = entry["repository"], entry["upstream_prefix"]
     before = entry["commit"]
@@ -48,7 +53,11 @@ def sync(entry, dry_run):
     keep = {key: value for key, value in entry["files"].items() if is_license(key)}
     keep_blobs = {key: value for key, value in entry.get("upstream_git_blobs", {}).items() if is_license(key)}
     local = {item["path"][len(prefix) :]: item["sha"] for item in tree if item["path"].startswith(prefix)}
-    wanted = {key: sha for key, sha in local.items() if key.split("/")[0] in owned and not is_license(key)}
+    wanted = {
+        key: sha
+        for key, sha in local.items()
+        if key.split("/")[0] in owned and not is_license(key) and not is_test(key)
+    }
 
     previous = {key for key in entry["files"] if not is_license(key)}
     added, removed, changed = sorted(set(wanted) - previous), sorted(previous - set(wanted)), []
