@@ -5,7 +5,6 @@ import { useState } from "react";
 
 import type { TimelineBlock } from "@/lib/chat/tool-lines";
 import { ROW, RowChevron, ShellBlock, TOGGLE } from "./ToolBlocks";
-import { RecordedResult } from "./ToolResult";
 
 type Step = { ok?: boolean; stdout?: string; stderr?: string; exit_code?: number };
 type BuildChecks = {
@@ -98,25 +97,17 @@ export function TimelineNote({ block }: { block: Extract<TimelineBlock, { kind: 
     if (item.kind === "verification" && checks?.build) return <BuildCheck checks={checks} />;
     if (item.kind === "verification")
         return (
-            <div className="min-w-0">
-                <p
-                    className={`m-0 flex min-h-8 items-center gap-2 text-[13.5px] ${item.ok === false ? "text-destructive" : "text-foreground/85"}`}
-                >
-                    <ShieldCheck
-                        size={15}
-                        strokeWidth={1.6}
-                        aria-hidden="true"
-                        className="shrink-0 text-muted-foreground"
-                    />
-                    <span className="min-w-0 wrap-anywhere">{item.message || "Verification"}</span>
-                </p>
-                {item.checks !== undefined && (
-                    <RecordedResult
-                        label="Check results"
-                        output={JSON.stringify(item.checks, null, 2)}
-                    />
-                )}
-            </div>
+            <p
+                className={`m-0 flex min-h-8 min-w-0 items-center gap-2 text-[13.5px] ${item.ok === false ? "text-destructive" : "text-foreground/85"}`}
+            >
+                <ShieldCheck
+                    size={15}
+                    strokeWidth={1.6}
+                    aria-hidden="true"
+                    className="shrink-0 text-muted-foreground"
+                />
+                <span className="min-w-0 wrap-anywhere">{item.message || "Verification"}</span>
+            </p>
         );
     return (
         <p className="m-0 py-1.5 text-[13.5px] text-muted-foreground wrap-anywhere">
