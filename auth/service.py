@@ -295,9 +295,10 @@ async def approve_user(user_id: int, background: BackgroundTasks, db: AsyncSessi
         raise ApplicantNotFound
     if user.waitlisted:
         user.approved_at = datetime.now(UTC)
-        # A verify_email token doubles as the one-click sign-in: consuming it proves the
-        # address and returns a session, so the approval link needs no endpoint of its own.
-        token = await issue_token(db, user.id, "verify_email", minutes=7 * 24 * 60)
-        background.add_task(send_approval, user.email, user.name, token)
+    # A verify_email token doubles as the one-click sign-in: consuming it proves the address and
+    # returns a session, so the approval link needs no endpoint of its own. Approving an account
+    # again sends a fresh link, for an email that never arrived.
+    token = await issue_token(db, user.id, "verify_email", minutes=7 * 24 * 60)
+    background.add_task(send_approval, user.email, user.name, token)
     await db.commit()
     return AccountRow.model_validate(user)

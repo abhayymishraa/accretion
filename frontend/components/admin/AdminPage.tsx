@@ -197,7 +197,24 @@ export default function AdminPage() {
                                         </dd>
                                     </div>
                                 </dl>
-                                {selected.approved_at ? null : (
+                                {selected.approved_at ? (
+                                    <div className="flex flex-wrap items-center gap-4">
+                                        <Button
+                                            type="button"
+                                            variant="secondary"
+                                            disabled={pending !== null}
+                                            onClick={() => admin.approve(selected.id)}
+                                        >
+                                            {pending === selected.id
+                                                ? "Sending…"
+                                                : "Resend sign-in email"}
+                                        </Button>
+                                        <span className="text-[13.5px] text-muted-foreground">
+                                            For an email that never arrived. The new link works
+                                            once, for 7 days.
+                                        </span>
+                                    </div>
+                                ) : (
                                     <>
                                         <div className="flex flex-wrap items-center gap-4">
                                             <Button
