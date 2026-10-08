@@ -8,7 +8,7 @@
 
 Next.js 16 differs from older versions you may know. Before using a Next.js API, read its guide in `node_modules/next/dist/docs/`.
 
-The dev server is already running with hot reload; never start another, and never run `next build` or `next start` to preview.
+The dev server is already running with hot reload; never start another.
 
 ## Layout
 - `app/**/page.tsx`: pages. `app/layout.tsx`: shared shell. `app/globals.css`: global styles.
@@ -21,13 +21,16 @@ The dev server is already running with hot reload; never start another, and neve
 - Only server code (route handlers, server components) may import `@/db/*`. Client components call the API with `fetch`.
 - Validate request bodies in the route handler; answer bad input with status 400 and `{ error }`.
 - Tailwind v4: `app/globals.css` starts with `@import "tailwindcss"`. There is no `tailwind.config.js`; customise with `@theme` in CSS. Do not add v3 config or `@tailwind` directives.
+- Dark styles (`dark:`) apply under the `dark` class on `<html>`, not the device setting (`@custom-variant dark` in `app/globals.css`; keep it). For a theme switch install `next-themes` and wrap the app in `<ThemeProvider attribute="class" defaultTheme="system" enableSystem>`, with `suppressHydrationWarning` on `<html>`.
 - `next.config.ts` sets `allowedDevOrigins` for the E2B preview hostnames. Don't remove it: the preview breaks without it. Keep `agentRules: false` too.
 
 ## How to
 - Add a page: create `app/<name>/page.tsx` exporting a default component.
 - Add an API route: create `app/api/<name>/route.ts` exporting `GET`/`POST`.
 - Add or change a table: edit `db/schema.ts`, then run `npx drizzle-kit generate`. Do not run `npm run migrate`: the host applies new migrations when it checks your work, and asks the user first if one would delete data. Never change the database by hand.
-- Check your work: `npm run typecheck`.
+
+## Checks
+- Check your work: `npm run typecheck`. The host runs the production build when you finish; do not run it yourself.
 
 ## Current condition
 Keep this section up to date whenever you add or remove a page, route or table.

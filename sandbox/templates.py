@@ -60,7 +60,7 @@ def build_template() -> Template:
     template = (
         Template(
             file_context_path=HERE,
-            file_ignore_patterns=["**/node_modules/**", "**/.venv/**", "**/dist/**", "**/.next/**", "**/db/*.db*"],
+            file_ignore_patterns=["**/node_modules/**", "**/.venv/**", "**/dist/**", "**/.next/**"],
         )
         .from_image("node:24.21.0-bookworm-slim")
         .set_user("root")

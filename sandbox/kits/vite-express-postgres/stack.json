@@ -16,5 +16,5 @@
   "restore": "psql \"$DATABASE_URL\" -q -f db/dump.sql",
   "migrations": ["backend/drizzle/"],
   "env": ["POSTGRES_PASSWORD", "APP_SECRET"],
-  "entry": ["AGENTS.md", "frontend/src/App.tsx", "backend/src/index.ts", "backend/src/routes/notes.ts", "backend/src/db/schema.ts"]
+  "entry": [".accretion/memory.md", "frontend/src/App.tsx", "backend/src/index.ts", "backend/src/routes/notes.ts", "backend/src/db/schema.ts"]
 }

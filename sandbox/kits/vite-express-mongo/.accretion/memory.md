@@ -38,13 +38,14 @@ db/                  database dumps (managed by the platform)
 - No `tailwind.config.js` and no `postcss.config.js`. `src/index.css` holds `@import "tailwindcss";`.
 - Customize in CSS with `@theme { --color-brand: #...; }`, which yields classes like `bg-brand`.
 - Use utility classes in JSX. v4 names: `shadow-xs` (old `shadow-sm`), `rounded-xs`, `outline-hidden`, `bg-linear-to-r`.
+- Dark styles (`dark:`) apply under the `dark` class on `<html>`, not the device setting (`@custom-variant dark` in `src/index.css`; keep it). A theme switch sets that class on `<html>` and saves the choice in `localStorage`; to follow the device, read `prefers-color-scheme` once and set the class from it.
 
 ## Installed libraries
 - Frontend: react, react-dom, vite, @vitejs/plugin-react, tailwindcss, @tailwindcss/vite, typescript.
 - Backend: express, mongodb, tsx, typescript, @types/express, @types/node.
 
 ## Checks
-- `cd frontend && npm run typecheck`, `cd frontend && npm run build`, `cd backend && npm run typecheck`.
+- Check your work: `cd frontend && npm run typecheck`, `cd backend && npm run typecheck`. The host runs the production build when you finish; do not run it yourself.
 
 ## Current condition
 Keep this section up to date whenever you add or remove a page, route, or collection.
