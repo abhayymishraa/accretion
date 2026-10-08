@@ -4,11 +4,11 @@ import base64
 import json
 from datetime import datetime
 
-from fastapi import HTTPException
 from sqlalchemy import cast, exists, literal, null, select, tuple_, union_all
 
 from db.models import Message, Run
 
+from ..run.exceptions import InvalidHistoryCursor, InvalidHistoryPageSize
 from ..run.worker import OPEN_STATUSES
 from ..run.workflow import public_workflow
 
@@ -23,14 +23,14 @@ def cursor_value(value):
             raise ValueError
         return stamp, kind, identifier
     except (ValueError, TypeError, KeyError):
-        raise HTTPException(422, "Invalid history cursor") from None
+        raise InvalidHistoryCursor from None
 
 
 def transcript(chat_id, limit=50, before=None):
     """A page of the conversation as rows, newest first, plus one row to tell whether more exist.
     Each row carries what the client shows, so the caller can read it within its own query."""
     if not 1 <= limit <= 100:
-        raise HTTPException(422, "Invalid history page size")
+        raise InvalidHistoryPageSize
     # A run is one transcript item. Its persisted summary must not appear twice. A run's legacy
     # events/metrics JSON blobs are never selected.
     legacy = select(

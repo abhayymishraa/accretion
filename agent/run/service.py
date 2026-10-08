@@ -31,7 +31,6 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased, joinedload
 
 from agent.sandbox.config import sandbox_settings
@@ -50,6 +49,7 @@ from db.models import (
     User,
     library_rows,
 )
+from exceptions import TooManyRequests
 from plans import month_window
 
 from ..budget.budget import BudgetLimitError, BudgetSpentError, has_budget_left, month_spend, remaining_in, require_left
@@ -81,10 +81,25 @@ from ..tools.public_tools import EDIT_TOOLS, edit_summary
 from ..tools.skills import RuntimeSkills
 from ..tools.tools import MAX_COVER_BYTES, ROOT, FileWriteError, cover_image
 from . import bus
+from .answer import answer_question
 from .config import run_settings
 from .decisions import decision_source, prepare_continuation, resolve_decision
 from .diagnostics import sandbox_diagnostics
-from .runner import RunLimitError, SandboxSetupError, VerificationError, run_editor
+from .exceptions import (
+    BuilderBusy,
+    DecisionPending,
+    EmailNotVerified,
+    InvalidPrompt,
+    NoSavedProject,
+    OperationInProgress,
+    PreviewStatusUnavailable,
+    ProjectNotFound,
+    ProjectRunning,
+    SandboxCapacityReached,
+    StorageNotConfigured,
+    UserNotFound,
+)
+from .runner import PLAN_FILE, RunLimitError, SandboxSetupError, VerificationError, run_editor
 from .title import name_project
 from .worker import OPEN_STATUSES, Workers
 from .workflow import public_workflow, select_workflow
@@ -149,11 +164,6 @@ async def build_setup(chat_id):
     return usable_kit(kit), skills, mcp
 
 
-async def open_run(db: AsyncSession, chat_id: str) -> str | None:
-    """A queued or running run of this chat. Any worker may claim it and open the sandbox at any moment."""
-    return await db.scalar(select(Run.id).where(Run.chat_id == chat_id, Run.status.in_(OPEN_STATUSES)).limit(1))
-
-
 DELETE_DATA, KEEP_DATA = "Delete the data", "Keep my data"
 # Spec 4 step 3: Jev's limit is 32k tokens; about 20k tokens of input, at ~3 characters each.
 _JEV_INPUT_CHARS = 60_000
@@ -167,6 +177,13 @@ def approved_data_loss(live) -> list[str]:
     if not exchanges or exchanges[-1].get("reply") != DELETE_DATA:
         return []
     return list(context.get("data_loss_files") or [])
+
+
+IMPLEMENT_PLAN = f"""Please implement the following plan:
+
+{{plan}}
+Start implementing this plan now. Follow the steps outlined and create or change the files it needs.
+Update the working plan at {PLAN_FILE} to mark your progress."""
 
 
 def original_request(live) -> str:
@@ -277,10 +294,7 @@ class Service:
         if state in ("creating", "retiring") or (
             chat_id not in reserved and len(reserved) >= run_settings.MAX_LIVE_SANDBOXES
         ):
-            raise HTTPException(
-                429,
-                "Live preview capacity reached or cleanup is pending. Try again after a preview closes.",
-            )
+            raise SandboxCapacityReached
 
     async def retire_sandbox(self, chat_id):
         async with self.admission:
@@ -315,7 +329,7 @@ class Service:
                     )
                 ).one_or_none()
             if current is None:
-                raise HTTPException(404, "Project not found")
+                raise ProjectNotFound
             chat, row = current
             status: dict[str, Any] = {"url": None, "state": "sleeping", "revision_id": chat.latest_saved_revision_id}
             if any(r.chat_id == chat_id for r in self.active.values()):
@@ -328,7 +342,7 @@ class Service:
                         # Observing status must not keep an idle preview alive.
                         status = {"url": chat.app_url, "state": "active", "revision_id": row.revision_id}
                 except Exception:
-                    raise HTTPException(503, "Preview status temporarily unavailable") from None
+                    raise PreviewStatusUnavailable from None
         # Viewing a project is what makes it the user's active one, even when its sandbox is already up
         # and nothing is acquired. Outside admission: parking calls the provider.
         await self.park_others(chat_id, user_id)
@@ -382,7 +396,7 @@ class Service:
     ) -> dict[str, Any]:
         prompt = prompt.strip()
         if (not prompt and response is None) or len(prompt) > 12000:
-            raise HTTPException(422, "Describe a change in 1–12000 characters")
+            raise InvalidPrompt
         async with self.admission, AsyncExitStack() as stack:
             # Answering a decision is one transaction from here to the new run: its parent stays
             # locked throughout. Retries resolve before capacity/budget checks: no duplicate run or charge.
@@ -407,16 +421,17 @@ class Service:
                     await self.notify(parent.chat_id, {"e": "resync"})
                     return {"chat_id": parent.chat_id, "run_id": None, "status": "cancelled"}
                 chat_id = parent.chat_id
-            workflow: dict[str, Any] = {"mode": mode}
+            # A new project plans first: the user approves what gets built before anything is.
+            workflow: dict[str, Any] = {"mode": "plan" if not chat_id else mode}
             metrics: dict[str, Any] = {}
             now = datetime.now(UTC)
             month = month_window(now)
             if self.stopping:
-                raise HTTPException(429, "The builder is busy. Try again shortly.")
+                raise BuilderBusy
             if not storage_settings.configured:
-                raise HTTPException(503, "Project storage is not configured.")
+                raise StorageNotConfigured
             if chat_id and chat_id in self.opening:
-                raise HTTPException(409, "This project already has a running request.")
+                raise ProjectRunning
             new_project = not chat_id
             # Every input an admission check reads, as one row: the write is gated on it and returns it,
             # so a refused prompt names its reason with no second read.
@@ -450,20 +465,20 @@ class Service:
                 """Raise the first admission check that fails in a facts row; return its pending question."""
                 if row is None:
                     # A missing account cannot hold a valid token.
-                    raise HTTPException(401, "User not found")
+                    raise UserNotFound
                 user, running_total, used, owned, running, pending = row[:6]
                 if not new_project and not owned:
-                    raise HTTPException(404, "Project not found")
+                    raise ProjectNotFound
                 if not user.email_verified:
-                    raise HTTPException(403, "Verify your email before continuing.")
+                    raise EmailNotVerified
                 if (running_total or 0) + len(self.opening) >= run_settings.MAX_CONCURRENT_RUNS:
-                    raise HTTPException(429, "The builder is busy. Try again shortly.")
+                    raise BuilderBusy
                 try:
                     require_left(user, used, month)
                 except BudgetLimitError as exc:
-                    raise HTTPException(429, str(exc)) from None
+                    raise TooManyRequests(str(exc)) from None
                 if not new_project and running:
-                    raise HTTPException(409, "This project already has a running request.")
+                    raise ProjectRunning
                 return pending
 
             check_db = await stack.enter_async_context(AutocommitSessionLocal())
@@ -472,7 +487,7 @@ class Service:
             try:
                 if response is None:
                     # One statement, committed by itself, gated on every admission check (the `ok` row):
-                    # the remembered model choice (dyad's selectedModel, spec 4.2), the project when
+                    # the remembered model choice (spec 4.2), the project when
                     # new, the user's message and the queued run, all or none. Postgres also refuses a
                     # second open build (uq_runs_one_open_per_chat) and a project deleted meanwhile.
                     checks = [
@@ -525,13 +540,13 @@ class Service:
                         # write has a failing check, the pending question at the latest.
                         pending = refuse(row)
                         assert pending, "a refused admission fails a check"
-                        raise HTTPException(409, "Answer or dismiss the pending question or plan first.")
+                        raise DecisionPending
                 else:
                     pending = refuse((await check_db.execute(read)).first())
                     # The decision's transaction, opened above with its parent locked, resolves the
                     # parent with the new run.
                     if pending and pending != parent.id:
-                        raise HTTPException(409, "Answer or dismiss the pending question or plan first.")
+                        raise DecisionPending
                     workflow, metrics = await prepare_continuation(decision, parent, response[1], response[2])
                     decision.add(
                         Run(
@@ -553,9 +568,9 @@ class Service:
             except IntegrityError as exc:
                 state = getattr(exc.orig, "sqlstate", None)
                 if state == "23505":  # uq_runs_one_open_per_chat: another request admitted one first
-                    raise HTTPException(409, "This project already has a running request.") from None
+                    raise ProjectRunning from None
                 if state == "23503":  # the project was deleted after the read
-                    raise HTTPException(404, "Project not found") from None
+                    raise ProjectNotFound from None
                 raise
         # Outside admission: both need only the committed row, and a slow Redis must not hold the
         # lock that previews and deletes wait on. Other tabs learn of the run; the starter opens its stream.
@@ -606,7 +621,7 @@ class Service:
             }
         )
         if diffs is not None:
-            # The user's own code, shown whole like Codex: secrets redacted, nothing cut.
+            # The user's own code, shown whole: secrets redacted, nothing cut.
             event["details"]["diffs"] = redact(diffs, max_length=None, max_items=None)
         return event
 
@@ -698,9 +713,8 @@ class Service:
             raise error
 
     async def park_others(self, chat_id, user_id):
-        """One active sandbox per user, as open-lovable keeps one (firecrawl/open-lovable@69bd93b), but
-        per user and paused, not killed: switching to this project parks the user's other idle sandboxes.
-        One with a build or an open in progress keeps running; a build parks its own when it ends."""
+        """One active sandbox per user, paused, not killed: switching to this project parks the user's other
+        idle sandboxes. One with a build or an open in progress keeps running; a build parks its own when it ends."""
         if self.focus.get(user_id) == chat_id:
             # Already this user's focus: every sandbox that started since (an open or a build of
             # another project) moved the focus away, so there is nothing new to park.
@@ -878,7 +892,7 @@ class Service:
                     )
                 ).first()
                 if found is None:
-                    raise HTTPException(404, "Project not found")
+                    raise ProjectNotFound
                 chat, open_build, reserved, runtime = found
                 state = runtime.state if runtime else None
                 revision = await latest_revision_in(db, chat_id)
@@ -888,9 +902,9 @@ class Service:
                 or open_build
                 or len(self.active) + len(self.opening) >= run_settings.MAX_CONCURRENT_RUNS
             ):
-                raise HTTPException(409, "Wait for the current operation to finish")
+                raise OperationInProgress
             if not revision:
-                raise HTTPException(404, "No saved project yet")
+                raise NoSavedProject
             await self.require_sandbox_capacity(chat_id, reserved or [], state)
             self.opening.add(chat_id)
         try:
@@ -944,15 +958,13 @@ class Service:
         event = self.event(
             live,
             "run_finished",
-            **{
-                "event_id": f"{live.id}:terminal",
-                "status": status,
-                "message": reason,
-                "metrics": live.metrics,
-                "workflow": public_workflow(live.workflow),
-                "url": result["url"] if result and status == "succeeded" else None,
-                "revision_id": live.revision_id,
-            },
+            event_id=f"{live.id}:terminal",
+            status=status,
+            message=reason,
+            metrics=live.metrics,
+            workflow=public_workflow(live.workflow),
+            url=result["url"] if result and status == "succeeded" else None,
+            revision_id=live.revision_id,
         )
         # The reply is shown whole, live as in history (Run.reason): redacted, not cut at the event bound.
         event["message"] = redact(reason, max_length=None)
@@ -964,7 +976,7 @@ class Service:
             logger.warning("Event batch not stored run_id=%s error_type=%s", live.id, type(exc).__name__)
         transcript = reason
         if status == "awaiting_input":
-            transcript += "\nProposed, not implemented:\n" + "\n".join(live.workflow.get("steps", []))
+            transcript += "\nProposed, not implemented."
             if live.workflow.get("question"):
                 transcript += "\n" + live.workflow["question"]
         now = datetime.now(UTC)
@@ -1147,15 +1159,12 @@ class Service:
             await self.emit(live, "stage", message="Understanding your request")
             model = await self.model_for(live)
             live.workflow = await select_workflow(live, model=model)
-            await self.emit(
-                live,
-                "approach",
-                message=live.workflow["summary"],
-                workflow=public_workflow(live.workflow),
-            )
-            if live.workflow["kind"] != "execute":
-                status = "answered" if live.workflow["kind"] == "answer" else "awaiting_input"
-                reason = live.workflow["summary"]
+            if live.workflow["kind"] == "answer":
+                # A question reads the saved files, never the sandbox: nothing to wake, park or lease.
+                await self.emit(live, "stage", message="Reading your app")
+                reason = await answer_question(model, live.chat_id, live.prompt, live.workflow["recent"], live.metrics)
+                # No proposal card: the answer is the reply.
+                live.workflow, status = {}, "answered"
                 return
             if await latest_revision(live.chat_id) is None:
                 await self.emit(live, "stage", message="Choosing how to build it")
@@ -1163,9 +1172,13 @@ class Service:
             await self.open_sandbox(live)
             kit, skills, mcp = await build_setup(live.chat_id)
             stack = KITS[kit].model_dump()
+            prompt = live.prompt
+            if live.workflow.get("approved") and live.workflow.get("plan"):
+                # The model gets the approved plan itself as the request; the chat keeps the user's approval.
+                prompt = IMPLEMENT_PLAN.format(plan=live.workflow["plan"])
             result = await run_editor(
                 live.sandbox,
-                live.prompt,
+                prompt,
                 lambda kind, **data: self.emit(live, kind, **data),
                 lambda dirty=False: self.checkpoint(live, dirty),
                 live.metrics,
@@ -1174,7 +1187,8 @@ class Service:
                 inbox=live.inbox,
                 request_context={
                     "continuation": live.workflow.get("context"),
-                    "approach": public_workflow(live.workflow),
+                    # The plan's text is the request already; it is not sent twice.
+                    "approach": {k: v for k, v in public_workflow(live.workflow).items() if k != "plan"},
                     "plan_approved": live.workflow.get("approved", False),
                 },
                 memory=ProjectContext(live.chat_id, live.user_id, live.message_id)
@@ -1184,6 +1198,7 @@ class Service:
                 save_screenshot=lambda data, media_type: self.save_screenshot(live, data, media_type),
                 skills=skills,
                 mcp=mcp,
+                planning=live.workflow.get("mode") == "plan",
             )
             if "decision" in result:
                 current = await latest_revision(live.chat_id)
@@ -1329,7 +1344,7 @@ class Service:
         async with AutocommitSessionLocal() as db:
             # A queued run is about to acquire this sandbox, and a running one may belong to another
             # process's worker: neither is in self.active, so the row decides.
-            if await open_run(db, chat_id):
+            if await db.scalar(select(Run.id).where(Run.chat_id == chat_id, Run.status.in_(OPEN_STATUSES)).limit(1)):
                 return
         row = await self.runtimes.get(chat_id)
         if not row or row.state != "running":
@@ -1360,7 +1375,6 @@ class Service:
         live.workflow = {
             "kind": "clarify",
             "summary": question[:700],
-            "steps": [],
             "question": question[:500],
             "options": options,
             "revision_id": current.id if current else None,
@@ -1370,7 +1384,7 @@ class Service:
         return "awaiting_input", question
 
     async def steer(self, run_id: str, user_id: int, text: str) -> tuple[int | None, bool]:
-        """Queue a user message for a running build (Pi's steering queue), in one statement: it is
+        """Queue a user message for a running build, in one statement: it is
         stored only if the run is the user's, running and not stopping. Returns the run's owner (None:
         no such run) and whether it was stored, so a refusal needs no second read."""
         target = (
