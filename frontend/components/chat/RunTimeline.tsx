@@ -150,7 +150,7 @@ function TimelineSection({ lines, live }: { lines: ToolLine[]; live: boolean }) 
                 type="button"
                 aria-expanded={open}
                 onClick={() => setChoice(!open)}
-                className="group sticky -top-8 z-[2] max-md:-top-5 flex min-h-8 w-full cursor-pointer items-center gap-2 bg-surface-1 text-left text-[13.5px] text-muted-foreground [transition:color_130ms_ease] focus-visible:outline-2 focus-visible:outline-ring pointer-fine:hover:text-foreground"
+                className="group sticky -top-8 z-[2] max-md:-top-5 flex min-h-8 pointer-coarse:min-h-11 w-full cursor-pointer items-center gap-2 bg-surface-1 text-left text-[13.5px] text-muted-foreground [transition:color_130ms_ease] focus-visible:outline-2 focus-visible:outline-ring pointer-fine:hover:text-foreground"
             >
                 <Glyph size={15} strokeWidth={1.6} aria-hidden="true" className="shrink-0" />
                 <span className="min-w-0 truncate">{sectionTitle(lines)}</span>

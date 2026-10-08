@@ -186,13 +186,13 @@ export function ShellBlock({
 // Shared by the timeline's rows (RunTimeline, TimelineNotes). Every icon, card and image lines
 // up on one left edge: a row's content starts there and its hover background reaches 4px past it.
 export const ROW =
-    "group relative -mx-1 flex min-h-8 min-w-0 items-center gap-2 rounded-[6px] px-1 text-[13.5px] text-foreground/85 data-[failed=true]:text-destructive";
+    "group relative -mx-1 flex min-h-8 pointer-coarse:min-h-11 min-w-0 items-center gap-2 rounded-[6px] px-1 text-[13.5px] text-foreground/85 data-[failed=true]:text-destructive";
 
 // Rows with a body open on click anywhere; the file link inside stays its own target.
 export const TOGGLE =
-    "absolute inset-0 cursor-pointer rounded-[6px] focus-visible:outline-2 focus-visible:outline-ring pointer-fine:hover:bg-surface-2";
+    "absolute inset-0 cursor-pointer rounded-[6px] focus-visible:outline-2 focus-visible:outline-ring pointer-fine:hover:bg-surface-2 pointer-coarse:active:bg-surface-2";
 
-/** Turns down when the row is open; otherwise shown only on hover or focus. */
+/** Turns down when the row is open; otherwise shown on hover or focus, and always on touch, which has no hover. */
 export function RowChevron({ open }: { open: boolean }) {
     return (
         <ChevronRight
@@ -201,7 +201,7 @@ export function RowChevron({ open }: { open: boolean }) {
             className={`pointer-events-none relative shrink-0 text-muted-foreground [transition:transform_180ms_var(--ease-out),opacity_130ms_ease] motion-reduce:[transition:none] ${
                 open
                     ? "rotate-90"
-                    : "opacity-0 group-focus-within:opacity-100 pointer-fine:group-hover:opacity-100"
+                    : "opacity-0 group-focus-within:opacity-100 pointer-fine:group-hover:opacity-100 pointer-coarse:opacity-100"
             }`}
         />
     );
