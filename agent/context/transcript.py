@@ -1,8 +1,6 @@
 """One append-only model transcript per chat.
 
-Every harness that manages a long conversation keeps a single growing entry log
-and appends to it: Pi stores a session as JSONL entries, Reasonix calls its copy
-"cache-first, append-only", Codex reads every user message out of one history.
+A long conversation keeps a single growing entry log and appends to it.
 Rebuilding the array per request, as this loop used to, changes the prompt prefix
 each time and forfeits the provider's cached-input discount on all of it.
 

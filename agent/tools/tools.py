@@ -38,11 +38,12 @@ MIGRATE = re.compile(
 # for one). Only the no-directory form is checked: `cd <dir> &&` and `--prefix` name a directory.
 _NPM_INSTALL = re.compile(r"\bnpm\s+(?:i|install|add)\b")
 _NAMES_DIR = re.compile(r"\bcd\s+\S|--prefix\b")
-# About 25k tokens, Claude Code's Read limit. Bounds reads, writes and edits alike, so a file the model
+_RELATIVE_INSTALL = re.compile(r"npm\s+(?:i|install)\s+(?:\.{1,2})(?:\s|$)")
+# About 25k tokens. Bounds reads, writes and edits alike, so a file the model
 # can write it can also read back and edit; lockfile-sized reads are refused rather than resent every turn.
 MAX_FILE_BYTES = 100_000
-# What the chat shows of an edit, never what the model sees. Like Codex, one line of context around
-# each change and the whole diff, uncapped (openai/codex@444da31 tui/src/diff_render.rs).
+# What the chat shows of an edit, never what the model sees: one line of context around each change
+# and the whole diff, uncapped.
 _DIFF_CONTEXT = 1
 
 
@@ -95,7 +96,7 @@ _SCREENSHOT = re.compile(r"Screenshot saved to (\S+)")
 MAX_SCREENSHOTS = 4
 MAX_SCREENSHOT_BYTES = 3_000_000
 _IMAGE_TYPES = {b"\x89PNG": "image/png", b"\xff\xd8\xff": "image/jpeg", b"GIF8": "image/gif", b"RIFF": "image/webp"}
-# Project images read_files hands over as pictures, not text (Codex shows them as "Viewed an image").
+# Project images read_files hands over as pictures, not text.
 IMAGE_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".gif", ".webp"})
 # What a vision model gets; the stored original the user sees is untouched. Anthropic's standard tier
 # reads up to 1568px on the long edge and bills by size, not bytes; chrome-devtools-mcp and browser-use
@@ -259,7 +260,7 @@ class WorkspaceTools:
         if timed_out:
             result["error"] = f"agent-browser did not finish within {BROWSER_TIMEOUT}s"
         if self.browser_timeouts >= 2:
-            # OpenHands resets its browser after repeated timeouts: a wedged session does not recover alone.
+            # A wedged browser session does not recover alone: restart it after repeated timeouts.
             await self.command("agent-browser close --all", timeout_seconds=20)
             self.browser_timeouts = 0
             result["browser_restarted"] = "The browser stopped responding twice and was restarted. Open the page again."
@@ -270,8 +271,7 @@ class WorkspaceTools:
         return result
 
     async def page_check(self) -> dict[str, Any]:
-        """What the page reported since the last check. Playwright MCP puts this on every reply, and
-        uncaught errors are what bolt's and dyad's fix loops run on; a page can look right and throw."""
+        """What the page reported since the last check: a page can look right and still throw."""
         result = await self.command("timeout 25 python3 -c " + shlex.quote(_PAGE_CHECK), timeout_seconds=30)
         try:
             found = json.loads(result["stdout"])
@@ -293,7 +293,9 @@ class WorkspaceTools:
         return {"summary": summary, **{key: value for key, value in found.items() if value}}
 
     async def command(self, command: str, timeout_seconds: int = 60, max_output: int = MAX_OUTPUT) -> dict[str, Any]:
-        return await run_command(self.sandbox, command, cwd=ROOT, timeout=timeout_seconds, max_output=max_output)
+        return await run_command(
+            self.sandbox, command, cwd=ROOT, timeout_seconds=timeout_seconds, max_output=max_output
+        )
 
     async def edit(self, edits: list[FileEdit]) -> dict[str, Any]:
         """Apply exact-text edits in order, several to one file allowed; all validate before any is written."""
@@ -355,8 +357,7 @@ class WorkspaceTools:
             await self.write(changes)
             return {"ok": True, "changed_files": paths, "_diffs": await asyncio.to_thread(file_diffs, before, changes)}
 
-        # Every surveyed harness edits in place (Claude Code Edit, Codex apply_patch, OpenCode edit):
-        # a rewrite pays for the whole file as output, then resends it on every later turn.
+        # Edit in place: a rewrite pays for the whole file as output, then resends it on every later turn.
         @tool(
             description=(
                 "Replace exact text in existing files, several edits and files per call, applied in order."
@@ -379,7 +380,7 @@ class WorkspaceTools:
         async def execute_command(command: str) -> dict[str, Any]:
             if len(command) > 2000:
                 raise ValueError("Command is too long")
-            if re.search(r"npm\s+(?:i|install)\s+(?:\.{1,2})(?:\s|$)", command):
+            if _RELATIVE_INSTALL.search(command):
                 raise ValueError("Relative imports are not npm packages")
             if DEV_SERVER.search(_SEARCH.sub("", command)):
                 raise ValueError("The project's services are already running; do not start another server")

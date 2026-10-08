@@ -144,6 +144,6 @@ def public_tool_details(name, *, args=None, result=None, diffs=None, screenshots
     if screenshots:
         bounded["screenshots"] = list(screenshots)
     if diffs:
-        # Whole, like Codex: kept apart from the bounded fields above, never cut.
+        # Whole: kept apart from the bounded fields above, never cut.
         bounded["diffs"] = list(diffs)
     return bounded

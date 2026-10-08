@@ -36,7 +36,7 @@ def _status(exc: BaseException) -> int | None:
 
 
 def is_context_overflow(exc: BaseException) -> bool:
-    """The provider refused the request as too long, on any wire. OpenAI also sets a code; Codex reads it."""
+    """The provider refused the request as too long, on any wire. OpenAI also sets a code."""
     if isinstance(exc, openai.APIStatusError) and exc.code == "context_length_exceeded":
         return True
     status = _status(exc)

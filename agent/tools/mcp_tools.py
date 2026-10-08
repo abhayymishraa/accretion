@@ -1,9 +1,8 @@
 """The connected MCP servers one build may use, offered as deferred tools.
 
 The system prompt names each server; the request lists the names of its approved tools, `mcp__<service>__<tool>`,
-nothing more. The model fetches the definitions it needs with tool_search, whose query forms and weights follow
-Claude Code's ToolSearch; a tool called before it is fetched fails with a pointer to tool_search. The tool list
-never changes during a run, so the cached prefix holds on every model:
+nothing more. The model fetches the definitions it needs with tool_search; a tool called before it is fetched fails
+with a pointer to tool_search. The tool list never changes during a run, so the cached prefix holds on every model:
 
 - A model whose API defers tools (Claude) gets every approved tool with defer_loading, and the search answers with
   tool_reference blocks the API expands; the fetched tool is then called by its own name.
@@ -26,9 +25,8 @@ _UNSAFE = re.compile(r"[^a-zA-Z0-9_-]")
 _SELECT = re.compile(r"^select:(.+)$", re.IGNORECASE)
 # A tool name's parts: the server and tool names, split on spaces, underscores and dots (not hyphens).
 _PART = re.compile(r"[\s_.]+")
-# Points per query term, as Claude Code scores an MCP tool: a whole name part, a substring of a part, the whole
-# server or tool name, a substring of either, a word of the server's search hint, a description word. Claude Code
-# also scores the parts joined by spaces when nothing else matched; a term has no spaces, so that never scores.
+# Points per query term: a whole name part, a substring of a part, the whole server or tool name, a substring of
+# either, a word of the server's search hint, a description word.
 _PART_EXACT, _PART_SUBSTRING, _NAME_EXACT, _NAME_SUBSTRING, _HINT, _DESCRIPTION = 12, 6, 12, 4, 4, 2
 
 _SEARCH = (
@@ -112,7 +110,7 @@ class McpTools:
         """Load what this run may call at once: tools the chat already used, tools an earlier search returned as
         tool_reference blocks, and, on a model without deferred tools, the "/service" picks, sent in the request.
 
-        On a model that defers tools every tool stays deferred, as in Claude Code: its tool_reference in the history
+        On a model that defers tools every tool stays deferred: its tool_reference in the history
         still loads it, and a pick is fetched with select:. Only a tool the history called with no tool_reference,
         on another model, is sent in full, since nothing in the history loads it.
         """
@@ -201,7 +199,7 @@ class McpTools:
         ]
 
     def search(self, query: str, limit: int) -> list[str]:
-        """Claude Code's ToolSearch over the approved tools, in its order of checks."""
+        """Search the approved tools: select:, an exact name, an mcp__ prefix, then keywords."""
         selected = _SELECT.match(query)
         if selected:
             found: list[str] = []
@@ -221,7 +219,7 @@ class McpTools:
         return self._keywords(lowered, deferred, limit)
 
     def _keywords(self, lowered: str, deferred: list[str], limit: int) -> list[str]:
-        """Claude Code's keyword scoring: required "+words" filter, every term scores."""
+        """Keyword scoring: required "+words" filter, every term scores."""
         words = lowered.split()
         required = [word[1:] for word in words if word.startswith("+") and len(word) > 1]
         optional = [word for word in words if not (word.startswith("+") and len(word) > 1)]
@@ -288,7 +286,7 @@ class McpTools:
         return tool_search
 
     async def call(self, name: str, arguments: Any) -> dict[str, Any]:
-        """Run a loaded tool. One not fetched yet has no schema the model saw, so the call fails, as in Claude Code."""
+        """Run a loaded tool. One not fetched yet has no schema the model saw, so the call fails."""
         if name not in self.loaded:
             return {"ok": False, "error": f"{name} is deferred: fetch it with tool_search, query 'select:{name}'."}
         server, item = self.by_name[name]

@@ -2,7 +2,7 @@
 
 The ceilings are runaway backstops, not work limits: compaction keeps a long
 run affordable, so a low turn count would end healthy work early. There is no
-clock on a run, as Codex has none on a turn (openai/codex@444da31): each
+clock on a run: each
 command has its own timeout, and the monthly budget bounds spend.
 """
 

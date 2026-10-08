@@ -69,8 +69,8 @@ CONNECT_SECONDS = 15
 MAX_TOOLS = 200
 # A server that keeps returning a cursor must not hold a build or a request forever.
 MAX_PAGES = 50
-# Claude Code's MCP output limit, with its estimate of a token as four characters. Over the limit, the result is
-# cut to the limit's length in characters and ends with Claude Code's notice.
+# The MCP output limit, a token estimated as four characters. Over the limit, the result is cut to the limit's
+# length in characters and ends with a truncation notice.
 MAX_RESULT_TOKENS = 25_000
 _CHARS_PER_TOKEN = 4
 _TRUNCATED = (
@@ -220,7 +220,7 @@ class _StoredTokens:
 class _Provider(OAuthClientProvider):
     """The SDK provider, given back what a restart forgets. Stock, it loads the stored token without its expiry
     or the token endpoint, so an expired token is sent, refused, and the user is asked to sign in again although
-    a refresh token would do (OpenHands fixes refresh-endpoint discovery the same way)."""
+    a refresh token would do."""
 
     def __init__(self, server: Server) -> None:
         self.stored = _StoredTokens(server)
@@ -292,7 +292,7 @@ async def list_tools(server: Server) -> tuple[list[dict[str, Any]], str | None]:
                 {
                     "name": tool.name,
                     "description": (tool.description or "")[:2000],
-                    # The server's own words for finding the tool, which the search scores like Claude Code does.
+                    # The server's own words for finding the tool, which the search scores.
                     "search_hint": hint
                     if isinstance(hint := (tool.meta or {}).get("anthropic/searchHint"), str)
                     else "",
@@ -478,7 +478,7 @@ async def _begin_sign_in(server: Server) -> tuple[str, dict[str, Any]]:
         "client_id": client.client_id,
         "redirect_uri": REDIRECT_URI,
         "state": state,
-        "code_challenge": _b64url(challenge),
+        "code_challenge": base64.urlsafe_b64encode(challenge).decode().rstrip("="),
         "code_challenge_method": "S256",
         "resource": resource,
         **({"scope": scope} if scope else {}),
@@ -528,7 +528,3 @@ async def finish_sign_in(flow: dict[str, Any], code: str, iss: str | None) -> di
         "issuer": flow["issuer"],
         "metadata": flow["metadata"],
     }
-
-
-def _b64url(data: bytes) -> str:
-    return base64.urlsafe_b64encode(data).decode().rstrip("=")
