@@ -161,6 +161,7 @@ Most users on phone, often inside app browser (Instagram, X, LinkedIn, Gmail), n
 - MUST NOT rely on what webviews block: popups/new windows (`window.open`), file downloads, third-party cookies. Google sign-in refuses embedded webviews: every sign-in path MUST have a webview-safe fallback.
 - Heavy editors/canvases (Monaco, previews) MUST stay usable on phone, or degrade to readable view.
 - UI work is NOT done until checked, after approval, at phone width + in an in-app webview, beside the device and theme checks in `frontend/AGENTS.md`.
+- Phone check finds other bug or inconsistency on screen (touch target, hover-only, overflow, label, spacing): fix in same loop, same branch. Load `design-taste-frontend`, `frontend-design`, `ui-ux-pro-max` at that moment; fix follows them plus Karpathy. Exception to surgical-change and own-branch rules: only for what that check showed. Name each extra fix in PR body.
 
 ## Bundled skills
 
