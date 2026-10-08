@@ -98,6 +98,8 @@ jobs:
                     -o StrictHostKeyChecking=yes -o ConnectTimeout=15)
 
           # Values travel as environment variables, never on the command line.
+          # ssh joins them into one line that the host parses again, so RESEND_FROM is quoted to keep its
+          # spaces and <> as one value; the sender check above rejects any ' inside it.
           ssh "${ssh_args[@]}" \
             "ubuntu@$DEPLOY_HOST" \
             NEW_MONTHLY_BUDGET_USD="$NEW_MONTHLY_BUDGET_USD" \
@@ -108,7 +110,7 @@ jobs:
             NEW_ALLOWED_ORIGINS="$NEW_ALLOWED_ORIGINS" \
             NEW_E2B_TEMPLATE="$NEW_E2B_TEMPLATE" \
             NEW_DEFAULT_KIT="$NEW_DEFAULT_KIT" \
-            NEW_RESEND_FROM="$NEW_RESEND_FROM" \
+            NEW_RESEND_FROM="'$NEW_RESEND_FROM'" \
             'bash -s' <<'REMOTE'
           set -euo pipefail
           file=/opt/webbuilder/runtime.env
