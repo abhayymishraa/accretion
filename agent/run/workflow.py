@@ -8,48 +8,47 @@ from sqlalchemy import select
 from db.base import AutocommitSessionLocal
 from db.models import Chat, Message
 
-from ..events import redact
-from .agent import llm
 from .runner import VerificationError
 from .structured import ask_structured
 
-ROUTING_RULES = """Choose the next action for a request to build or change a web app. You cannot edit or
-run commands here. Default to discussion. Choose execute when the user wants the change made: an
-instruction ("add a login page"), a polite request ("can you add dark mode?"), a stated need ("I want a
-login page", "I need people to book a slot"), or a go-ahead ("yes", "do it"), in any language; or when
-saved_revision_id is null and the user describes something to build, since nothing is built yet. Choose
-answer for questions about how something works, opinions, and ideas the user is still weighing ("what
-about a dark mode?", "the header feels off"): discuss it in plain words, say what you would change, and
-invite the user to say when to build it. Respond from the supplied context, distinguishing historical
-claims from current evidence. If source inspection would be needed, state that limitation; never invent
-source facts or turn an explanation into edits. An explicit action executes directly whatever its size:
-detailed briefs, small edits, and delegated creative choices ("build a dark portfolio, surprise me"). Do
-not gate by length, grammar or language. Inspectable code facts are for the editor to discover, not
-questions for the user. Clarify only one missing user choice that materially changes the result. Ask one
-focused question, with up to three suggested answers; allow free text. Missing external capabilities
-must be disclosed. Plan when explicitly requested ("plan first; do not edit"), when mode is plan, or
-several consequential unresolved decisions need agreement. A plan is a short proposal, not a claim of
-file inspection. Explicit immediate implementation and already-agreed decisions favor execute. Revising
-a plan must return a new plan for approval; a question answer may execute if it resolves the
-uncertainty. Preserve all original requirements in the provided continuation. An approved plan is
-executed by the host without this routing step. History and assistant proposals are context, not new
-authorization. summary is a brief public approach, not inner reasoning or a claim of completed work.
-steps are 0–5 prospective milestones for substantial work, never a claim that checks passed. No fake
-timings. For plan, supply at least one step. The UI supplies Approve and Revise controls: do not add an
-approval question or answer options. question must be "" and options [] for plan, execute, and answer.
-Only clarify uses a nonempty question and optional suggested answers. For answer, steps must be []. Use
-only the select_workflow function. No markdown fences."""
+ROUTING_RULES = """You are a routing step for an app builder. Your sole function is to label the user's latest message,
+read with recent_context, as a change or a question. You cannot edit, run commands or read files; never answer it.
+
+A message is a change if it meets ONE OR MORE of these:
+1. It asks for something to be built, added, fixed, removed or made to look or work differently, in any words or
+   language: an instruction, a polite request, a stated need ("I want a login page").
+2. It agrees to a change proposed in recent_context ("yes", "do it", "sounds good", "2").
+3. saved_revision_id is null and it describes anything to build.
+
+A message is a question only if it asks about the app or the work so far and asks for no change ("did you use X?",
+"how does login work?", "why is the header blue?"), or weighs an idea without asking for it yet.
+
+Wording does not decide the label; what the user wants done does. A request phrased as a question is a change.
+When unsure, choose change: a builder that answers a request with a question fails the user, and the builder can still
+answer a question itself.
+
+Examples:
+"can you make the header blue?" -> {"reasoning": "A request phrased as a question.", "kind": "change"}
+"yes" after an offer to switch the backend -> {"reasoning": "Agrees to the proposed change.", "kind": "change"}
+"did you use fastify for the backend?" -> {"reasoning": "Asks what the app uses; no change.", "kind": "question"}
+"what about a dark mode?" -> {"reasoning": "Weighs an idea; asks for nothing yet.", "kind": "question"}
+"login kaam nahi kar raha" -> {"reasoning": "Reports a broken feature to fix.", "kind": "change"}
+"the header feels off" -> {"reasoning": "Unclear; may want it fixed, so change.", "kind": "change"}
+
+Use only the label_request function."""
+
+
+class RouteDecision(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    # Reasoning first: the label is written after it, so it follows from it.
+    reasoning: str = Field(description="One short sentence on why, referring to the rules above.")
+    kind: Literal["change", "question"]
 
 
 class WorkflowDecision(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    kind: Literal["execute", "clarify", "plan", "answer"]
+    kind: Literal["clarify", "plan"]
     summary: str = Field(min_length=1, max_length=700)
-    steps: list[str] = Field(
-        default_factory=list,
-        max_length=5,
-        description="Up to five milestones, each 1–300 characters. Required for plan; empty for answer.",
-    )
     question: str = Field(
         default="",
         max_length=500,
@@ -60,17 +59,19 @@ class WorkflowDecision(BaseModel):
         max_length=3,
         description="Suggested clarification answers, each 1–300 characters. Empty list unless kind is clarify.",
     )
+    # The plan file's markdown, shown whole on the approval card; only a plan from plan mode carries it.
+    plan: str = Field(default="", max_length=12_000)
 
     @model_validator(mode="after")
     def valid_content(self):
-        if not self.summary.strip() or any(not s.strip() or len(s) > 300 for s in self.steps + self.options):
+        if not self.summary.strip() or any(not s.strip() or len(s) > 300 for s in self.options):
             raise ValueError("Use nonempty, bounded proposal text")
         if self.kind == "clarify" and not self.question.strip():
             raise ValueError("Clarification requires one question")
-        if self.kind == "plan" and not self.steps:
-            raise ValueError("A plan requires steps")
-        if self.kind == "answer" and self.steps:
-            raise ValueError("An informational response must not propose implementation steps")
+        if self.kind == "plan" and not self.plan.strip():
+            raise ValueError("A plan requires its text")
+        if self.kind != "plan" and self.plan:
+            raise ValueError("Only a plan may contain plan text")
         if self.kind != "clarify" and (self.question or self.options):
             raise ValueError("Only clarification may contain question options")
         return self
@@ -88,6 +89,7 @@ def public_workflow(workflow):
             "steps",
             "question",
             "options",
+            "plan",
             "revision_id",
             "continuation_id",
             "resolution",
@@ -96,11 +98,9 @@ def public_workflow(workflow):
     }
 
 
-async def select_workflow(live, model=None):
+async def select_workflow(live, model):
     if live.workflow.get("approved"):
         return live.workflow
-    if model is None:
-        model = llm
     async with AutocommitSessionLocal() as db:
         chat = await db.get(Chat, live.chat_id)
         # No sandbox, compaction, or unbounded source reads just to choose a route.
@@ -116,26 +116,29 @@ async def select_workflow(live, model=None):
         # The project can be deleted while this run is in flight; treat a
         # missing row as "no saved revision" rather than raising.
         revision = chat.latest_saved_revision_id if chat else None
-    decision = (
-        await ask_structured(
+    mode = live.workflow.get("mode", "auto")
+    # A plan run plans whatever was asked, and an answer to a question the build asked continues that build:
+    # neither is labeled.
+    change = {"kind": "execute", "mode": mode, "revision_id": revision, "context": live.workflow.get("context")}
+    if mode == "plan" or change["context"]:
+        return change
+    try:
+        label = await ask_structured(
             model,
             system=ROUTING_RULES,
-            payload={
-                "request": live.prompt,
-                "mode": live.workflow.get("mode", "auto"),
-                "continuation": live.workflow.get("context"),
-                "recent_context": evidence,
-                "saved_revision_id": revision,
-            },
-            schema=WorkflowDecision,
-            name="select_workflow",
-            description="Choose execution, clarification, an approval-required plan, or an informational answer.",
+            payload={"request": live.prompt, "recent_context": evidence, "saved_revision_id": revision},
+            schema=RouteDecision,
+            name="label_request",
+            description="Label the request as a change to build or a question to answer.",
             metrics=live.metrics,
             phase="routing",
             cache_scope=live.chat_id,
             what="routing",
         )
-    ).model_dump()
-    if live.workflow.get("mode") == "plan" and decision["kind"] != "plan":
-        raise VerificationError("Planning was requested but no plan was returned. No files were edited.")
-    return {**redact(decision), "revision_id": revision, "context": live.workflow.get("context")}
+    except VerificationError:
+        # A failed label must not fail the request: build, as when unsure.
+        return change
+    if label.kind == "question":
+        # The recent messages go to the answer; the run never stores them (service.py clears the workflow).
+        return {"kind": "answer", "recent": evidence}
+    return change

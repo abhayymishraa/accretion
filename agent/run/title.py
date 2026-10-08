@@ -1,7 +1,7 @@
 """Project naming: a short title from the first request, written once while the project has none.
 
-After Vercel's ai-chatbot (generateTitleFromUserMessage, vercel/ai-chatbot@c2f8235): the chat starts
-untitled, a fast model names it alongside the first reply, and the name is saved and pushed to the page.
+The chat starts untitled, a fast model names it alongside the first reply, and the name is saved and
+pushed to the page.
 """
 
 import logging
@@ -19,8 +19,7 @@ from ..routing import providers
 
 logger = logging.getLogger(__name__)
 
-# Vercel ai-chatbot's titlePrompt (lib/ai/prompts.ts) with Open WebUI's "accuracy over creativity"
-# (DEFAULT_TITLE_GENERATION_PROMPT_TEMPLATE), and examples from this product instead of a chat app.
+# Examples from this product, not a chat app.
 _PROMPT = (
     "Name this app project from the user's request, in 2-5 words.\n"
     'Output ONLY the name. No quotes, no prefixes like "Title:", no emojis, no trailing punctuation.\n'
@@ -37,14 +36,14 @@ _PROMPT = (
 _MAX_OUTPUT_TOKENS = 512
 # Per model: a hung provider is benched and the next one tried.
 _TIMEOUT_SECONDS = 15
-# Vercel trims leading markdown and wrapping quotes the same way.
+# Leading markdown and wrapping quotes.
 _WRAPPING = re.compile(r"""^[\s#*"'`]+|[\s"'`.]+$""")
 # The title before naming existed, kept as the fallback so no project stays nameless.
 _FALLBACK_LENGTH = 100
 
 
 async def _generate(prompt: str, metrics: dict[str, Any]) -> str | None:
-    """The cheapest Auto model names it, as Vercel keeps a separate fast title model."""
+    """The cheapest Auto model names it."""
     try:
         response = await providers.invoke_auto(
             [SystemMessage(content=_PROMPT), HumanMessage(content=prompt)], _MAX_OUTPUT_TOKENS, _TIMEOUT_SECONDS

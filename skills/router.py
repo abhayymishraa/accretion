@@ -48,7 +48,7 @@ async def import_skill(
 
 
 @router.post("/skills/github/discover")
-async def discover_github_skills(source: GitHubSource, current_user: CurrentUser) -> GitHubSkills:
+async def discover_github_skills(source: GitHubSource, _: CurrentUser) -> GitHubSkills:
     return await importing.discover(source.url)
 
 
@@ -58,7 +58,7 @@ async def import_github_skills(selection: GitHubImport, current_user: CurrentUse
 
 
 @router.get("/skills/builtin/{skill_name}")
-async def get_builtin_skill(skill_name: str, current_user: CurrentUser) -> BuiltinSkillDetail:
+async def get_builtin_skill(skill_name: str, _: CurrentUser) -> BuiltinSkillDetail:
     return service.builtin_skill(skill_name)
 
 

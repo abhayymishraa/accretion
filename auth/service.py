@@ -33,11 +33,7 @@ from auth.exceptions import (
     VerificationNotConfigured,
 )
 from auth.models import AuthIdentity, AuthToken
-from db.base import bound
-from db.models import User
-from plans import month_window
-
-from .schemas import (
+from auth.schemas import (
     AccountCounts,
     AccountPage,
     AccountRow,
@@ -53,7 +49,7 @@ from .schemas import (
     UserResponse,
     VerificationRequested,
 )
-from .utils import (
+from auth.utils import (
     canonical_email,
     decode_token,
     get_password_hash,
@@ -61,16 +57,19 @@ from .utils import (
     issue_tokens,
     verify_password,
 )
-from .verification import (
+from auth.verification import (
     email_configured,
     first_link,
-    frontend_url,
     issue_token,
     limit_caller,
+    send_approval,
     send_link,
     token_digest,
     token_insert,
 )
+from db.base import bound
+from db.models import User
+from plans import month_window
 
 
 async def register_user(
@@ -118,11 +117,7 @@ async def register_user(
 
 async def login_user(user_data: UserLogin, db: AsyncSession) -> Token:
     """Authenticate user and return jwt"""
-
-    result = await db.execute(select(User).where(func.lower(User.email) == canonical_email(str(user_data.email))))
-
-    user = result.scalar_one_or_none()
-
+    user = await db.scalar(select(User).where(func.lower(User.email) == canonical_email(str(user_data.email))))
     if not user or not verify_password(user_data.password, user.hashed_password):
         raise InvalidCredentials
 
@@ -145,9 +140,7 @@ async def refresh_token(token_data: RefreshTokenRequest, db: AsyncSession) -> To
     if user_id is None:
         raise InvalidTokenPayload
 
-    result = await db.execute(select(User).where(User.id == int(user_id)))
-
-    user = result.scalar_one_or_none()
+    user = await db.get(User, int(user_id))
     if user is None or (not user.email_verified):
         raise InvalidRequest
 
@@ -296,20 +289,16 @@ async def list_users(
     )
 
 
-async def approve_user(user_id: int, db: AsyncSession) -> AccountRow:
+async def approve_user(user_id: int, background: BackgroundTasks, db: AsyncSession) -> AccountRow:
     user = await db.get(User, user_id, with_for_update=True)
     if not user:
         raise ApplicantNotFound
     if user.waitlisted:
         user.approved_at = datetime.now(UTC)
-        # A verify_email token doubles as the one-click sign-in: consuming it proves the
-        # address and returns a session, so the approval link needs no endpoint of its own.
-        token = await issue_token(db, user.id, "verify_email", minutes=7 * 24 * 60)
-        link = f"{frontend_url()}/verify-email#token={token}"
-        await emails.send(
-            user.email,
-            *emails.approved(user.name, link),
-            f"approved-{token_digest(token)}",
-        )
+    # A verify_email token doubles as the one-click sign-in: consuming it proves the address and
+    # returns a session, so the approval link needs no endpoint of its own. Approving an account
+    # again sends a fresh link, for an email that never arrived.
+    token = await issue_token(db, user.id, "verify_email", minutes=7 * 24 * 60)
+    background.add_task(send_approval, user.email, user.name, token)
     await db.commit()
     return AccountRow.model_validate(user)

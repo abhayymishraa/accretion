@@ -26,6 +26,9 @@ ARCHIVE_MAX_BYTES = 4 * 1024 * 1024
 # One page of events for streaming and list responses, which is a display
 # bound rather than a completeness one.
 EVENT_PAGE = 201
+_CREDENTIAL = re.compile(r"(?i)(bearer\s+|(?:api[_-]?key|password|secret|token)\s*[=:]\s*)[^\s,;\"\']+")
+_KEY_SHAPE = re.compile(r"\b(?:sk-[\w-]{12,}|gh[pousr]_[\w]+|AIza[\w-]+)\b")
+_URL_LOGIN = re.compile(r"(\w+://)[^\s/@]+:[^\s/@]+@")
 
 
 def redact(value, *, max_length=4000, max_items=250):
@@ -42,13 +45,9 @@ def redact(value, *, max_length=4000, max_items=250):
     for key, secret in os.environ.items():
         if len(secret) >= 8 and any(s in key for s in ("KEY", "SECRET", "TOKEN", "PASSWORD", "DATABASE_URL")):
             value = value.replace(secret, "[redacted]")
-    value = re.sub(
-        r"(?i)(bearer\s+|(?:api[_-]?key|password|secret|token)\s*[=:]\s*)[^\s,;\"\']+",
-        r"\1[redacted]",
-        value,
-    )
-    value = re.sub(r"\b(?:sk-[\w-]{12,}|gh[pousr]_[\w]+|AIza[\w-]+)\b", "[redacted]", value)
-    value = re.sub(r"(\w+://)[^\s/@]+:[^\s/@]+@", r"\1[redacted]@", value)
+    value = _CREDENTIAL.sub(r"\1[redacted]", value)
+    value = _KEY_SHAPE.sub("[redacted]", value)
+    value = _URL_LOGIN.sub(r"\1[redacted]@", value)
     return value if max_length is None else value[:max_length]
 
 

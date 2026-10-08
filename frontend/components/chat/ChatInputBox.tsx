@@ -154,7 +154,7 @@ export function ChatInputBox({
                             type="submit"
                             variant="send"
                             disabled={controlsDisabled || !input.trim()}
-                            className="size-9 shrink-0 rounded-full p-0 pointer-coarse:size-11 disabled:bg-surface-3 disabled:text-muted-foreground/50"
+                            className="size-9 shrink-0 rounded-full disabled:bg-surface-3 disabled:text-muted-foreground/50"
                             aria-label={submitLabel}
                             title={submitLabel}
                         >

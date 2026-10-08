@@ -60,9 +60,9 @@ const TimelineRow = memo(function TimelineRow({ line }: { line: ToolLine }) {
     // Opens on its own when it failed or the page reported problems.
     const [open, setOpen] = useState(failed || result.pageProblems.length > 0);
     const Glyph = ICONS[line.kind];
+    // A row opens only for something worth reading: a command's output, a diff, or what went wrong.
     const expandable =
-        line.kind === "run" ||
-        (!running && (line.kind === "other" || failed || Boolean(line.diff?.hunks.length)));
+        line.kind === "run" || (!running && (failed || Boolean(line.diff?.hunks.length)));
     const [done, going] = VERBS[line.kind];
     return (
         <div className="min-w-0">
@@ -122,7 +122,7 @@ const TimelineRow = memo(function TimelineRow({ line }: { line: ToolLine }) {
                     />
                 ) : (
                     <div className="border-l border-hairline pb-2 pl-3">
-                        <ToolResult tool={tool} result={result} />
+                        <ToolResult result={result} />
                     </div>
                 ))}
         </div>
@@ -131,7 +131,7 @@ const TimelineRow = memo(function TimelineRow({ line }: { line: ToolLine }) {
 
 /**
  * A run of tool rows under one header. The header sticks to the top of the conversation while its
- * rows scroll beneath it, as Codex does, so a long section never loses its label.
+ * rows scroll beneath it, so a long section never loses its label.
  */
 function TimelineSection({ lines, live }: { lines: ToolLine[]; live: boolean }) {
     const [choice, setChoice] = useState<boolean | null>(null);

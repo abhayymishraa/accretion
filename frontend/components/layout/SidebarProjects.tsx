@@ -11,7 +11,7 @@ import { useState } from "react";
 
 const SHOWN_DRAFTS = 3;
 export const SIDEBAR_ROW =
-    "flex min-h-8 w-full min-w-0 cursor-pointer items-center gap-2.5 rounded-[8px] px-2.5 text-left text-[12.5px] text-muted-foreground no-underline [transition:background-color_130ms_ease,color_130ms_ease] focus-visible:outline-2 focus-visible:outline-ring aria-[current=page]:bg-surface-2 aria-[current=page]:text-foreground pointer-fine:hover:bg-surface-2 pointer-fine:hover:text-foreground [&>svg]:shrink-0";
+    "flex min-h-8 pointer-coarse:min-h-11 w-full min-w-0 cursor-pointer items-center gap-2.5 rounded-[8px] px-2.5 text-left text-[12.5px] text-muted-foreground no-underline [transition:background-color_130ms_ease,color_130ms_ease] focus-visible:outline-2 focus-visible:outline-ring aria-[current=page]:bg-surface-2 aria-[current=page]:text-foreground pointer-fine:hover:bg-surface-2 pointer-fine:hover:text-foreground [&>svg]:shrink-0";
 
 function Group({
     label,

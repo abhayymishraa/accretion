@@ -150,10 +150,9 @@ def limit_output(model: BaseChatModel, max_tokens: int, *, reasoning: bool = Tru
 
     model_copy, never bind() or a call kwarg: both documented routes put
     `reasoning: null` on the OpenAI wire, and Gemini rejects unknown call
-    kwargs. Setting the field instead makes LangChain omit it, which is how Pi
-    does it too. The copy is shallow, so the spend-metered HTTP client and its
-    hooks are shared rather than rebuilt, and the caller's model is untouched:
-    Codex isolates compaction from live session state for the same reason.
+    kwargs. Setting the field instead makes LangChain omit it. The copy is
+    shallow, so the spend-metered HTTP client and its hooks are shared rather
+    than rebuilt, and the caller's model is untouched.
     """
     if isinstance(model, ChatGoogleGenerativeAI):
         update: dict[str, Any] = {"max_output_tokens": max_tokens}

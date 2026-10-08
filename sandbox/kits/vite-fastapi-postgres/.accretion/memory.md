@@ -26,9 +26,13 @@
 ## Tailwind v4
 - Configured in CSS only: `@import "tailwindcss";` in `index.css`. There is no `tailwind.config.js`; don't create one.
 - Customize with `@theme { --color-brand: ...; }` in `index.css`. Use utility classes in JSX.
+- Dark styles (`dark:`) apply under the `dark` class on `<html>`, not the device setting (`@custom-variant dark` in `src/index.css`; keep it). A theme switch sets that class on `<html>` and saves the choice in `localStorage`; to follow the device, read `prefers-color-scheme` once and set the class from it.
 
 ## Installed libraries
 Frontend: react, react-dom, tailwindcss. Backend: fastapi, uvicorn, sqlalchemy, alembic, psycopg, pydantic-settings. Add others only when needed (`npm install` in `frontend/`, or add a pinned line to `backend/requirements.txt` and `.venv/bin/pip install -r requirements.txt`).
+
+## Checks
+- Check your work: `cd frontend && npm run typecheck`. The host runs the production build when you finish; do not run it yourself.
 
 ## Running
 Both services are already running (API on 8000, web on 5173); never start another server.

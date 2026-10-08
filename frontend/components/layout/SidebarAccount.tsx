@@ -1,6 +1,7 @@
 "use client";
 
 import { useLightTheme, useThemeToggle } from "@/components/layout/ThemeProvider";
+import { Button } from "@/components/ui/button";
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -15,9 +16,9 @@ import { LogOut, Moon, Settings, Sun } from "lucide-react";
 import Link from "next/link";
 
 const PILL =
-    "flex h-9 cursor-pointer items-center rounded-[8px] border border-border bg-surface-2 text-[12.5px] [transition:background-color_130ms_ease] focus-visible:outline-2 focus-visible:outline-ring pointer-fine:hover:bg-surface-1";
+    "flex h-9 pointer-coarse:h-11 cursor-pointer items-center rounded-[8px] border border-border bg-surface-2 text-[12.5px] [transition:background-color_130ms_ease,scale_100ms_var(--ease-out)] active:scale-[0.97] motion-reduce:active:scale-100 focus-visible:outline-2 focus-visible:outline-ring pointer-fine:hover:bg-surface-1";
 
-/** The sidebar foot, as v0 lays it out: the account menu, and the month's budget beside it. */
+/** The sidebar foot: the account menu, and the month's budget beside it. */
 export function SidebarAccount({
     userData,
     onSignOut,
@@ -71,16 +72,17 @@ export function SidebarAccount({
                                 { value: false, label: "Dark", Icon: Moon },
                                 { value: true, label: "Light", Icon: Sun },
                             ].map(({ value, label, Icon }) => (
-                                <button
+                                <Button
                                     key={label}
+                                    variant="icon"
                                     type="button"
                                     aria-label={`${label} theme`}
                                     aria-pressed={light === value}
                                     onClick={() => light !== value && toggleTheme()}
-                                    className="grid size-7 cursor-pointer place-items-center rounded-full text-muted-foreground [transition:background-color_130ms_ease,color_130ms_ease] aria-pressed:bg-surface-2 aria-pressed:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
+                                    className="size-7 rounded-full aria-pressed:bg-surface-2 aria-pressed:text-foreground"
                                 >
                                     <Icon size={14} />
-                                </button>
+                                </Button>
                             ))}
                         </span>
                     </div>

@@ -111,7 +111,7 @@ async def events_page(db: AsyncSession, run_id: str, user: TokenUser, after_sequ
             "has_more": has_more,
             "status": run.status,
             "reason": run.reason,
-            "next_sequence": events[-1].get("sequence", after_sequence) if events else after_sequence,
+            "next_sequence": events[-1]["sequence"] if events else after_sequence,
             "detail_retention_days": DETAIL_RETENTION_DAYS,
             "event_retention_days": EVENT_RETENTION_DAYS,
         }

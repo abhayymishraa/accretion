@@ -5,7 +5,7 @@ import { runService } from "@/services/service.runs";
 import { getSessionId } from "@/lib/auth/session";
 import type { DecisionAction } from "@/types/chat.type";
 
-export function useWorkflowDecision(onChanged: () => void) {
+export function useWorkflowDecision(onChanged: (action: DecisionAction) => void) {
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const sending = useRef(false);
@@ -17,7 +17,7 @@ export function useWorkflowDecision(onChanged: () => void) {
         const session = getSessionId();
         try {
             await runService.respond(runId, action, text);
-            if (getSessionId() === session) onChanged();
+            if (getSessionId() === session) onChanged(action);
         } catch (cause) {
             if (getSessionId() === session)
                 setError(cause instanceof Error ? cause.message : "Could not save your response.");

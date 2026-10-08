@@ -8,7 +8,7 @@ import { IconSwap } from "@/components/ui/IconSwap";
 import { basename, type FileDiff } from "@/lib/chat/tool-lines";
 import { OpenFileContext } from "./OpenFileContext";
 
-/** A file name that opens the file in the Files panel; the dotted underline is Codex's link cue. */
+/** A file name that opens the file in the Files panel; the dotted underline marks it as a link. */
 export function FileLink({ path }: { path: string }) {
     const openFile = useContext(OpenFileContext);
     return (
@@ -48,7 +48,7 @@ function CopyButton({ text, label }: { text: string; label: string }) {
                     /* The text stays selectable in the block. */
                 }
             }}
-            className="ml-auto grid size-7 shrink-0 cursor-pointer place-items-center rounded-[6px] text-muted-foreground [transition:color_130ms_ease,background-color_130ms_ease] focus-visible:outline-2 focus-visible:outline-ring pointer-fine:hover:bg-surface-3 pointer-fine:hover:text-foreground"
+            className="ml-auto grid size-7 shrink-0 pointer-coarse:size-11 cursor-pointer place-items-center rounded-[6px] text-muted-foreground [transition:color_130ms_ease,background-color_130ms_ease] focus-visible:outline-2 focus-visible:outline-ring pointer-fine:hover:bg-surface-3 pointer-fine:hover:text-foreground"
         >
             <IconSwap swapped={copied} from={<CopyIcon />} to={<CheckIcon />} />
         </button>
@@ -183,7 +183,7 @@ export function ShellBlock({
     );
 }
 
-// Shared by the timeline's rows (RunTimeline, TimelineNotes). Codex lines every icon, card and image
+// Shared by the timeline's rows (RunTimeline, TimelineNotes). Every icon, card and image lines
 // up on one left edge: a row's content starts there and its hover background reaches 4px past it.
 export const ROW =
     "group relative -mx-1 flex min-h-8 min-w-0 items-center gap-2 rounded-[6px] px-1 text-[13.5px] text-foreground/85 data-[failed=true]:text-destructive";

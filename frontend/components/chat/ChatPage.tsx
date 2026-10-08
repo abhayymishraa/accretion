@@ -25,8 +25,8 @@ export default function ChatPage() {
         setModelChoice,
     } = useNewProject();
     return (
-        <div className="ember-chat-home relative flex h-dvh flex-col overflow-hidden">
-            <div className="ember-workspace-shell flex min-h-0 flex-1 overflow-hidden">
+        <div className="relative flex h-dvh flex-col overflow-hidden">
+            <div className="flex min-h-0 flex-1 overflow-hidden">
                 <WorkspaceSidebar current="new" userData={userData} onSignOut={handleSignOut} />
                 <main
                     id="main-content"
@@ -101,7 +101,7 @@ export default function ChatPage() {
                             <div className="relative mt-auto pt-10">
                                 <Link
                                     href="/projects"
-                                    className="inline-flex min-h-11 items-center gap-2 text-xs text-muted-foreground hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-4"
+                                    className="inline-flex min-h-11 items-center gap-2 text-xs text-muted-foreground pointer-fine:hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-4"
                                 >
                                     Continue an existing project{" "}
                                     <ArrowUpRight size={14} aria-hidden="true" />

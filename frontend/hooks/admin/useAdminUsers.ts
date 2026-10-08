@@ -6,6 +6,7 @@ import { usersService } from "@/services/service.users";
 import type { AccountStatus } from "@/types/auth.type";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import useSWR from "swr";
 
 const ADMIN_ONLY = "Only an admin can do this.";
@@ -73,8 +74,13 @@ export function useAdminUsers() {
         setActionError("");
         try {
             await usersService.approve(userId);
-            // Move on to the next person on this page.
             const index = items.findIndex((user) => user.id === userId);
+            if (items[index]?.approved_at) {
+                // A resend for an approved account: stay on it.
+                toast.success("Sign-in email sent");
+                return;
+            }
+            // Move on to the next person on this page.
             setSelectedId(items[index + 1]?.id ?? items[index - 1]?.id ?? null);
             // Approving the last waiting account on a later page would strand an empty page.
             if (status === "waiting" && items.length === 1 && page > 1) setPage(page - 1);

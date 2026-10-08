@@ -17,7 +17,7 @@ const labels: Record<string, string> = {
 // A connected service's tool runs as mcp__<service>__<tool>.
 const SERVICE_TOOL = /^mcp__(.+?)__(.+)$/;
 
-export function toolLabel(name: string) {
+function toolLabel(name: string) {
     const service = SERVICE_TOOL.exec(name);
     if (service) return `Use ${service[1]} · ${service[2].replaceAll("_", " ")}`;
     return labels[name] || name.replaceAll("_", " ");
@@ -86,7 +86,6 @@ export function presentTool(tool: ToolCall) {
         summary = tool.output ? "Result available" : "No output recorded";
     }
     return {
-        fileCount,
         targetFiles,
         truncatedFields,
         command: text("command"),
@@ -107,8 +106,6 @@ export function presentTool(tool: ToolCall) {
         stderr,
         error,
         exitCode,
-        interrupted,
         changed: Boolean(record?.changed_files),
-        parsed,
     };
 }

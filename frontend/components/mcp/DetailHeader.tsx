@@ -12,7 +12,7 @@ import { badge, type ServiceEntry } from "./serviceEntries";
 import { ServerSettings } from "./ServerSettings";
 import { ServiceLogo } from "./ServiceLogo";
 
-const ACTION = "h-9 rounded-[8px] px-4 text-[14px] pointer-coarse:h-11 max-sm:w-full";
+const ACTION = "rounded-[8px] px-4 text-[14px] max-sm:w-full";
 
 /** The service's logo, name and description, its one next step, and its account-wide switch. */
 export function DetailHeader({

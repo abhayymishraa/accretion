@@ -143,7 +143,7 @@ function buildChoices(
 ): MenuChoice[] {
     if (kind === "files") return fileChoices(query, mentionTargets(files));
     const needle = query.toLowerCase();
-    // Prompts come after the skills, one subheading per category, as bolt.new lists them.
+    // Prompts come after the skills, one subheading per category.
     const prompts = PROMPTS.filter((prompt) => prompt.name.toLowerCase().includes(needle)).map(
         (prompt) => ({
             id: `prompt:${prompt.name}`,

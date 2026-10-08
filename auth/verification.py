@@ -118,3 +118,12 @@ async def send_link(email: str, name: str, token: str) -> None:
         await emails.send(email, *emails.waitlist(name, link), f"verify-{token_digest(token)}")
     except VerificationEmailFailed:
         logger.warning("Verification email was not sent")
+
+
+async def send_approval(email: str, name: str, token: str) -> None:
+    """Runs after the response. A lost email is logged; the account stays approved and signs in as usual."""
+    link = f"{frontend_url()}/verify-email#token={token}"
+    try:
+        await emails.send(email, *emails.approved(name, link), f"approved-{token_digest(token)}")
+    except VerificationEmailFailed:
+        logger.warning("Approval email was not sent")

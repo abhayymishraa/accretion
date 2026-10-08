@@ -20,6 +20,10 @@ const SCOPES: { value: SkillScope; label: string }[] = [
     { value: "builtin", label: "Built in" },
 ];
 
+// The way out beside the search on the project's Skills ("Library") and Connectors ("Manage") tabs.
+export const TOOLBAR_LINK =
+    "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-[6px] border border-border bg-surface-2 px-3 text-[12.5px] text-foreground shadow-xs [transition:background-color_130ms_ease,scale_100ms_var(--ease-out)] active:scale-[0.97] motion-reduce:active:scale-100 focus-visible:outline-2 focus-visible:outline-ring pointer-coarse:h-11 pointer-fine:hover:bg-surface-3";
+
 /** Search by name or description; the Skills page and the project's Skills and Connectors tabs size it their
  * own way. */
 export function SkillSearch({

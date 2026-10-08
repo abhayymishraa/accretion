@@ -1,6 +1,6 @@
 # 016 — Let a newly opened workspace tab settle into the toolbar
 
-- **Status**: TODO
+- **Status**: DONE
 - **Commit**: dd8207d (the file has uncommitted changes on branch `feat/mcp-servers`; line numbers below are from that working tree)
 - **Severity**: LOW
 - **Category**: Missed opportunities (spatial consistency)

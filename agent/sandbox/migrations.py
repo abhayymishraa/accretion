@@ -40,11 +40,11 @@ class DestructiveMigration(Exception):
         self.files = files
 
 
-async def _sh(sandbox, command: str, timeout: int = 180) -> tuple[bool, str]:
+async def _sh(sandbox, command: str, timeout_seconds: int = 180) -> tuple[bool, str]:
     """A failed or timed-out command is a result, not an exception: the gate must always get to
     its restore and cleanup steps."""
     try:
-        result = await sandbox.commands.run(command, cwd=ROOT, timeout=timeout)
+        result = await sandbox.commands.run(command, cwd=ROOT, timeout=timeout_seconds)
     except CommandExitException as exc:
         return False, (exc.stdout + exc.stderr)[-4000:]
     except SandboxException as exc:

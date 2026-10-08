@@ -43,34 +43,21 @@ def get_password_hash(password: str) -> str:
     return str(pwd_context.hash(password))
 
 
-def create_access_token(data: dict[str, Any]) -> str:
-    """Create a JWT access token"""
-    to_encode = data.copy()
-
-    expire = datetime.now(UTC) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-
-    to_encode.update({"exp": expire, "type": "access"})
-    encode_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-
-    return encode_jwt
+def _encode(claims: dict[str, Any], lifetime: timedelta, token_type: str) -> str:
+    return jwt.encode({**claims, "exp": datetime.now(UTC) + lifetime, "type": token_type}, SECRET_KEY, ALGORITHM)
 
 
 def issue_tokens(user: User) -> Token:
     """A token pair for a verified user. The access token carries what each request checks, so
     authenticating one needs no database query; the refresh token re-reads the user."""
     return Token(
-        access_token=create_access_token({"sub": str(user.id), "role": user.role, "approved": not user.waitlisted}),
-        refresh_token=create_refresh_token({"sub": str(user.id)}),
+        access_token=_encode(
+            {"sub": str(user.id), "role": user.role, "approved": not user.waitlisted},
+            timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES),
+            "access",
+        ),
+        refresh_token=_encode({"sub": str(user.id)}, timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS), "refresh"),
     )
-
-
-def create_refresh_token(data: dict[str, Any]) -> str:
-    """Create a Jwt"""
-    to_encode = data.copy()
-    expire = datetime.now(UTC) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
-    to_encode.update({"exp": expire, "type": "refresh"})
-    encode_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-    return encode_jwt
 
 
 def decode_token(token: str, token_type: str = "access") -> dict[str, Any] | None:

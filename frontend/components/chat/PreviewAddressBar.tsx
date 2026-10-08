@@ -23,7 +23,7 @@ const STATUS: Record<PreviewPhase, string> = {
     error: "Stopped",
 };
 
-/** v0's address bar. History comes from the bridge the preview proxy adds (usePreviewHistory). */
+/** The preview's address bar. History comes from the bridge the preview proxy adds (usePreviewHistory). */
 export function PreviewAddressBar({
     src,
     current,
@@ -55,7 +55,7 @@ export function PreviewAddressBar({
     const [typing, setTyping] = useState(false);
     const ready = Boolean(src) && phase === "active";
     return (
-        <div className="flex h-10 shrink-0 items-center gap-0.5 border-b border-b-border bg-background px-2 max-md:px-1.5">
+        <div className="flex h-10 pointer-coarse:h-11 shrink-0 items-center gap-0.5 border-b border-b-border bg-background px-2 max-md:px-1.5">
             <Button variant="icon" disabled={!canBack} aria-label="Back" onClick={onBack}>
                 <ArrowLeft size={15} />
             </Button>
@@ -94,7 +94,7 @@ export function PreviewAddressBar({
                     }}
                     onBlur={() => setTyping(false)}
                     onChange={(event) => setPath(event.target.value)}
-                    className="h-7 w-full rounded-[7px] border border-border bg-surface-2 px-2.5 font-mono text-[12px] text-foreground outline-none [transition:border-color_130ms_ease] focus-visible:border-ring disabled:opacity-50"
+                    className="h-7 w-full rounded-[7px] border border-border bg-surface-2 px-2.5 font-mono text-[12px] pointer-coarse:h-11 pointer-coarse:text-[16px] text-foreground outline-none [transition:border-color_130ms_ease] focus-visible:border-ring disabled:opacity-50"
                 />
             </form>
             {ready && src && (

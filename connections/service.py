@@ -19,12 +19,15 @@ from auth.schemas import TokenUser
 from connections.catalog import BY_ID, CATALOG
 from connections.exceptions import (
     IconInvalid,
+    KeyNotAccepted,
     ServerAddressInvalid,
     ServerNameReserved,
     ServerNameTaken,
     ServerNotFound,
     ServerUnavailable,
     SignInExpired,
+    SignInFixed,
+    SignInNotOffered,
     SignInUnavailable,
 )
 from connections.schemas import (
@@ -42,7 +45,6 @@ from connections.schemas import (
     ToolInfo,
 )
 from db.models import Chat, McpServer
-from exceptions import BadRequest
 from projects.exceptions import ProjectNotFound
 
 _SIGN_IN_SECONDS = 600
@@ -218,7 +220,7 @@ async def save_key(db: AsyncSession, user: TokenUser, server_id: str, payload: K
     row = await _owned(db, user, server_id)
     entry = _entry(row)
     if row.auth == "oauth" and entry:
-        raise BadRequest("This server signs in with its own page, not a key.")
+        raise KeyNotAccepted
     # A row added before its catalog entry took a key has no header yet; the entry names it. A server added by
     # address takes the header the user names, then the one saved before. Else, and for every Authorization
     # header, the key goes as a bearer token unless it already names its scheme.
@@ -237,7 +239,7 @@ async def clear_credentials(db: AsyncSession, user: TokenUser, server_id: str) -
     """No sign-in: a server added by address drops its key or tokens and is called anonymously."""
     row = await _owned(db, user, server_id)
     if _entry(row):
-        raise BadRequest("This service signs in the way its catalog entry says.")
+        raise SignInFixed
     row = await _save(db, row, auth="none", header_name=None, secret=None)
     return _detail(await _refresh(db, row))
 
@@ -297,13 +299,13 @@ async def begin_sign_in(db: AsyncSession, user: TokenUser, server_id: str) -> Si
     row = await _owned(db, user, server_id)
     # A server added by address may sign in whatever it was detected as; the server says whether it can.
     if row.auth != "oauth" and _entry(row):
-        raise BadRequest("This server does not sign in with its own page.")
+        raise SignInNotOffered
     try:
         url, flow = await mcp.begin_sign_in(_server(row))
     except mcp.McpError as exc:
         raise ServerUnavailable(str(exc)) from None
     # Bound to this user and this server: the callback page finishes it signed in, so a link someone else
-    # started can never put their account on this user's server (LibreChat CVE-2026-31944).
+    # started can never put their account on this user's server.
     flow |= {"user_id": user.id, "server_id": row.id}
     try:
         await bus.client.set(f"accretion:mcp:sign-in:{flow['state']}", json.dumps(flow), ex=_SIGN_IN_SECONDS)

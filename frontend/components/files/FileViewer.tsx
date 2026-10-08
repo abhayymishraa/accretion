@@ -44,7 +44,7 @@ export function FileViewer({ files, projectId, revisionId, openedFile }: FileVie
     return (
         <div className="h-full flex">
             {/* File Tree Sidebar */}
-            <div className="ember-file-tree w-47.5 min-w-30 max-w-[38%] shrink-0 max-md:w-[135px] border-r border-border overflow-y-auto bg-surface-1">
+            <div className="w-47.5 min-w-30 max-w-[38%] shrink-0 max-md:w-[135px] border-r border-border overflow-y-auto bg-surface-1">
                 <div className="sticky top-0 z-10 border-b border-border bg-surface-1 p-3">
                     <h3 className="mb-2 text-sm font-semibold text-foreground">Files</h3>
                     <p className="text-muted-foreground text-xs">
@@ -69,20 +69,21 @@ export function FileViewer({ files, projectId, revisionId, openedFile }: FileVie
             </div>
 
             {/* Editor Area */}
-            <div className="ember-file-editor min-w-0 flex-1 flex flex-col">
+            <div className="min-w-0 flex-1 flex flex-col">
                 {selectedFile ? (
                     <>
                         {/* Editor Header */}
-                        <div className="ember-file-header flex min-w-0 flex-wrap items-center justify-between gap-2 border-b border-border bg-surface-1 px-3 py-2">
+                        <div className="flex min-w-0 flex-wrap items-center justify-between gap-2 border-b border-border bg-surface-1 px-3 py-2">
                             <div className="flex items-center gap-2">
                                 <FileIcon filename={selectedFile} />
-                                <span className="ember-file-path min-w-0 wrap-anywhere text-[11px] text-foreground font-mono">
+                                <span className="min-w-0 wrap-anywhere text-[11px] text-foreground font-mono">
                                     {selectedFile}
                                 </span>
                             </div>
                             <button
+                                type="button"
                                 onClick={handleDownloadFile}
-                                className="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-[6px] bg-surface-2 px-2.5 text-[11.5px] text-muted-foreground [transition:background-color_130ms_ease,color_130ms_ease,scale_100ms_var(--ease-out)] active:scale-[0.97] motion-reduce:active:scale-100 pointer-fine:hover:bg-accent pointer-fine:hover:text-accent-foreground"
+                                className="inline-flex h-7 pointer-coarse:h-11 cursor-pointer items-center gap-1.5 rounded-[6px] bg-surface-2 px-2.5 text-[11.5px] text-muted-foreground [transition:background-color_130ms_ease,color_130ms_ease,scale_100ms_var(--ease-out)] active:scale-[0.97] motion-reduce:active:scale-100 pointer-fine:hover:bg-accent pointer-fine:hover:text-accent-foreground"
                             >
                                 <Download className="w-3 h-3" />
                                 Download

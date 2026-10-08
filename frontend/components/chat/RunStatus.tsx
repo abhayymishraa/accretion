@@ -32,7 +32,7 @@ export function Elapsed({
         finish === null ? NaN : Math.max(0, Math.floor((finish - Date.parse(start)) / 1000));
     if (!Number.isFinite(seconds)) return null;
     return (
-        <span className="transcript-duration shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground">
+        <span className="shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground">
             {Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, "0")}
         </span>
     );

@@ -53,13 +53,13 @@ disallow_incomplete_defs = false
 disallow_untyped_calls = false
 warn_unreachable = true
 ignore_missing_imports = true
-exclude = "(agent/skills/|sandbox/|claude-seo/|graphify-out/|frontend/|alembic/)"
+exclude = "(agent/skills/|^sandbox/|claude-seo/|graphify-out/|frontend/|alembic/)"
 
 [tool.ruff]
 line-length = 120
 target-version = "py312"
 # Vendored skills, the E2B guest image and generated output are not ours to style.
-extend-exclude = ["agent/skills", "sandbox", "claude-seo", "graphify-out", "frontend"]
+extend-exclude = ["agent/skills", "./sandbox", "claude-seo", "graphify-out", "frontend"]
 
 [tool.ruff.lint]
 select = [
@@ -91,11 +91,7 @@ max-complexity = 15
 # Functions that already exceeded the ceiling when it was introduced. Each is a
 # state machine that predates this rule; none is exempt because it should be.
 # Removing an entry here is the goal, adding one needs a reason.
-"agent/run/runner.py" = ["C901"]            # run_editor, 37
-"agent/run/service.py" = ["C901"]           # execute 21, admit 19
+"agent/run/runner.py" = ["C901"]            # run_editor 99, run_call 16
+"agent/run/service.py" = ["C901"]           # execute 27, admit 23
 "agent/storage/maintenance.py" = ["C901"]   # maintain, 20
-"agent/tools/public_tools.py" = ["C901"]    # public_tool_details, 16
-"runs/socket.py" = ["C901"]                 # listen, 18 — moved verbatim from main.py
-
-[tool.ruff.lint.isort]
-known-first-party = ["agent", "auth", "db", "files", "health", "previews", "projects", "runs"]
+"agent/tools/public_tools.py" = ["C901"]    # public_tool_details, 20

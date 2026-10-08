@@ -1,7 +1,7 @@
 """Kits: working quickstart apps a project starts from (spec 8), described by stack.json.
 
-The kit's code lives in sandbox/kits/<id>/ and is baked into the E2B template for its
-database; the backend only reads each kit's stack.json. Loaded and validated at import,
+The kit's code lives in sandbox/kits/<id>/ and is baked into the one E2B template with every
+kit; the backend only reads each kit's stack.json. Loaded and validated at import,
 so a bad kit fails at boot.
 """
 
@@ -15,7 +15,7 @@ from agent import PACKAGE_ROOT
 from .config import sandbox_settings
 
 KITS_DIR = PACKAGE_ROOT.parent / "sandbox" / "kits"
-# Where a template keeps each kit, dependencies installed (sandbox/templates.py).
+# Where the template keeps each kit, dependencies installed (sandbox/templates.py).
 TEMPLATE_KITS_DIR = "/opt/accretion/kits"
 
 
@@ -68,4 +68,3 @@ def _load() -> dict[str, Kit]:
 
 
 KITS = _load()
-

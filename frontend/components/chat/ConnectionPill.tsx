@@ -22,7 +22,7 @@ export function ConnectionPill({
               ];
     return (
         <span
-            className={`ember-connection inline-flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-[11px] [transition:color_150ms_ease,border-color_150ms_ease] ${tone}`}
+            className={`inline-flex h-7 shrink-0 items-center whitespace-nowrap gap-1.5 rounded-full border px-2.5 text-[11px] [transition:color_150ms_ease,border-color_150ms_ease] ${tone}`}
             role="status"
         >
             <span

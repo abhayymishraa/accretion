@@ -1,5 +1,6 @@
 "use client";
 
+import { Button } from "@/components/ui/button";
 import { ErrorBox } from "@/components/ui/ErrorBox";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { ProjectSkills } from "@/hooks/skills/useProjectSkills";
@@ -8,13 +9,13 @@ import { ArrowUpRight, Check } from "lucide-react";
 import Link from "next/link";
 import { Fragment, useEffect, useState, type ReactNode } from "react";
 import styles from "./skills.module.css";
-import { SkillSearch } from "./SkillFilters";
+import { SkillSearch, TOOLBAR_LINK } from "./SkillFilters";
 import { matches } from "./SkillSections";
 import { Required, SkillSwitch, STATUS } from "./SkillSwitch";
 
-// The workspace's small control: the same shape as the Files pane's Download button.
+// The workspace's small filled action: the utility button on a surface.
 const SMALL =
-    "inline-flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-[6px] px-2.5 text-[11.5px] [transition:background-color_130ms_ease,color_130ms_ease,scale_100ms_var(--ease-out)] [&:not(:disabled)]:active:scale-[0.97] motion-reduce:[&:not(:disabled)]:active:scale-100 focus-visible:outline-2 focus-visible:outline-ring pointer-coarse:h-11 bg-surface-2 text-foreground pointer-fine:hover:bg-accent pointer-fine:hover:text-accent-foreground";
+    "h-7 shrink-0 rounded-[6px] px-2.5 text-[11.5px] bg-surface-2 text-foreground pointer-fine:hover:bg-accent pointer-fine:hover:text-accent-foreground";
 
 function Section({
     title,
@@ -124,12 +125,9 @@ export function ProjectSkillsPanel({ projectSkills }: { projectSkills: ProjectSk
                     <SkillSearch
                         value={query}
                         onChange={setQuery}
-                        className="h-8 rounded-[6px] text-[12.5px]"
+                        className="h-8 rounded-[6px] text-[12.5px] sm:text-[12.5px]"
                     />
-                    <Link
-                        href="/skills"
-                        className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-[6px] border border-border bg-surface-2 px-3 text-[12.5px] text-foreground shadow-xs [transition:background-color_130ms_ease,scale_100ms_var(--ease-out)] active:scale-[0.97] motion-reduce:active:scale-100 focus-visible:outline-2 focus-visible:outline-ring pointer-coarse:h-11 pointer-fine:hover:bg-surface-3"
-                    >
+                    <Link href="/skills" className={TOOLBAR_LINK}>
                         Library
                         <ArrowUpRight
                             size={13}
@@ -143,9 +141,14 @@ export function ProjectSkillsPanel({ projectSkills }: { projectSkills: ProjectSk
                 {error && !skills ? (
                     <div className="p-4">
                         <ErrorBox message={error}>
-                            <button type="button" onClick={retry} className={SMALL}>
+                            <Button
+                                variant="utility"
+                                type="button"
+                                onClick={retry}
+                                className={SMALL}
+                            >
                                 Try again
-                            </button>
+                            </Button>
                         </ErrorBox>
                     </div>
                 ) : skills && !shown.length ? (
@@ -153,7 +156,7 @@ export function ProjectSkillsPanel({ projectSkills }: { projectSkills: ProjectSk
                         No skills match &ldquo;{query.trim()}&rdquo;.
                     </p>
                 ) : skills ? (
-                    <>
+                    <div data-loaded-in="">
                         <Section
                             title="In this project"
                             note="Always on"
@@ -167,14 +170,15 @@ export function ProjectSkillsPanel({ projectSkills }: { projectSkills: ProjectSk
                                         In library
                                     </span>
                                 ) : (
-                                    <button
+                                    <Button
+                                        variant="utility"
                                         type="button"
                                         onClick={() => save(skill.name)}
                                         disabled={saving !== ""}
-                                        className={`${SMALL} disabled:cursor-default disabled:opacity-60`}
+                                        className={`${SMALL} disabled:opacity-60`}
                                     >
                                         {saving === skill.name ? "Saving" : "Save to library"}
-                                    </button>
+                                    </Button>
                                 )
                             }
                         />
@@ -198,7 +202,7 @@ export function ProjectSkillsPanel({ projectSkills }: { projectSkills: ProjectSk
                                 />
                             ),
                         )}
-                    </>
+                    </div>
                 ) : (
                     <div className="flex flex-col gap-1.5 p-4" aria-label="Loading skills">
                         {[0, 1, 2, 3, 4].map((row) => (

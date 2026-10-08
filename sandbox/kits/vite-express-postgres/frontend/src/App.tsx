@@ -26,7 +26,7 @@ export default function App() {
     if (!res.ok) return setError((await res.json()).error ?? "Could not save");
     setText("");
     setError("");
-    await load();
+    await load().catch(() => setError("Could not load notes"));
   }
 
   return (

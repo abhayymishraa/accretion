@@ -4,8 +4,7 @@ from config import BaseConfig
 
 
 class AuthConfig(BaseConfig):
-    # Empty means "not configured": provider_enabled() and the deploy script
-    # both treat a short key as disabled rather than failing at import.
+    # Under 32 characters fails at import (auth/utils.py) and in the deploy script.
     SECRET_KEY: str = ""
 
     RESEND_API_KEY: str = ""

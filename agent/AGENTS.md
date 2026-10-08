@@ -23,23 +23,22 @@ Every module in the table below now carries that line.
 
 ## Boundaries
 
-The package is laid out as below, following
-[SWE-agent](https://github.com/SWE-agent/SWE-agent)'s split of the loop from
-the environment from the tools.
+The package is laid out as below: the loop apart from the environment, apart
+from the tools.
 
 | Package | Owns | Modules |
 | --- | --- | --- |
-| `run/` | The editing loop and what it is built from | `agent.py`, `prompts.py`, `runner.py`, `service.py`, `worker.py`, `bus.py`, `workflow.py`, `decisions.py`, `diagnostics.py`, `structured.py`, `title.py` |
-| `sandbox/` | The E2B environment and everything executed inside it | `sandbox_runtime.py`, `preview.py`, `preview_process.py`, `preview_proxy.py`, `commands.py`, `check_data.py`, `archive.py`, `kits.py`, `project.py`, `secrets.py`, `migrations.py` |
-| `tools/` | The tool surface offered to the model | `tools.py`, `public_tools.py`, `skills.py` |
-| `context/` | What the model is shown and what it remembers | `compaction.py`, `context.py`, `transcript.py`, `history.py` |
-| `budget/` | Cost admission and accounting | `budget.py`, `model_budget.py`, `sandbox_budget.py`, `usage.py` |
+| `run/` | The editing loop and what it is built from | `agent.py`, `prompts.py`, `runner.py`, `service.py`, `worker.py`, `bus.py`, `workflow.py`, `answer.py`, `decisions.py`, `diagnostics.py`, `structured.py`, `title.py`, `exceptions.py` |
+| `sandbox/` | The E2B environment and everything executed inside it | `sandbox_runtime.py`, `preview.py`, `preview_process.py`, `preview_proxy.py`, `commands.py`, `check_data.py`, `archive.py`, `kits.py`, `project.py`, `secrets.py`, `migrations.py`, `models.py` |
+| `tools/` | The tool surface offered to the model | `tools.py`, `public_tools.py`, `skills.py`, `mcp.py`, `mcp_tools.py` |
+| `context/` | What the model is shown and what it remembers | `compaction.py`, `context.py`, `transcript.py`, `history.py`, `models.py` |
+| `budget/` | Cost admission and accounting | `budget.py`, `model_budget.py`, `sandbox_budget.py`, `usage.py`, `models.py` |
 | `routing/` | Which model runs: the registry, a client per provider, Jev, the pick, and history rewrite on a model change | `models.toml`, `registry.py`, `providers.py`, `jev.py`, `router.py`, `history.py`, `failures.py` |
-| `storage/` | Durable artifacts and their lifecycle | `storage.py`, `persistence.py`, `init_storage.py`, `maintenance.py` |
+| `storage/` | Durable artifacts and their lifecycle | `storage.py`, `persistence.py`, `init_storage.py`, `maintenance.py`, `models.py` |
 | package root | The one surface the groups share | `events.py` |
 
-`events.py` stays at the root deliberately: it is imported by five modules
-across four of the groups above, so pushing it into any one of them would make
+`events.py` stays at the root deliberately: it is imported by modules in four
+of the groups above, so pushing it into any one of them would make
 that group look like an owner when it is a shared boundary. `diagnostics.py`
 goes to `run/` because `service.py` is its only caller — it reads like a shared
 surface but is not one yet.
@@ -47,7 +46,7 @@ surface but is not one yet.
 ### Settings
 
 Each group owns a `config.py` holding one `BaseSettings` subclass: `run/`,
-`context/`, `sandbox/`, `budget/`, `storage/` and `routing/`. A module reads settings from
+`context/`, `sandbox/`, `budget/`, `storage/`, `routing/` and `tools/`. A module reads settings from
 its own group, or imports another group's settings object by name. Nothing in
 this package reads `os.getenv` directly.
 
@@ -115,13 +114,14 @@ split.
   owning group.
 - `service.py` owns admission, durable outcomes and reconnectable activity; `worker.py` owns run
   ownership through a Postgres lease. `service.py` is the boundary the API talks to, so
-  `main.py` should not reach past it into the loop.
+  the API domains should not reach past it into the loop.
 - When the model needs a user decision, `workflow.py` produces an immutable,
   bounded proposal. Proposals do not carry authority to act.
 
 ## Prompts
 
-`prompts.py` is a product surface, not configuration. Changing it changes what
+`run/prompts.md` and `run/planning.md`, loaded by `prompts.py`, are a product
+surface, not configuration. Changing them changes what
 every future build produces, and the effect is not visible in any check we run.
 
 - Change it deliberately and on its own, so the diff is reviewable.

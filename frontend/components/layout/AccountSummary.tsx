@@ -9,13 +9,13 @@ export function AccountSummary({ userData }: { userData: UserData | null }) {
             ? userData.cost_allowance
             : null;
     return (
-        <div className="ember-account flex items-center gap-3 text-[12px] text-muted-foreground min-w-0 [&>span:first-child]:max-w-55 [&>span:first-child]:overflow-hidden [&>span:first-child]:text-ellipsis [&>span:first-child]:whitespace-nowrap max-[1101px]:[&>span:first-child]:hidden max-md:hidden">
+        <div className="flex items-center gap-3 text-[12px] text-muted-foreground min-w-0 [&>span:first-child]:max-w-55 [&>span:first-child]:overflow-hidden [&>span:first-child]:text-ellipsis [&>span:first-child]:whitespace-nowrap max-[1101px]:[&>span:first-child]:hidden max-md:hidden">
             {userData && (
                 <>
                     <span>{userData.email}</span>
                     {budget && (
                         <span
-                            className="ember-balance whitespace-nowrap rounded-[6px] bg-surface-2 px-2 py-1 font-mono tabular-nums text-foreground"
+                            className="whitespace-nowrap rounded-[6px] bg-surface-2 px-2 py-1 font-mono tabular-nums text-foreground"
                             title="Build budget left this month"
                         >
                             {budget.unlimited

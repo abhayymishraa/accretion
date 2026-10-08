@@ -38,6 +38,7 @@ export default function ChatWorkspace({ chatId }: { chatId: string }) {
         loadingOlder,
         loadOlder,
         refreshHistory,
+        decided,
         appUrl,
         revisionId,
         isBuilding,
@@ -68,7 +69,7 @@ export default function ChatWorkspace({ chatId }: { chatId: string }) {
         handleSendMessage,
         handleCancel,
     } = useChatWorkspace(chatId);
-    // v0's panel toggle: the preview takes the whole width while the conversation is folded away.
+    // Panel toggle: the preview takes the whole width while the conversation is folded away.
     const [chatHidden, setChatHidden] = useState(false);
     const projectSkills = useProjectSkills(chatId);
     const { ensureLoaded } = projectSkills;
@@ -84,7 +85,7 @@ export default function ChatWorkspace({ chatId }: { chatId: string }) {
     };
     return (
         <OpenFileContext value={openFile}>
-            <div className="ember-builder relative flex h-dvh min-h-0 flex-col overflow-hidden bg-background">
+            <div className="relative flex h-dvh min-h-0 flex-col overflow-hidden bg-background">
                 <ChatIdHeader
                     userData={userData}
                     showPreview={showPreview}
@@ -96,7 +97,7 @@ export default function ChatWorkspace({ chatId }: { chatId: string }) {
                     onBack={() => router.push("/projects")}
                 />
                 <div
-                    className="ember-mobile-tabs hidden max-md:flex max-md:gap-1 max-md:border-b max-md:border-b-border max-md:px-3 max-md:py-1.5 max-md:[&>button]:flex-1"
+                    className="hidden max-md:flex max-md:gap-1 max-md:border-b max-md:border-b-border max-md:px-3 max-md:py-1.5 max-md:[&>button]:flex-1"
                     role="group"
                     aria-label="Workspace view"
                 >
@@ -118,11 +119,11 @@ export default function ChatWorkspace({ chatId }: { chatId: string }) {
                         Workspace
                     </Button>
                 </div>
-                <div className="ember-builder-shell flex min-h-0 flex-1 max-[1101px]:[&>.ember-workspace-sidebar]:hidden">
+                <div className="flex min-h-0 flex-1 max-[1101px]:[&>.ember-workspace-sidebar]:hidden">
                     <WorkspaceSidebar userData={userData} onSignOut={signOut} />
                     <main
                         ref={containerRef}
-                        className="ember-builder-body [&[data-resizing]_iframe]:pointer-events-none flex min-h-0 flex-1 gap-px overflow-hidden bg-border max-md:gap-0 max-md:[&[data-mobile-pane=chat]>.ember-preview]:hidden max-md:[&[data-mobile-pane=preview]>.ember-conversation]:hidden max-md:[&>.ember-preview]:w-full! max-md:[&>.ember-conversation]:w-full!"
+                        className="[&[data-resizing]_iframe]:pointer-events-none flex min-h-0 flex-1 gap-px overflow-hidden bg-border max-md:gap-0 max-md:[&[data-mobile-pane=chat]>.ember-preview]:hidden max-md:[&[data-mobile-pane=preview]>.ember-conversation]:hidden max-md:[&>.ember-preview]:w-full! max-md:[&>.ember-conversation]:w-full!"
                         data-mobile-pane={mobilePane}
                         id="main-content"
                     >
@@ -135,7 +136,7 @@ export default function ChatWorkspace({ chatId }: { chatId: string }) {
                                 <ProjectTitle projectId={chatId} revisionId={revisionId} />
                             </div>
                             <div
-                                className="ember-message-scroll relative min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 py-8 [overflow-anchor:none] max-md:px-4 max-md:py-5"
+                                className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 py-8 [overflow-anchor:none] max-md:px-4 max-md:py-5"
                                 ref={conversationRef}
                                 onScroll={handleConversationScroll}
                             >
@@ -177,7 +178,7 @@ export default function ChatWorkspace({ chatId }: { chatId: string }) {
                                         </Button>
                                     </ErrorBox>
                                     {!messages.length && !isLoading && !error && (
-                                        <div className="ember-chat-intro pt-2 pb-4">
+                                        <div className="pt-2 pb-4">
                                             <span className="inline-flex size-9 items-center justify-center rounded-[10px] bg-accent text-accent-foreground">
                                                 <Sparkles size={17} aria-hidden="true" />
                                             </span>
@@ -196,7 +197,7 @@ export default function ChatWorkspace({ chatId }: { chatId: string }) {
                                             message={message}
                                             pills={pills}
                                             connected={connected}
-                                            onWorkflowChanged={refreshHistory}
+                                            onWorkflowChanged={decided}
                                             canRespond={message.id === `run:${pendingDecisionId}`}
                                         />
                                     ))}
@@ -246,7 +247,7 @@ export default function ChatWorkspace({ chatId }: { chatId: string }) {
                             <>
                                 <div
                                     hidden={chatHidden}
-                                    className="ember-resizer relative z-10 w-px shrink-0 cursor-col-resize touch-none bg-border outline-offset-0 [transition:background-color_140ms_ease] before:absolute before:inset-y-0 before:-inset-x-1 before:content-[''] focus-visible:bg-ring focus-visible:outline-none [[data-resizing]_&]:bg-ring pointer-fine:hover:bg-ring max-md:hidden"
+                                    className="relative z-10 w-px shrink-0 cursor-col-resize touch-none bg-border outline-offset-0 [transition:background-color_140ms_ease] before:absolute before:inset-y-0 before:-inset-x-1 before:content-[''] focus-visible:bg-ring focus-visible:outline-none [[data-resizing]_&]:bg-ring pointer-fine:hover:bg-ring max-md:hidden"
                                     role="separator"
                                     aria-label="Resize conversation and preview"
                                     aria-orientation="vertical"

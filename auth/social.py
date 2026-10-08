@@ -5,7 +5,7 @@ from urllib.parse import urlencode
 
 import httpx
 from authlib.integrations.starlette_client import OAuth, OAuthError
-from fastapi import APIRouter, Request
+from fastapi import BackgroundTasks, Request
 from fastapi.responses import RedirectResponse
 from joserfc.errors import JoseError
 from sqlalchemy import func, select
@@ -21,22 +21,17 @@ from auth.exceptions import (
     ProviderNotConfigured,
 )
 from auth.models import AuthIdentity
-from config import settings
-from db.base import DbSession
-from db.models import User
-
-from .dependencies import SignedInUser
-from .schemas import Token, TokenRequest
-from .utils import (
+from auth.schemas import AuthOptions, ProviderLink, Token, TokenRequest
+from auth.utils import (
     SECRET_KEY,
     canonical_email,
     get_password_hash,
     initial_access,
     issue_tokens,
 )
-from .verification import consume_token, email_configured, frontend_url, issue_token
-
-social_router = APIRouter(prefix="/auth", tags=["auth"])
+from auth.verification import consume_token, email_configured, frontend_url, issue_token
+from config import settings
+from db.models import User
 
 
 def api_url() -> str:
@@ -44,9 +39,7 @@ def api_url() -> str:
 
 
 def provider_enabled(provider: str) -> bool:
-    return (
-        provider in PROVIDERS and len(auth_settings.SECRET_KEY) >= 32 and all(auth_settings.oauth_credentials(provider))
-    )
+    return provider in PROVIDERS and all(auth_settings.oauth_credentials(provider))
 
 
 def configure_sessions(app):
@@ -94,35 +87,22 @@ def oauth_client(provider: str):
     )
 
 
-@social_router.get("/options")
-async def auth_options():
-    return {
-        "providers": {name: provider_enabled(name) for name in PROVIDERS},
-        "email_verification": email_configured(),
-    }
+def auth_options() -> AuthOptions:
+    return AuthOptions(
+        providers={name: provider_enabled(name) for name in PROVIDERS},
+        email_verification=email_configured(),
+    )
 
 
-@social_router.post("/oauth/{provider}/link")
-async def link_provider(
-    provider: str,
-    user: SignedInUser,
-    db: DbSession,
-):
+async def link_provider(provider: str, user_id: int, db: AsyncSession) -> ProviderLink:
     if not provider_enabled(provider):
         raise ProviderNotConfigured
-    ticket = await issue_token(db, user.id, f"link_{provider}")
+    ticket = await issue_token(db, user_id, f"link_{provider}")
     await db.commit()
-    return {"url": f"{api_url()}/auth/oauth/{provider}?{urlencode({'ticket': ticket})}"}
+    return ProviderLink(url=f"{api_url()}/auth/oauth/{provider}?{urlencode({'ticket': ticket})}")
 
 
-@social_router.get("/oauth/{provider}")
-async def start_oauth(
-    provider: str,
-    request: Request,
-    ticket: str | None = None,
-    *,
-    db: DbSession,
-):
+async def start_oauth(provider: str, request: Request, ticket: str | None, db: AsyncSession):
     client = oauth_client(provider)
     link_user = await consume_token(db, ticket, f"link_{provider}") if ticket else None
     await db.commit()
@@ -204,8 +184,9 @@ async def resolve_identity(
     return user, created
 
 
-@social_router.get("/oauth/{provider}/callback")
-async def oauth_callback(provider: str, request: Request, db: DbSession):
+async def oauth_callback(
+    provider: str, request: Request, background: BackgroundTasks, db: AsyncSession
+) -> RedirectResponse:
     client = oauth_client(provider)
     try:
         token = await client.authorize_access_token(request)
@@ -219,7 +200,7 @@ async def oauth_callback(provider: str, request: Request, db: DbSession):
             destination = f"{frontend_url()}/auth/callback#ticket={ticket}"
         await db.commit()
         if created and user.waitlisted:
-            await emails.enrolled(user)
+            background.add_task(emails.enrolled, user)
     except (OAuthError, JoseError, httpx.HTTPError, ValueError, IntegrityError) as exc:
         await db.rollback()
         code = (
@@ -237,8 +218,7 @@ async def oauth_callback(provider: str, request: Request, db: DbSession):
     )
 
 
-@social_router.post("/oauth/exchange")
-async def exchange_oauth(data: TokenRequest, db: DbSession) -> Token:
+async def exchange_oauth(data: TokenRequest, db: AsyncSession) -> Token:
     user_id = await consume_token(db, data.token, "oauth_exchange")
     user = await db.get(User, user_id)
     if not user or (not user.email_verified):

@@ -1,12 +1,9 @@
 """Liveness and readiness probes."""
 
-import asyncio
-
 from fastapi import APIRouter
-from sqlalchemy import text
 
 from db.base import Autocommit, DbSession
-from health.exceptions import DatabaseUnavailable
+from health import service
 from health.schemas import Liveness, Readiness
 
 router = APIRouter()
@@ -19,8 +16,4 @@ async def get_health() -> Liveness:
 
 @router.get("/health/ready", dependencies=[Autocommit])
 async def get_readiness(db: DbSession) -> Readiness:
-    try:
-        await asyncio.wait_for(db.execute(text("SELECT 1")), timeout=12)
-    except Exception:
-        raise DatabaseUnavailable from None
-    return Readiness(status="ready")
+    return await service.readiness(db)

@@ -35,10 +35,10 @@ async def _start_database(sandbox, kit: Kit) -> None:
     await sandbox.commands.run(f"accretion-db start {kit.database}", timeout=60)
 
 
-async def _run(sandbox, command: str, *, timeout: int = 180) -> None:
+async def _run(sandbox, command: str, *, timeout_seconds: int = 180) -> None:
     """One stack.json step from the project root with .env loaded. Empty means nothing to do."""
     if command:
-        await sandbox.commands.run(f"set -a; . ./.env; set +a; {command}", cwd=ROOT, timeout=timeout)
+        await sandbox.commands.run(f"set -a; . ./.env; set +a; {command}", cwd=ROOT, timeout=timeout_seconds)
 
 
 async def _write_config(sandbox, chat_id: str, kit: Kit) -> None:
@@ -67,7 +67,7 @@ async def restore(sandbox, chat_id: str, kit_id: str) -> None:
     (or the kit's migrations when the revision has none), then the services."""
     kit = KITS[kit_id]
     await _write_config(sandbox, chat_id, kit)
-    await _run(sandbox, kit.install, timeout=300)
+    await _run(sandbox, kit.install, timeout_seconds=300)
     await _start_database(sandbox, kit)
     # Kits write their dump as db/dump.* (stack.json `dump`); db/ may also hold source files.
     listing = await sandbox.commands.run(f"ls {ROOT}/db/dump.* 2>/dev/null || true", timeout=10)
@@ -83,4 +83,4 @@ async def restore(sandbox, chat_id: str, kit_id: str) -> None:
 
 async def dump(sandbox, kit_id: str) -> None:
     """Spec 3: the database travels with the revision, dumped into db/ before each checkpoint."""
-    await _run(sandbox, KITS[kit_id].dump, timeout=120)
+    await _run(sandbox, KITS[kit_id].dump, timeout_seconds=120)

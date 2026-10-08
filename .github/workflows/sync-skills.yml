@@ -35,7 +35,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: python scripts/sync_skills.py | tee /tmp/sync-report.txt
 
-      # Imports agent/skills.py for real, so the check exercises the production path.
+      # Imports agent/tools/skills.py for real, so the check exercises the production path.
       - name: Verify every skill still loads and hashes match
         run: |
           pip install --quiet langchain-core pydantic

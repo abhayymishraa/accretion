@@ -36,7 +36,7 @@ function Screenshot({ runId, screenshotId }: { runId: string; screenshotId: stri
     );
 }
 
-/** The images a browser check saved, shown right after its command, as v0 does. */
+/** The images a browser check saved, shown right after its command. */
 export function RunScreenshots({ runId, ids }: { runId: string; ids: string[] }) {
     return (
         <div className="grid max-w-[36rem] justify-items-start gap-2 py-1.5">

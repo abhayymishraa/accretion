@@ -81,7 +81,7 @@ export default function LandingPage() {
 
                 <header
                     style={{ ["--i" as string]: 0 }}
-                    className={`${styles.heroRise} ${styles.island} flex h-14 w-max max-w-full items-center gap-5 rounded-full py-1 pr-1.5 pl-5 [&_.ember-brand]:gap-2 [&_.ember-brand]:text-[17px] [&_.ember-brand]:text-white [&_.ember-brand>svg]:w-[21px] [&_.ember-icon]:text-white/85 pointer-fine:[&_.ember-icon:hover]:bg-white/15`}
+                    className={`${styles.heroRise} ${styles.island} flex h-14 w-max max-w-full items-center gap-5 rounded-full py-1 pr-1.5 pl-5 [&_.ember-brand]:gap-2 [&_.ember-brand]:text-[17px] [&_.ember-brand]:text-white [&_.ember-brand>svg]:w-[21px]`}
                 >
                     <span
                         style={{ ["--i" as string]: 0 }}

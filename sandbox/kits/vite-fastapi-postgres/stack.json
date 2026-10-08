@@ -16,5 +16,5 @@
   "restore": "psql \"$DATABASE_URL\" -q -f db/dump.sql",
   "migrations": ["backend/alembic/versions/"],
   "env": ["POSTGRES_PASSWORD", "APP_SECRET"],
-  "entry": ["AGENTS.md", "frontend/src/App.tsx", "backend/app/main.py", "backend/app/models.py"]
+  "entry": [".accretion/memory.md", "frontend/src/App.tsx", "backend/app/main.py", "backend/app/models.py"]
 }

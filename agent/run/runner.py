@@ -36,13 +36,15 @@ from ..tools.skills import MAX_SKILL_BYTES, SKILL_NAME, RuntimeSkills, parse_ski
 from ..tools.tools import FileWriteError, WorkspaceTools, list_files, shrink_for_model
 from .agent import llm
 from .config import run_settings
-from .prompts import SYSTEM_PROMPT
+from .prompts import PLANNING_PROMPT, SYSTEM_PROMPT
 
 logger = logging.getLogger("webbuilder.runs")
 # Skills a project keeps for itself, in .agents/skills/<name>/SKILL.md: read every build, always on.
 _PROJECT_SKILL = re.compile(r"\.agents/skills/([^/]+)/SKILL\.md")
 # What a final reply written for a developer contains: code spans, API paths, a method with a path, file names.
 _TECHNICAL = re.compile(r"`|/api/|\b(?:GET|POST|PUT|PATCH|DELETE) /|\b[\w-]+\.(?:tsx?|jsx?|py|css|json|sql)\b")
+# A title or part heading a model starts a plan part with: the host writes those itself.
+_LEADING_HEADING = re.compile(r"\A\s*#{1,2} [^\n]*\n")
 _BROWSER_STEP = re.compile(r"agent-browser\s+(\w+)")
 # Browser steps that can submit or change data (typing into a field alone saves nothing), and those that load
 # the page afresh from the server.
@@ -68,12 +70,16 @@ async def project_skills(workspace, paths: list[str]) -> list[dict[str, str]]:
     return found
 
 
-# Spec 5 stuck rail: the same call 4 times (Gemini CLI loop detection) or the same error
-# 3 times (OpenHands StuckDetector) gets one nudge, then the run pauses.
+# Spec 5 stuck rail: the same call 4 times or the same error 3 times gets one nudge, then the run pauses.
 REPEAT_LIMIT = 4
 ERROR_REPEAT_LIMIT = 3
-# Safe to run together: they only read (spec 5, Codex RwLock).
+# Safe to run together: they only read (spec 5).
 READ_ONLY = frozenset({"read_files", "read_skill", "search_project_history", "tool_search"})
+# The plan the user approves, and the project's notes; both live in the project, so every revision keeps them.
+PLAN_FILE = ".accretion/plan.md"
+MEMORY_FILE = ".accretion/memory.md"
+# Calls that end the run with a card for the user: each must be the only call in its reply.
+PAUSING = frozenset({"request_decision", "write_plan"})
 
 
 class RunLimitError(Exception):
@@ -97,16 +103,16 @@ class SandboxSetupError(VerificationError):
     pass
 
 
-def _last_sent_agents_md(messages):
-    """The AGENTS.md most recently sent in this chat, or None once compaction has folded it away."""
+def _last_sent_memory(messages):
+    """The project notes most recently sent in this chat, or None once compaction has folded them away."""
     for message in reversed(messages):
         if isinstance(message, HumanMessage) and isinstance(message.content, str):
             try:
                 body = json.loads(message.content)
             except ValueError:
                 continue
-            if isinstance(body, dict) and "agents_md" in body:
-                return body["agents_md"]
+            if isinstance(body, dict) and "project_memory" in body:
+                return body["project_memory"]
     return None
 
 
@@ -213,8 +219,7 @@ async def verify(
 
 
 def failed_checks(checks: dict[str, Any]) -> str:
-    """What the model must fix: the failing step's own output, not the whole check record (Dyad sends
-    its TypeScript problems the same way, src/shared/problem_prompt.ts)."""
+    """What the model must fix: the failing step's own output, not the whole check record."""
     build = checks["build"]
     if not build["ok"]:
         output = "\n".join(text for text in (build.get("stdout", ""), build.get("stderr", "")) if text.strip())
@@ -241,6 +246,7 @@ async def run_editor(
     *,
     skills: RuntimeSkills,
     mcp: McpTools,
+    planning: bool = False,
 ):
     workspace = WorkspaceTools(sandbox)
     if model is None:
@@ -248,45 +254,58 @@ async def run_editor(
         # DEFAULT_MODEL and its key, so a bad setting fails at boot.
         model = llm
     tools = {t.name: t for t in workspace.definitions()}
+    # Imported here, not at the top: workflow imports structured, which imports this module.
+    from .workflow import WorkflowDecision
 
     @tool
     async def request_decision(
-        kind: Literal["clarify", "plan"],
         summary: str,
-        steps: list[str],
-        question: str = "",
+        question: str,
         options: list[str] = Field(default=[]),
     ) -> dict[str, Any]:
-        """Pause only for a newly discovered material user choice. Never combine with other calls.
-
-        For clarify, supply one nonempty question and up to three suggested options.
-        For plan, supply a summary and 1–5 steps; question must be "" and options [].
-        The UI supplies plan approval controls. Keep each step or option within 300 characters.
+        """Ask the user one question, only for a newly discovered choice that changes the result. Never combine
+        with other calls. Supply the question and up to three suggested answers, each within 300 characters.
         """
-        from .workflow import WorkflowDecision
-
-        decision = WorkflowDecision(kind=kind, summary=summary, steps=steps, question=question, options=options)
+        decision = WorkflowDecision(kind="clarify", summary=summary, question=question, options=options)
         return {"ok": True, "decision": decision.model_dump()}
 
     tools[request_decision.name] = request_decision
+    if planning:
+        # Plan mode reads, and changes one file, the plan, through write_plan: no commands and no connected
+        # services, since either can change files.
+        tools = {name: tools[name] for name in ("read_files", "request_decision")}
+
+        @tool
+        async def write_plan(title: str, summary: str, for_user: str, for_builder: str) -> dict[str, Any]:
+            """Save the plan for the user to approve, replacing any earlier one, and stop. title names the app or the
+            change; summary is one or two plain sentences on what will be built; for_user and for_builder are the two
+            parts the plan rules describe, in markdown, without headings. Never combine with other calls."""
+            # The host writes the headings, so every plan splits the same way whatever earlier plans looked like.
+            user, builder = (_LEADING_HEADING.sub("", part).strip() for part in (for_user, for_builder))
+            # The chat card folds the builder's part, found by its heading.
+            plan = f"# {title.strip()}\n\n## What you'll get\n{user}\n\n## How it will be built\n{builder}\n"
+            decision = WorkflowDecision(kind="plan", summary=summary, plan=plan)
+            await workspace.write({PLAN_FILE: decision.plan})
+            return {"ok": True, "changed_files": [PLAN_FILE], "decision": decision.model_dump()}
+
+        tools[write_plan.name] = write_plan
     paths = await list_files(sandbox)
     skills.add_project(await project_skills(workspace, paths))
     skill_prompt = skills.prompt()
     if skill_prompt:
         skill_tool = skills.tool()
         tools[skill_tool.name] = skill_tool
-    mcp_prompt = mcp.prompt()
+    mcp_prompt = "" if planning else mcp.prompt()
     # Present with or without connected services, so the first one a user connects changes neither the tool list
     # nor the system prompt, the start of the cached prefix.
-    for mcp_tool in (mcp.search_tool(), mcp.call_tool()):
+    for mcp_tool in () if planning else (mcp.search_tool(), mcp.call_tool()):
         tools[mcp_tool.name] = mcp_tool
     if memory is not None:
         history_tool = memory.tool()
         tools[history_tool.name] = history_tool
-    # Runaway backstops, not work limits. OpenHands allows 500 iterations and
-    # relies on stuck detection plus a cost ceiling to stop a run; a turn count
-    # low enough to interrupt healthy work is the wrong instrument. Spend is bounded
-    # by the user's monthly budget, enforced on every model call (agent/budget).
+    # Runaway backstops, not work limits. Stuck detection plus a cost ceiling stop a run; a turn count low
+    # enough to interrupt healthy work is the wrong instrument. Spend is bounded by the user's monthly budget,
+    # enforced on every model call (agent/budget).
     max_turns = run_settings.RUN_MAX_TURNS
     max_calls = run_settings.RUN_MAX_TOOL_CALLS
     window = entry_for(model).context_window
@@ -294,7 +313,7 @@ async def run_editor(
     retry_above = 0
     max_repairs = 2
     context = await memory.build(prompt, metrics) if memory is not None else {}
-    # Files the user named with "@" go to the model whole, as Cline sends them; excerpts skip them.
+    # Files the user named with "@" go to the model whole; excerpts skip them.
     # A named folder goes as its file list, capped, so one "@src/" cannot flood the context.
     mentioned_paths, mentioned_dirs = mentions(prompt, paths)
     # Skills the user picked as "/name" go with the request, loaded, so the model need not call read_skill.
@@ -335,7 +354,7 @@ async def run_editor(
             }
         except Exception:
             initial[path] = {"error": "Unable to read; inspect with tools before editing"}
-    # Spec 4.3: the kit's stack.json and the project's AGENTS.md (stack, conventions, current
+    # Spec 4.3: the kit's stack.json and the project's notes (stack, conventions, current
     # condition) come from the project itself.
     stack_text = await read_project_file(workspace, ".accretion/stack.json")
     if not stack_text:
@@ -360,7 +379,12 @@ async def run_editor(
         await check_data.keep()
 
     workspace.before_browser = before_browser
-    agents_md = (await read_project_file(workspace, "AGENTS.md") or "")[:20000]
+    # Older projects keep their notes in AGENTS.md at the root; the model updates the file it was sent.
+    memory_path, notes_text = MEMORY_FILE, await read_project_file(workspace, MEMORY_FILE)
+    if notes_text is None:
+        memory_path, notes_text = "AGENTS.md", await read_project_file(workspace, "AGENTS.md")
+    notes_text = (notes_text or "")[:20000]
+    project_memory = {"path": memory_path, "content": notes_text} if notes_text else None
     chat_id = getattr(memory, "chat_id", None)
     raw_prior = await load_transcript(chat_id) if chat_id else []
     # Connected-service tools the chat already used or found load first, before the history is rewritten for
@@ -372,7 +396,10 @@ async def run_editor(
 
     def tool_list(chosen):
         """The tool list for a model never changes during a run, so the cached prefix holds. A model that defers
-        tools gets every approved one, the unloaded ones deferred; another gets the fixed call_mcp_tool."""
+        tools gets every approved one, the unloaded ones deferred; another gets the fixed call_mcp_tool.
+        Plan mode has no connected services."""
+        if planning:
+            return builtin_tools
         if entry_for(chosen).defers_tools:
             return [*builtin_tools, *mcp.with_deferred()]
         return [*builtin_tools, convert_to_openai_tool(tools["call_mcp_tool"])]
@@ -397,34 +424,38 @@ async def run_editor(
             + skill_prompt
             + mcp_prompt
             + "\nInitial files may be excerpts. Read complete files before replacing them."
+            + (PLANNING_PROMPT if planning else "")
         ),
         *prior,
         HumanMessage(
             content=json.dumps(
                 {
                     "project_context": context,
-                    # Not in the system prompt: the model updates AGENTS.md, and a changed first
-                    # message makes every later run resend the whole chat uncached (Claude Code
-                    # sends CLAUDE.md changes in the next message for the same reason).
-                    **({"agents_md": agents_md} if agents_md and agents_md != _last_sent_agents_md(prior) else {}),
+                    # Not in the system prompt: the model updates the notes, and a changed first
+                    # message makes every later run resend the whole chat uncached.
+                    **(
+                        {"project_memory": project_memory}
+                        if project_memory and project_memory != _last_sent_memory(prior)
+                        else {}
+                    ),
                     "request": prompt,
                     **({"mentioned_files": mentioned} if mentioned else {}),
                     **({"mentioned_folders": folders} if folders else {}),
                     **({"picked_skills": picked} if picked else {}),
                     # Connected-service tools by name only; tool_search fetches a definition before a call.
                     # Which services the project has, here and not in the system prompt: a change costs no cache.
-                    **({"connected_services": services} if (services := mcp.services()) else {}),
-                    **({"deferred_tools": deferred} if (deferred := mcp.deferred()) else {}),
+                    **({"connected_services": services} if not planning and (services := mcp.services()) else {}),
+                    **({"deferred_tools": deferred} if not planning and (deferred := mcp.deferred()) else {}),
                     # Tools of a "/service" pick, in full, for a model without deferred tools: after the prefix.
                     **(
                         {"picked_service_tools": picks}
-                        if not entry_for(model).defers_tools and (picks := mcp.picked(prompt))
+                        if not planning and not entry_for(model).defers_tools and (picks := mcp.picked(prompt))
                         else {}
                     ),
                     # On a model that defers tools a pick stays deferred, so the tool list holds; the model fetches it.
                     **(
                         {"picked_tools": names}
-                        if entry_for(model).defers_tools and (names := mcp.picked_names(prompt))
+                        if not planning and entry_for(model).defers_tools and (names := mcp.picked_names(prompt))
                         else {}
                     ),
                     "request_context": request_context,
@@ -457,7 +488,7 @@ async def run_editor(
         except Exception:
             logger.exception("Could not persist the transcript chat_id=%s", chat_id)
 
-    cache_key = prompt_cache_key(messages[0].content, formatted_tools, getattr(memory, "chat_id", ""))
+    cache_key = prompt_cache_key(messages[0].content, formatted_tools, chat_id or "")
     repeated: Counter[tuple[Any, ...]] = Counter()
     failures: Counter[tuple[Any, ...]] = Counter()
     # Spec 5: each rail nudges once, then pauses. Notes are flushed after a batch's tool
@@ -513,6 +544,14 @@ async def run_editor(
                 tool_schema = schema_of(formatted_tools)
         return report
 
+    async def finished(text):
+        return {
+            "summary": text,
+            "url": "https://" + sandbox.get_host(PROXY_PORT),
+            # Read again: the build may have added one (skill-creator writes them).
+            "project_skills": await project_skills(workspace, await list_files(sandbox)),
+        }
+
     def nudge(reason, text, stop_message):
         nonlocal stop
         if reason in nudged:
@@ -528,7 +567,7 @@ async def run_editor(
         notes.clear()
 
     def drain_inbox():
-        """Pi's steering queue: messages the user sent mid-run join the next model call."""
+        """Steering: messages the user sent mid-run join the next model call."""
         if inbox:
             messages.append(
                 HumanMessage(
@@ -582,6 +621,7 @@ async def run_editor(
             "edit_file": "Editing project files",
             "edit_files": "Editing project files",
             "execute_command": "Running a workspace command",
+            "write_plan": "Writing the plan",
         }.get(call["name"], "Using a connected service" if call["name"] in mcp.by_name else None)
         if stage:
             await emit("stage", message=stage)
@@ -594,7 +634,8 @@ async def run_editor(
         started = time.monotonic()
         fatal_error = None
         try:
-            if call["name"] in mcp.by_name:
+            # Plan mode has no connected services: a tool loaded by an earlier run is not callable here either.
+            if not planning and call["name"] in mcp.by_name:
                 result = await mcp.call(call["name"], call["args"])
             elif call["name"] not in tools:
                 # An older run in this chat's transcript may have called a tool that has since been
@@ -636,7 +677,7 @@ async def run_editor(
                 images.append(
                     {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + b64encode(jpeg).decode()}}
                 )
-            # Dyad's rule: tell the model an image is attached only when one is.
+            # Tell the model an image is attached only when one is.
             result["screenshots_attached_below"] = len(images)
             if cropped:
                 result["screenshot_note"] = (
@@ -741,15 +782,27 @@ async def run_editor(
             messages.append(response)
             if response.invalid_tool_calls:
                 raise VerificationError("Model returned an invalid tool call")
-            if any(call["name"] == "request_decision" for call in calls) and len(calls) != 1:
+            if any(call["name"] in PAUSING for call in calls) and len(calls) != 1:
                 raise VerificationError(
-                    "A decision request cannot be combined with editing tools. No calls in this batch were executed."
+                    "request_decision and write_plan must each be called alone. No calls in this batch were executed."
                 )
             if not calls and not response.text.strip() and "empty" not in nudged:
-                # OpenHands: an empty reply gets one nudge before it is treated as done.
+                # An empty reply gets one nudge before it is treated as done.
                 nudged.add("empty")
                 messages.append(HumanMessage(content="Call a tool to continue, or reply with what you changed."))
                 continue
+            if not calls and planning:
+                # A plan run changes no code, so there is nothing to check; it ends on its plan or this reply.
+                if "plan" not in nudged:
+                    nudged.add("plan")
+                    messages.append(
+                        HumanMessage(
+                            content="Save the plan with write_plan, or ask one question with request_decision."
+                        )
+                    )
+                    continue
+                await remember()
+                return await finished(response.text or "No plan was written.")
             # Each reminder once, and before the gate below discards the rows the browser check created.
             if not calls and data_check != "done" and "data_check" not in nudged:
                 nudged.add("data_check")
@@ -766,7 +819,8 @@ async def run_editor(
                 messages.append(
                     HumanMessage(
                         content="Rewrite your reply for someone who does not read code: say what they can now see and"
-                        " do, without code, paths, file names, or technology names. Reply with the text only."
+                        " do, without code, paths, file names, or technology names. Keep only a technology the user"
+                        " named themselves, and what the app uses in its place. Reply with the text only."
                     )
                 )
                 continue
@@ -785,12 +839,7 @@ async def run_editor(
                 await checkpoint()
                 if checks["ok"]:
                     await remember()
-                    return {
-                        "summary": response.text or "Application updated.",
-                        "url": "https://" + sandbox.get_host(PROXY_PORT),
-                        # Read again: the build may have added one (skill-creator writes them).
-                        "project_skills": await project_skills(workspace, await list_files(sandbox)),
-                    }
+                    return await finished(response.text or "Application updated.")
                 if repairs >= max_repairs:
                     raise VerificationError(
                         "The build still fails after two repair passes"
@@ -814,7 +863,7 @@ async def run_editor(
                         "You have repeated the same call without progress. Try a different approach or finish.",
                         "Stopped repetitive tool calls without progress",
                     )
-            # Spec 5 (Codex, Reasonix): consecutive read-only calls run together; anything that can
+            # Spec 5: consecutive read-only calls run together; anything that can
             # change files, run commands or drive the one browser runs alone, in order.
             outcomes: list[tuple[dict[str, Any], Any, Exception | None]] = []
             index = 0
@@ -831,7 +880,7 @@ async def run_editor(
                 index = end
             attached: list[dict[str, Any]] = []
             for call, (result, images, _) in zip(calls, outcomes, strict=True):
-                # OpenHands' action-error streak, keyed by the error itself so a loop that keeps
+                # The action-error streak, keyed by the error itself so a loop that keeps
                 # hitting the same wall is caught. Any success clears it.
                 if result.get("ok"):
                     failures.clear()
@@ -855,9 +904,10 @@ async def run_editor(
                         status="success" if result.get("ok") else "error",
                     )
                 )
-                if call["name"] == "request_decision" and result.get("ok"):
-                    # The paused run resumes from this checkpoint, so it must hold the user's data only.
-                    await checkpoint(await check_data.discard())
+                if call["name"] in PAUSING and result.get("ok"):
+                    # The paused run resumes from this checkpoint, so it must hold the user's data only. A plan is
+                    # saved with it: approving checks the project has not changed since.
+                    await checkpoint(await check_data.discard() or call["name"] == "write_plan")
                     await remember()
                     return {"decision": result["decision"]}
             if attached:

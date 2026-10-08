@@ -1,7 +1,8 @@
 """Bounded command observations. Reconnect to owned processes, never replay them."""
+
+import asyncio
 from types import SimpleNamespace
 from typing import Any
-import asyncio
 from uuid import uuid4
 
 import httpx
@@ -9,22 +10,22 @@ from e2b import CommandExitException, SandboxException
 
 MAX_OUTPUT = 12_000
 MAX_STREAM_OUTPUT = 256_000
-# Pi's bash tool: keep the tail, save full text to a file named in the output.
+# Keep the tail, save full text to a file named in the output.
 # ponytail: files die with the sandbox; a stale path means rerun the command.
-_FULL_OUTPUT_DIR = '/tmp/tool-output'
+_FULL_OUTPUT_DIR = "/tmp/tool-output"
 
 
 async def _bounded_output(sandbox, text: str, stream: str, max_output: int) -> str:
     if len(text) <= max_output:
         return text
-    path = f'{_FULL_OUTPUT_DIR}/{uuid4().hex}-{stream}.log'
+    path = f"{_FULL_OUTPUT_DIR}/{uuid4().hex}-{stream}.log"
     try:
         await sandbox.files.write(path, text, request_timeout=10)
     except (SandboxException, httpx.HTTPError):
-        where = 'full output could not be saved'
+        where = "full output could not be saved"
     else:
-        where = f'full output: {path}'
-    return text[-max_output:] + f'\n[showing the last {max_output} of {len(text)} characters; {where}]'
+        where = f"full output: {path}"
+    return text[-max_output:] + f"\n[showing the last {max_output} of {len(text)} characters; {where}]"
 
 
 class CommandStateError(SandboxException):
@@ -36,8 +37,10 @@ async def _stop_tree(sandbox, pid: int) -> bool:
 
     The shell's children (npm, then node) outlive a kill of the shell alone, so leaves go first.
     """
-    script = ('tree() { for child in $(ps -o pid= --ppid "$1"); do tree "$child"; done; echo "$1"; }; '
-              f'kill -9 $(tree {pid}) 2>/dev/null; sleep 0.2; ! kill -0 {pid} 2>/dev/null')
+    script = (
+        'tree() { for child in $(ps -o pid= --ppid "$1"); do tree "$child"; done; echo "$1"; }; '
+        f"kill -9 $(tree {pid}) 2>/dev/null; sleep 0.2; ! kill -0 {pid} 2>/dev/null"
+    )
     try:
         stopped = await sandbox.commands.run(script, timeout=10, request_timeout=10)
     except (CommandExitException, SandboxException, httpx.HTTPError):
@@ -45,7 +48,9 @@ async def _stop_tree(sandbox, pid: int) -> bool:
     return bool(stopped.exit_code == 0)
 
 
-async def run_command(sandbox, command: str, *, cwd: str, timeout: int, max_output: int = MAX_OUTPUT) -> dict[str, Any]:
+async def run_command(
+    sandbox, command: str, *, cwd: str, timeout_seconds: int, max_output: int = MAX_OUTPUT
+) -> dict[str, Any]:
     handle = None
     received = 0
     reconnected = False
@@ -54,16 +59,22 @@ async def run_command(sandbox, command: str, *, cwd: str, timeout: int, max_outp
         nonlocal received
         received += len(chunk)
         if received > MAX_STREAM_OUTPUT:
-            raise CommandStateError('Command output limit reached; sandbox cleanup is required')
+            raise CommandStateError("Command output limit reached; sandbox cleanup is required")
 
     # The SDK owns output buffers. Callbacks enforce only our run's output budget.
-    callbacks = {'on_stdout': limit_output, 'on_stderr': limit_output}
+    callbacks = {"on_stdout": limit_output, "on_stderr": limit_output}
     try:
         # SDK connection timeouts do not stop remote processes. The outer deadline
         # includes the one permitted reconnect; failure escapes to sandbox retirement.
-        async with asyncio.timeout(timeout):
-            handle = await sandbox.commands.run(command, background=True, cwd=cwd,
-                timeout=timeout, request_timeout=min(timeout, 10), **callbacks)
+        async with asyncio.timeout(timeout_seconds):
+            handle = await sandbox.commands.run(
+                command,
+                background=True,
+                cwd=cwd,
+                timeout=timeout_seconds,
+                request_timeout=min(timeout_seconds, 10),
+                **callbacks,
+            )
             try:
                 result = await handle.wait()
             except (CommandExitException, CommandStateError):
@@ -74,12 +85,17 @@ async def run_command(sandbox, command: str, *, cwd: str, timeout: int, max_outp
                 # A process that exited without an observed exit event is unknown,
                 # not successful. Only reconnect to this invocation's running PID.
                 running = await sandbox.commands.list(request_timeout=5)
-                if not any(process.pid == pid and process.cmd == '/bin/bash'
-                           and process.args == ['-l', '-c', command] and process.cwd == cwd
-                           for process in running):
-                    raise CommandStateError('Command exit could not be confirmed; sandbox cleanup is required')
-                handle = await sandbox.commands.connect(pid, timeout=timeout,
-                    request_timeout=5, **callbacks)
+                if not any(
+                    process.pid == pid
+                    and process.cmd == "/bin/bash"
+                    and process.args == ["-l", "-c", command]
+                    and process.cwd == cwd
+                    for process in running
+                ):
+                    raise CommandStateError(
+                        "Command exit could not be confirmed; sandbox cleanup is required"
+                    ) from None
+                handle = await sandbox.commands.connect(pid, timeout=timeout_seconds, request_timeout=5, **callbacks)
                 reconnected = True
                 result = await handle.wait()
     except CommandExitException as exc:
@@ -87,25 +103,35 @@ async def run_command(sandbox, command: str, *, cwd: str, timeout: int, max_outp
     except CommandStateError:
         raise
     except TimeoutError:
-        # Codex stops a timed-out command and hands the model the result, exit code 124, and the
-        # turn goes on (openai/codex@444da31 core/src/exec.rs). Only a process that will not die
+        # Stop a timed-out command and hand the model the result, exit code 124; the turn goes on.
+        # Only a process that will not die
         # leaves the sandbox in an unknown state.
         if handle is None or not await _stop_tree(sandbox, handle.pid):
-            raise CommandStateError('Command timed out and could not be stopped. Sandbox cleanup is required') from None
-        result = SimpleNamespace(exit_code=124, stdout=handle.stdout,
-            stderr=handle.stderr + f'\n[stopped after {timeout}s: the command did not finish in time]')
+            raise CommandStateError("Command timed out and could not be stopped. Sandbox cleanup is required") from None
+        result = SimpleNamespace(
+            exit_code=124,
+            stdout=handle.stdout,
+            stderr=handle.stderr + f"\n[stopped after {timeout_seconds}s: the command did not finish in time]",
+        )
     except Exception:
         # Even a lost start response can leave a process running without its PID.
-        raise CommandStateError('Command connection lost; its outcome is unknown. Sandbox cleanup is required') from None
+        raise CommandStateError(
+            "Command connection lost; its outcome is unknown. Sandbox cleanup is required"
+        ) from None
     finally:
         if handle is not None:
             # Cancellation also closes the SDK stream. Service owns terminating the
             # entire sandbox, including children of an interrupted shell process.
             await handle.disconnect()
     assert handle is not None  # reaching here means the command started
-    return {'ok': result.exit_code == 0, 'status': 'exited', 'pid': handle.pid,
-            'exit_code': result.exit_code, 'reconnected': reconnected,
-            'output_may_be_incomplete': reconnected,
-            'stdout': await _bounded_output(sandbox, result.stdout, 'stdout', max_output),
-            'stderr': await _bounded_output(sandbox, result.stderr, 'stderr', max_output),
-            **({'error_type': 'CommandExitException'} if result.exit_code != 0 else {})}
+    return {
+        "ok": result.exit_code == 0,
+        "status": "exited",
+        "pid": handle.pid,
+        "exit_code": result.exit_code,
+        "reconnected": reconnected,
+        "output_may_be_incomplete": reconnected,
+        "stdout": await _bounded_output(sandbox, result.stdout, "stdout", max_output),
+        "stderr": await _bounded_output(sandbox, result.stderr, "stderr", max_output),
+        **({"error_type": "CommandExitException"} if result.exit_code != 0 else {}),
+    }

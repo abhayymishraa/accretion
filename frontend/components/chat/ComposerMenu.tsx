@@ -41,7 +41,7 @@ const PROMPT_ICONS: Record<PromptCategory, LucideIcon> = {
     Workflow,
 };
 
-/** The highlighted skill or prompt in full, beside the list, as bolt.new's command menu shows it. */
+/** The highlighted skill or prompt in full, beside the list. */
 function Detail({ choice, open }: { choice: MenuChoice; open: boolean }) {
     const { skill, service } = choice;
     if (!skill && !service && !choice.category) return null;
@@ -123,7 +123,7 @@ export function ComposerMenu({
     if (active && active.id !== shown?.id) setShown(active);
     return (
         // Takes no clicks itself: the closed menu is invisible, and the chat under it stays usable. The
-        // side panel may reach past the chat into the preview, as bolt.new's does.
+        // side panel may reach past the chat into the preview.
         <div className="pointer-events-none absolute bottom-[calc(100%+8px)] left-0 z-30 w-full">
             <div className="flex items-end gap-2">
                 <div

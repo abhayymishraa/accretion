@@ -12,9 +12,12 @@ export type RunStatus =
 export interface WorkflowProposal {
     kind: "execute" | "clarify" | "plan" | "answer";
     summary: string;
-    steps: string[];
+    // Only older plan and approach cards carry steps; a plan from plan mode carries its `plan` text.
+    steps?: string[];
     question?: string;
     options?: string[];
+    // A plan from plan mode: the whole plan file, as markdown.
+    plan?: string;
     revision_id?: string | null;
     resolution?: DecisionAction;
     continuation_id?: string | null;

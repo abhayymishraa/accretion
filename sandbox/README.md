@@ -12,7 +12,7 @@ server. There is no SQLite and no frontend-only starter.
 | `vite-express-mongo`    | React + Vite           | Express, official mongodb driver      | MongoDB    |
 
 Each kit holds `stack.json` (services, ports, install, build, typecheck, migrate,
-seed, dump, restore, env), and an `AGENTS.md` the build agent keeps current.
+seed, dump, restore, env), and `.accretion/memory.md`, the notes the build agent keeps current.
 The Vite frontends proxy `/api` to the backend, so a project has one preview URL.
 
 ## Template

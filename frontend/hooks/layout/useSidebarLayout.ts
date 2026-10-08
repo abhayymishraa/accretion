@@ -5,7 +5,6 @@ import { useRef, useSyncExternalStore, type KeyboardEvent, type PointerEvent } f
 const COLLAPSED_KEY = "accretion-sidebar";
 const WIDTH_KEY = "accretion-sidebar-width";
 const CHANGED = "accretion-sidebar-changed";
-// Open WebUI clamps its sidebar to 220-480px; ours runs narrower, matching its 212px default.
 export const SIDEBAR_WIDTH = { min: 200, max: 400, initial: 212, rail: 56 };
 // Dragged narrower than this, the sidebar folds to its icon strip instead of stopping at min.
 const FOLD_BELOW = 120;
@@ -64,7 +63,7 @@ export function useSidebarLayout() {
 type Layout = ReturnType<typeof useSidebarLayout>;
 
 /**
- * Drag-to-resize for the sidebar's edge, after Open WebUI's Sidebar.svelte (open-webui/open-webui@8bd8b4f):
+ * Drag-to-resize for the sidebar's edge:
  * pointer capture keeps the drag alive off the handle, and the width rides a CSS variable until release.
  */
 export function useSidebarResize(sidebar: React.RefObject<HTMLElement | null>, layout: Layout) {

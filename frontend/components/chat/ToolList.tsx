@@ -7,10 +7,10 @@ import { useContext, useState } from "react";
 import { OpenFileContext } from "./OpenFileContext";
 import { Counts } from "./ToolBlocks";
 
-// Codex shows the first few changed files and folds the rest.
+// The first few changed files show; the rest fold.
 const SHOWN = 3;
 
-/** The run's changed files in one card, as Codex closes a turn: totals first, then each file. */
+/** The run's changed files in one card, closing the turn: totals first, then each file. */
 export function EditedFiles({ files }: { files: EditedFile[] }) {
     const openFile = useContext(OpenFileContext);
     const [all, setAll] = useState(false);
@@ -26,7 +26,7 @@ export function EditedFiles({ files }: { files: EditedFile[] }) {
                     type="button"
                     title={`Open ${file.path}`}
                     onClick={() => openFile(file.path)}
-                    className="flex min-h-9 w-full cursor-pointer items-center gap-3 px-3 text-left text-[13px] [transition:background-color_130ms_ease] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring pointer-fine:hover:bg-surface-3"
+                    className="flex min-h-9 pointer-coarse:min-h-11 w-full cursor-pointer items-center gap-3 px-3 text-left text-[13px] [transition:background-color_130ms_ease] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring pointer-fine:hover:bg-surface-3"
                 >
                     <span className="min-w-0 flex-1 truncate">
                         <span className="text-muted-foreground">{file.path.slice(0, cut)}</span>
@@ -62,7 +62,7 @@ export function EditedFiles({ files }: { files: EditedFile[] }) {
                         type="button"
                         aria-expanded={all}
                         onClick={() => setAll(!all)}
-                        className="flex min-h-9 w-full cursor-pointer items-center gap-1.5 border-t border-hairline px-3 text-left text-[13px] text-muted-foreground [transition:color_130ms_ease] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring pointer-fine:hover:text-foreground"
+                        className="flex min-h-9 pointer-coarse:min-h-11 w-full cursor-pointer items-center gap-1.5 border-t border-hairline px-3 text-left text-[13px] text-muted-foreground [transition:color_130ms_ease] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring pointer-fine:hover:text-foreground"
                     >
                         {all
                             ? "Show fewer files"

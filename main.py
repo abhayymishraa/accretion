@@ -15,7 +15,7 @@ from agent.run.service import agent_service
 from agent.storage.storage import StorageError
 from auth.router import router as auth_router
 from auth.router import users_router
-from auth.social import configure_sessions, social_router
+from auth.social import configure_sessions
 from config import settings
 from connections.router import router as connections_router
 from db.base import engine
@@ -61,7 +61,6 @@ async def storage_error_handler(request, exc):
 
 for domain_router in (
     auth_router,
-    social_router,
     users_router,
     health_router,
     projects_router,

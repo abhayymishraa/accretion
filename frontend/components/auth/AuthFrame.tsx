@@ -125,7 +125,7 @@ export function AuthFrame({
                         href={switchHref}
                         className={cn(
                             buttonVariants({ variant: "outlinePill" }),
-                            "ml-auto h-10 justify-normal gap-0 border-foreground/20 px-4 text-[13.5px] whitespace-nowrap pointer-fine:hover:border-foreground/40",
+                            "ml-auto h-10 pointer-coarse:h-11 justify-normal gap-0 border-foreground/20 px-4 text-[13.5px] whitespace-nowrap pointer-fine:hover:border-foreground/40",
                         )}
                     >
                         {switchLabel}

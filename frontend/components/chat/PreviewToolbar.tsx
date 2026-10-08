@@ -34,8 +34,8 @@ const EXTRA_TABS: { tab: ExtraTab; label: string; icon: LucideIcon }[] = [
     { tab: "connectors", label: "Connectors", icon: Plug },
 ];
 
-/** The workspace panel's tab row, after v0: Preview stays, Code, Skills and Connectors open from "+", extras under
- * •••. */
+/** The workspace panel's tab row: Preview stays, Code, Skills and Connectors open from "+",
+ * extras under •••. */
 export function PreviewToolbar({
     activeTab,
     onTabChange,
@@ -66,7 +66,7 @@ export function PreviewToolbar({
             () => toast.error("Could not copy the link"),
         );
     return (
-        <div className="ember-preview-toolbar flex h-11 shrink-0 items-center gap-0.5 border-b border-b-border bg-background px-2 max-md:px-1.5">
+        <div className="flex h-11 shrink-0 items-center gap-0.5 border-b border-b-border bg-background px-2 max-md:px-1.5">
             <Button
                 variant="icon"
                 className="max-md:hidden"
@@ -87,24 +87,28 @@ export function PreviewToolbar({
                 </Button>
                 {EXTRA_TABS.filter(({ tab }) => opened.includes(tab)).map(
                     ({ tab, label, icon: Icon }) => (
-                        <span key={tab} className="flex items-center">
+                        <span
+                            key={tab}
+                            className="flex origin-left items-center [transition:opacity_150ms_var(--ease-out),scale_150ms_var(--ease-out)] starting:scale-[0.97] starting:opacity-0 motion-reduce:starting:scale-100"
+                        >
                             <Button
                                 variant="tab"
-                                className="pr-1.5"
+                                className="pr-1.5 pointer-coarse:pr-2.5"
                                 aria-pressed={activeTab === tab}
                                 onClick={() => onTabChange(tab)}
                             >
                                 <Icon size={14} />
                                 {label}
                             </Button>
-                            <button
-                                type="button"
+                            {/* 24px to see; on touch the hit area spills out to 44px. */}
+                            <Button
+                                variant="icon"
                                 aria-label={`Close ${label}`}
                                 onClick={() => close(tab)}
-                                className="grid size-6 cursor-pointer place-items-center rounded-[6px] text-muted-foreground [transition:background-color_130ms_ease,color_130ms_ease,scale_100ms_var(--ease-out)] active:scale-[0.97] motion-reduce:active:scale-100 focus-visible:outline-2 focus-visible:outline-ring pointer-fine:hover:bg-surface-2 pointer-fine:hover:text-foreground"
+                                className="relative size-6 rounded-[6px] pointer-coarse:size-6 pointer-coarse:after:absolute pointer-coarse:after:-inset-2.5"
                             >
                                 <X size={13} />
-                            </button>
+                            </Button>
                         </span>
                     ),
                 )}

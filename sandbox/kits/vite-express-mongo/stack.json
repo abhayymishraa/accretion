@@ -16,5 +16,5 @@
   "restore": "mongorestore --uri \"$MONGO_URL\" --archive=db/dump.archive --drop --quiet",
   "migrations": ["backend/src/db.ts"],
   "env": ["APP_SECRET"],
-  "entry": ["AGENTS.md", "frontend/src/App.tsx", "backend/src/index.ts", "backend/src/routes/notes.ts"]
+  "entry": [".accretion/memory.md", "frontend/src/App.tsx", "backend/src/index.ts", "backend/src/routes/notes.ts"]
 }

@@ -1,6 +1,6 @@
 # 015 — Fade the sidebar's project list with the collapse
 
-- **Status**: TODO
+- **Status**: DONE
 - **Commit**: dd8207d (the file has uncommitted changes on branch `feat/mcp-servers`; line numbers below are from that working tree)
 - **Severity**: LOW
 - **Category**: Missed opportunities (preventing a jarring change)

@@ -2,12 +2,12 @@ import { presentTool } from "@/lib/tool-presentation";
 import type { TimelineEntry } from "@/lib/chat/run-timeline";
 import type { ActivityItem, ToolCall } from "@/types/chat.type";
 
-// One row of the run timeline, in the words Codex uses: "Read x", "Ran y", "Edited z +3 -1".
+// One row of the run timeline: "Read x", "Ran y", "Edited z +3 -1".
 export type LineKind =
     "read" | "view" | "edit" | "create" | "run" | "search" | "list" | "guide" | "other";
 
 /** [sign, line number, text]; the number is the new file's for " " and "+", the old file's for "-". */
-export type DiffLine = [" " | "+" | "-", number, string];
+type DiffLine = [" " | "+" | "-", number, string];
 export type FileDiff = {
     path: string;
     created: boolean;
@@ -50,7 +50,7 @@ function words(command: string) {
     return [...command.matchAll(TOKEN)].map((match) => match[1] ?? match[2] ?? match[3]);
 }
 
-/** Recognise searches, listings and plain reads so they read like Codex rows; anything else "Ran". */
+/** Recognise searches, listings and plain reads; anything else is "Ran". */
 function classifyCommand(command: string): { kind: LineKind; text: string; path?: string } {
     const step =
         command
@@ -97,7 +97,7 @@ function diffsOf(tool: ToolCall): FileDiff[] {
 }
 
 /** A tool call becomes one row per file it touched, or one row for everything else. */
-export function toolLines(tool: ToolCall): ToolLine[] {
+function toolLines(tool: ToolCall): ToolLine[] {
     const result = presentTool(tool);
     const key = tool.event_id || tool.id || tool.name;
     const line = (kind: LineKind, text: string, extra: Partial<ToolLine> = {}, index = 0) => ({
@@ -143,7 +143,7 @@ export function toolLines(tool: ToolCall): ToolLine[] {
 }
 
 /**
- * Consecutive tool rows share a section, the way Codex folds "Read files, ran commands".
+ * Consecutive tool rows share a section, folded as "Read files, ran commands".
  * A stage the rows do not already describe, a compaction, or a command's screenshots close it.
  */
 export function timelineBlocks(entries: TimelineEntry[]): TimelineBlock[] {
@@ -196,7 +196,7 @@ export function basename(path: string) {
     return path.slice(path.lastIndexOf("/") + 1) || path;
 }
 
-/** "45s", "8m", "1h 3m": Codex's "Worked for" reading. */
+/** "45s", "8m", "1h 3m": the "Worked for" reading. */
 export function workedFor(start: string, end?: string) {
     const seconds = Math.max(
         0,

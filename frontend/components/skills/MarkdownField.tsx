@@ -124,7 +124,7 @@ export function MarkdownField({
                                 ),
                             );
                         }}
-                        className="h-8 cursor-pointer border-0 bg-transparent px-2 font-mono text-[12px] text-muted-foreground outline-none pointer-coarse:h-11"
+                        className="h-8 cursor-pointer border-0 bg-transparent px-2 font-mono text-[12px] text-muted-foreground outline-none pointer-coarse:h-11 pointer-coarse:text-[16px]"
                     >
                         <option value="" disabled>
                             Text style
