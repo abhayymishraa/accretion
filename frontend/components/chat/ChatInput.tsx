@@ -91,12 +91,16 @@ export function ChatInput({
     const mirror =
         "col-start-1 row-start-1 pl-[0.2em] text-[14.5px] leading-[1.65] max-md:text-[16px] wrap-anywhere";
 
+    // 32px wide to see. On touch the hit area spills 6px each side into the wider gap, making 44px
+    // without overlapping a neighbour, so the row at 390px grows by 10px, not 24px.
+    const touch =
+        "relative pointer-coarse:after:absolute pointer-coarse:after:inset-y-0 pointer-coarse:after:-inset-x-1.5";
     const tools = [
         <Button
             key="files"
             type="button"
             variant="utility"
-            className="h-8 min-h-8 min-w-8 px-2"
+            className={touch}
             disabled={!canCompose}
             aria-label="Reference a project file"
             title="Reference a file"
@@ -108,7 +112,7 @@ export function ChatInput({
             type="button"
             variant="utility"
             key="commands"
-            className="h-8 min-h-8 min-w-8 px-2 font-mono"
+            className={`${touch} font-mono`}
             disabled={!canCompose}
             aria-label="Insert a command"
             title="Insert a command"
@@ -118,7 +122,7 @@ export function ChatInput({
         </Button>,
     ];
     return (
-        <div className="ember-chat-input border-t border-border bg-surface-1 px-6 py-4 max-md:px-4 max-md:py-3">
+        <div className="border-t border-border bg-surface-1 px-6 py-4 max-md:px-4 max-md:py-3">
             {/* The menu sits outside the beam, whose overflow: hidden would clip it. */}
             <div className="relative mx-auto w-full max-w-[46rem]">
                 <ComposerMenu
@@ -144,7 +148,7 @@ export function ChatInput({
                     className="w-full"
                 >
                     <form
-                        className="ember-composer relative w-full rounded-[14px] border border-border bg-surface-2 px-3 pt-3 pb-2 [transition:border-color_150ms_ease] focus-within:border-input"
+                        className="relative w-full rounded-[14px] border border-border bg-surface-2 px-3 pt-3 pb-2 [transition:border-color_150ms_ease] focus-within:border-input"
                         onSubmit={onSubmit}
                     >
                         <label htmlFor="chat-prompt" className="sr-only">
@@ -181,8 +185,8 @@ export function ChatInput({
                             />
                         </div>
 
-                        <div className="ember-composer-footer mt-2 flex items-center gap-2">
-                            <div className="transcript-composerTools flex items-center gap-0.5">
+                        <div className="mt-2 flex items-center gap-2">
+                            <div className="flex items-center gap-0.5 pointer-coarse:gap-3">
                                 {EFFECTS.liquidComposerTools ? (
                                     <LiquidTools>{tools}</LiquidTools>
                                 ) : (
@@ -190,39 +194,40 @@ export function ChatInput({
                                 )}
                             </div>
 
-                            <fieldset
-                                disabled={isBuilding || awaitingInput}
-                                className="relative flex rounded-[8px] bg-surface-3 p-[3px] disabled:opacity-40"
-                            >
-                                <legend className="sr-only">Request mode</legend>
-                                <span
-                                    aria-hidden="true"
-                                    className="absolute top-[3px] bottom-[3px] w-[calc(50%-3px)] rounded-[6px] bg-surface-1 ring-1 ring-hairline transition-transform duration-200 ease-[var(--ease-out)] motion-reduce:transition-none"
-                                    style={{
-                                        transform: `translateX(${mode === "auto" ? "0%" : "100%"})`,
-                                    }}
-                                />
-                                {modes.map((item) => (
-                                    <label
-                                        key={item.value}
-                                        title={item.hint}
-                                        className={`relative z-10 flex h-[25px] min-w-[58px] cursor-pointer items-center justify-center rounded-[6px] px-2.5 text-[12.5px] transition-colors duration-150 ease-out has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-ring has-[:focus-visible]:outline-offset-1 ${
-                                            mode === item.value
-                                                ? "text-foreground"
-                                                : "text-muted-foreground pointer-fine:hover:text-foreground"
-                                        }`}
-                                    >
-                                        <input
-                                            type="radio"
-                                            name="chat-mode"
-                                            className="sr-only"
-                                            checked={mode === item.value}
-                                            onChange={() => onModeChange(item.value)}
-                                        />
-                                        {item.label}
-                                    </label>
-                                ))}
-                            </fieldset>
+                            {/* Hidden while a build runs or waits for an answer: it cannot change then, and at 390px the row needs the room. */}
+                            {!isBuilding && !awaitingInput && (
+                                <fieldset className="relative flex rounded-[8px] bg-surface-3 p-[3px] starting:opacity-0 [transition:opacity_120ms_var(--ease-out)]">
+                                    <legend className="sr-only">Request mode</legend>
+                                    <span
+                                        aria-hidden="true"
+                                        className="absolute top-[3px] bottom-[3px] w-[calc(50%-3px)] rounded-[6px] bg-surface-1 ring-1 ring-hairline transition-transform duration-200 ease-[var(--ease-out)] motion-reduce:transition-none"
+                                        style={{
+                                            transform: `translateX(${mode === "auto" ? "0%" : "100%"})`,
+                                        }}
+                                    />
+                                    {/* Each label stays 25px tall; on touch its hit area grows to 44px. */}
+                                    {modes.map((item) => (
+                                        <label
+                                            key={item.value}
+                                            title={item.hint}
+                                            className={`relative z-10 flex h-[25px] min-w-[58px] cursor-pointer items-center justify-center rounded-[6px] px-2.5 text-[12.5px] pointer-coarse:after:absolute pointer-coarse:after:inset-x-0 pointer-coarse:after:-inset-y-2.5 transition-colors duration-150 ease-out has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-ring has-[:focus-visible]:outline-offset-1 ${
+                                                mode === item.value
+                                                    ? "text-foreground"
+                                                    : "text-muted-foreground pointer-fine:hover:text-foreground"
+                                            }`}
+                                        >
+                                            <input
+                                                type="radio"
+                                                name="chat-mode"
+                                                className="sr-only"
+                                                checked={mode === item.value}
+                                                onChange={() => onModeChange(item.value)}
+                                            />
+                                            {item.label}
+                                        </label>
+                                    ))}
+                                </fieldset>
+                            )}
                             <ModelPicker
                                 models={models}
                                 value={modelChoice}
@@ -240,7 +245,7 @@ export function ChatInput({
                                     <Button
                                         type="submit"
                                         variant="send"
-                                        className="rounded-full"
+                                        className="rounded-full starting:scale-[0.97] starting:opacity-0 motion-reduce:starting:scale-100 [transition:background-color_140ms_ease,border-color_140ms_ease,opacity_120ms_var(--ease-out),transform_140ms_var(--ease-out),scale_120ms_var(--ease-out)]"
                                         disabled={!canCompose}
                                         aria-label="Send update to the running build"
                                         title="Send update"

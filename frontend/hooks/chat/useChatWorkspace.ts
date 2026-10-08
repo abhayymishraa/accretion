@@ -6,7 +6,7 @@ import { runService } from "@/services/service.runs";
 import { usePreviewLifecycle } from "@/hooks/preview/usePreviewLifecycle";
 import { clearSession, getSessionId, subscribeSession } from "@/lib/auth/session";
 import type { UserData } from "@/types/auth.type";
-import type { Message } from "@/types/chat.type";
+import type { DecisionAction, Message } from "@/types/chat.type";
 import { useRouter } from "next/navigation";
 import {
     useCallback,
@@ -239,6 +239,11 @@ export function useChatWorkspace(chatId: string) {
         clearSession();
         router.push("/");
     };
+    // Approving a plan builds it, so the composer goes back to Build for whatever comes next.
+    const decided = (action: DecisionAction) => {
+        if (action === "approve") setMode("auto");
+        history.refreshHistory();
+    };
 
     return {
         router,
@@ -257,6 +262,7 @@ export function useChatWorkspace(chatId: string) {
         loadingOlder: history.loadingOlder,
         loadOlder,
         refreshHistory: history.refreshHistory,
+        decided,
         appUrl,
         revisionId,
         isBuilding,
