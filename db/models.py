@@ -19,9 +19,8 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from db.base import Base
 from plans import DEFAULT_PLAN
-
-from .base import Base
 
 
 class User(Base):
@@ -42,14 +41,11 @@ class User(Base):
 
     # The monthly model budget (agent/budget) applies unless the plan is unlimited.
     plan: Mapped[str] = mapped_column(String(32), nullable=False, default=DEFAULT_PLAN, server_default=DEFAULT_PLAN)
-    # The user's last pick, pre-filling the picker in the prompt box (spec 4.2, dyad's selectedModel).
+    # The user's last pick, pre-filling the picker in the prompt box (spec 4.2).
     default_model_choice: Mapped[str] = mapped_column(String(128), default="auto", server_default="auto")
     # Skills turned off for the whole account: no project uses them. Each project's own list is kept.
     disabled_skills: Mapped[list[str]] = mapped_column(ARRAY(String(64)), server_default="{}")
 
-    # A User can have many Chats.
-    # back_populates="user" links back to the user field in the Chat model.
-    # cascade="all, delete-orphan" → if a user is deleted, all their chats are deleted too (prevents orphaned chats).
     chats: Mapped[list["Chat"]] = relationship("Chat", back_populates="user", cascade="all, delete-orphan")
 
     @property

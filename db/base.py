@@ -10,9 +10,7 @@ from sqlalchemy.orm import DeclarativeBase
 
 from config import settings
 
-DATABASE_URL = settings.DATABASE_URL
-
-database_url = make_url(DATABASE_URL).set(drivername="postgresql+psycopg")
+database_url = make_url(settings.DATABASE_URL).set(drivername="postgresql+psycopg")
 connect_args = {
     "prepare_threshold": None,
     "connect_timeout": 10,
@@ -25,8 +23,6 @@ if database_url.query.get("sslmode") in {"require", "verify-ca", "verify-full"}:
 
 engine = create_async_engine(
     database_url,
-    echo=False,
-    future=True,
     # No liveness test on checkout: it is one database round trip on every request. A connection
     # dropped by a database or pooler restart fails one request and SQLAlchemy then replaces the
     # pool; pool_recycle retires idle connections before the pooler or a NAT drops them.
@@ -44,12 +40,6 @@ engine = create_async_engine(
     connect_args=connect_args,
 )
 
-
-# async_sessionmaker() creates a factory for new async sessions.
-# Every time you call AsyncSessionLocal(), you get a new independent database session.
-# class_=AsyncSession → ensures it returns async sessions (not sync ones).
-# expire_on_commit=False → means objects remain “usable” even after commit.
-# If it were True, SQLAlchemy would clear object state after a commit.
 
 AsyncSessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
@@ -96,20 +86,14 @@ Autocommit = Depends(autocommit)
 
 
 async def get_db(request: Request) -> AsyncGenerator[AsyncSession, None]:
-    # Creates a database session.
     factory = AutocommitSessionLocal if getattr(request.state, "autocommit", False) else AsyncSessionLocal
     async with factory() as session:
         try:
-            # “Pauses” the function and hands out the session object to whoever called get_db().
             yield session
-            # When the route finishes using the session, Python returns control back to
-            # get_db() — continuing after the yield line.
             await session.commit()
         except Exception:
             await session.rollback()
             raise
-        finally:
-            await session.close()
 
 
 DbSession = Annotated[AsyncSession, Depends(get_db)]
