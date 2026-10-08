@@ -34,7 +34,7 @@ on:
         default: vite-fastapi-postgres
       RESEND_FROM:
         description: Sender of every email, as Name <address>; the address must be on a domain verified in Resend
-        default: "Accretion <hello@mail.abhayymishraa.com>"
+        default: "Accretion <hello@accretion.abhayymishraa.com>"
       redeploy:
         description: Rerun deploy-backend.yml afterwards
         type: boolean
