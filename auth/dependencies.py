@@ -12,11 +12,10 @@ from auth.exceptions import (
     UserNotFound,
 )
 from auth.schemas import TokenUser
+from auth.utils import decode_token
 from db.base import AutocommitSessionLocal, DbSession
 from db.models import User
 from request_timing import timed
-
-from .utils import decode_token
 
 security = HTTPBearer()
 

@@ -103,5 +103,14 @@ class EmailRequest(BaseModel):
     email: EmailStr
 
 
+class AuthOptions(CustomModel):
+    providers: dict[str, bool]
+    email_verification: bool
+
+
+class ProviderLink(CustomModel):
+    url: str
+
+
 class TokenRequest(BaseModel):
     token: str = Field(min_length=32, max_length=128)

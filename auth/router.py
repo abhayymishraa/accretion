@@ -2,17 +2,17 @@
 
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Query, Request, status
 
-from auth import service
-from db.base import Autocommit, DbSession
-
-from .dependencies import AdminUser, ClientIp, get_token_user
-from .schemas import (
+from auth import service, social
+from auth.dependencies import AdminUser, ClientIp, SignedInUser, get_token_user
+from auth.schemas import (
     AccountPage,
     AccountRow,
+    AuthOptions,
     EmailRequest,
     ProfileUpdate,
+    ProviderLink,
     RefreshTokenRequest,
     RegisterResponse,
     Token,
@@ -23,6 +23,7 @@ from .schemas import (
     UserResponse,
     VerificationRequested,
 )
+from db.base import Autocommit, DbSession
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -72,6 +73,31 @@ async def confirm_verification(data: TokenRequest, background: BackgroundTasks, 
     return await service.confirm_verification(data=data, background=background, db=db)
 
 
+@router.get("/options")
+async def auth_options() -> AuthOptions:
+    return social.auth_options()
+
+
+@router.post("/oauth/{provider}/link")
+async def link_provider(provider: str, user: SignedInUser, db: DbSession) -> ProviderLink:
+    return await social.link_provider(provider, user.id, db)
+
+
+@router.get("/oauth/{provider}")
+async def start_oauth(provider: str, request: Request, ticket: str | None = None, *, db: DbSession):
+    return await social.start_oauth(provider, request, ticket, db)
+
+
+@router.get("/oauth/{provider}/callback")
+async def oauth_callback(provider: str, request: Request, background: BackgroundTasks, db: DbSession):
+    return await social.oauth_callback(provider, request, background, db)
+
+
+@router.post("/oauth/exchange")
+async def exchange_oauth(data: TokenRequest, db: DbSession) -> Token:
+    return await social.exchange_oauth(data, db)
+
+
 users_router = APIRouter(prefix="/users", tags=["users"])
 
 
@@ -88,5 +114,5 @@ async def list_users(
 
 
 @users_router.post("/{user_id}/approval")
-async def approve_user(user_id: int, _: AdminUser, db: DbSession) -> AccountRow:
-    return await service.approve_user(user_id=user_id, db=db)
+async def approve_user(user_id: int, _: AdminUser, background: BackgroundTasks, db: DbSession) -> AccountRow:
+    return await service.approve_user(user_id=user_id, background=background, db=db)
