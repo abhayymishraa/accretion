@@ -32,6 +32,7 @@ export default function ChatWorkspace({ chatId }: { chatId: string }) {
         mode,
         setMode,
         awaitingInput,
+        pendingKind,
         pendingDecisionId,
         isLoading,
         hasOlder,
@@ -236,6 +237,7 @@ export default function ChatWorkspace({ chatId }: { chatId: string }) {
                                 onCancel={handleCancel}
                                 canCancel={Boolean(runId)}
                                 awaitingInput={awaitingInput}
+                                pendingKind={pendingKind}
                                 mode={mode}
                                 onModeChange={setMode}
                                 models={models}

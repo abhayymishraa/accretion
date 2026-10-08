@@ -187,6 +187,18 @@ export function useChatWorkspace(chatId: string) {
         e.preventDefault();
         const prompt = sendable(input);
         if (!prompt) return;
+        if (history.pendingRunId) {
+            // A waiting plan or question takes the message as its reply, so "/" and "@" work there too.
+            const action = pendingKind === "plan" ? "revise" : "answer";
+            try {
+                await runService.respond(history.pendingRunId, action, prompt);
+                setInput("");
+                decided(action);
+            } catch (err) {
+                setError(err instanceof Error ? err.message : "Could not save your response.");
+            }
+            return;
+        }
         if (isBuilding) {
             // A running build takes the message as a steering update (spec 5).
             if (!runId) return;
@@ -223,6 +235,9 @@ export function useChatWorkspace(chatId: string) {
         }
     };
 
+    const pending = messages.find((message) => message.id === `run:${history.pendingRunId}`);
+    const pendingKind = pending?.workflow?.kind ?? null;
+
     const handleCancel = async () => {
         if (!runId) return;
         try {
@@ -257,6 +272,7 @@ export function useChatWorkspace(chatId: string) {
         setMode,
         pendingDecisionId: history.pendingRunId,
         awaitingInput: Boolean(history.pendingRunId),
+        pendingKind,
         isLoading: history.isLoading,
         hasOlder: history.hasOlder,
         loadingOlder: history.loadingOlder,

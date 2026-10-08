@@ -1,12 +1,10 @@
 "use client";
 
-import { buttonVariants } from "@/components/ui/button";
 import { useToolAbout } from "@/hooks/chat/useToolAbout";
 import type { presentTool } from "@/lib/tool-presentation";
-import Link from "next/link";
 import { useParams } from "next/navigation";
 
-/** An opened skill or service row: what the skill is for, or what the service's tool does, and where to manage it. */
+/** An opened skill or service row: what the skill is for, or what the service's tool does. */
 export function ToolAbout({ result }: { result: ReturnType<typeof presentTool> }) {
     const { id: projectId = "" } = useParams<{ id?: string }>();
     const about = useToolAbout(projectId, result.skill, result.service, result.toolName);
@@ -34,14 +32,6 @@ export function ToolAbout({ result }: { result: ReturnType<typeof presentTool> }
                           ? "Could not load details."
                           : missing)}
             </p>
-            <Link
-                href={
-                    result.skill ? "/skills" : `/connectors/${encodeURIComponent(result.service)}`
-                }
-                className={buttonVariants({ variant: "utility" })}
-            >
-                {result.skill ? "Manage skills" : `Manage ${about.server?.title || result.service}`}
-            </Link>
         </div>
     );
 }

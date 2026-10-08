@@ -33,7 +33,7 @@ export function Counts({ added, removed }: { added: number; removed: number }) {
     );
 }
 
-function CopyButton({ text, label }: { text: string; label: string }) {
+export function CopyButton({ text, label }: { text: string; label: string }) {
     const [copied, setCopied] = useState(false);
     return (
         <button
@@ -48,7 +48,7 @@ function CopyButton({ text, label }: { text: string; label: string }) {
                     /* The text stays selectable in the block. */
                 }
             }}
-            className="ml-auto grid size-7 shrink-0 pointer-coarse:size-11 cursor-pointer place-items-center rounded-[6px] text-muted-foreground [transition:color_130ms_ease,background-color_130ms_ease] focus-visible:outline-2 focus-visible:outline-ring pointer-fine:hover:bg-surface-3 pointer-fine:hover:text-foreground"
+            className="ml-auto grid size-7 shrink-0 pointer-coarse:size-11 cursor-pointer place-items-center rounded-[6px] text-muted-foreground [transition:color_130ms_ease,background-color_130ms_ease,scale_120ms_var(--ease-out)] active:scale-[0.97] motion-reduce:active:scale-100 focus-visible:outline-2 focus-visible:outline-ring pointer-fine:hover:bg-surface-3 pointer-fine:hover:text-foreground"
         >
             <IconSwap swapped={copied} from={<CopyIcon />} to={<CheckIcon />} />
         </button>

@@ -78,7 +78,7 @@ from ..storage.storage import StorageError
 from ..tools.mcp import DEFAULT_SERVERS, Server
 from ..tools.mcp_tools import McpTools
 from ..tools.public_tools import EDIT_TOOLS, edit_summary
-from ..tools.skills import RuntimeSkills
+from ..tools.skills import PICKED, RuntimeSkills
 from ..tools.tools import MAX_COVER_BYTES, ROOT, FileWriteError, cover_image
 from . import bus
 from .answer import answer_question
@@ -191,6 +191,14 @@ def original_request(live) -> str:
     return str(context.get("original_request") or live.prompt)
 
 
+def keeps_sandbox(live: "LiveRun", status: str) -> bool:
+    """A run whose sandbox stays for the next one: it succeeded, or it stopped on a plan card it just saved, so
+    the sandbox holds that revision and Approve reconnects to it instead of restoring."""
+    if not live.revision_id:
+        return False
+    return status == "succeeded" or (status == "awaiting_input" and live.workflow.get("kind") == "plan")
+
+
 async def pick_kit(live) -> None:
     """Spec 4 step 3: Jev picks a new app's kit from plain kit names; the user is never asked.
     Code falls back to DEFAULT_KIT. Jev receives the user's own words, so a named stack counts."""
@@ -250,6 +258,9 @@ class LiveRun:
     message_id: str | None = None
     workflow: dict[str, Any] = field(default_factory=dict[str, Any])
     sandbox_started: bool = False
+    # A new project's database, migrations and preview (project.start_services), started beside the first
+    # model call: a plan only reads files until it saves.
+    services: asyncio.Task[None] | None = None
     model_choice: str = "auto"
     # Spec 5 steering: messages the user sends while this run works, drained before each model call.
     inbox: list[str] = field(default_factory=list)
@@ -723,9 +734,9 @@ class Service:
         for row in await self.runtimes.running_for(user_id, chat_id):
             await self.park_left(row.chat_id)
 
-    async def get_e2b_sandbox(self, id: str, loaded=None):
+    async def get_e2b_sandbox(self, id: str, loaded=None, live=None):
         """loaded: the project, its latest saved revision and its runtime row when the caller has just
-        read them."""
+        read them. live: the run that starts a new project's services in the background."""
         if loaded:
             chat, revision, runtime = loaded
         else:
@@ -772,6 +783,11 @@ class Service:
             await project.restore(sandbox, id, kit_id)
         else:
             await project.start_new(sandbox, id, kit_id)
+            services = project.start_services(sandbox, kit_id)
+            if live:
+                live.services = asyncio.create_task(services, name=f"services:{id}")
+            else:
+                await services
         return sandbox
 
     async def preview_ready(self, sandbox, port):
@@ -848,6 +864,8 @@ class Service:
         kit_id = await chat_kit(live.chat_id)
         runtime = await self.runtimes.get(live.chat_id)
         template = runtime.template_id if runtime else await project.template_ref()
+        if live.services:
+            await live.services
         # Spec 3: the database travels with the revision.
         await project.dump(live.sandbox, kit_id)
         async with archive_slots:
@@ -1025,8 +1043,8 @@ class Service:
         )
         ctes = [finished, sequence, reply]
         changes = {"app_url": event["url"]} if live.sandbox_started else {}
-        reusable = status == "succeeded" and live.revision_id
-        if reusable:
+        reusable = keeps_sandbox(live, status)
+        if status == "succeeded" and live.revision_id:
             changes["latest_verified_revision_id"] = live.revision_id
         if status == "succeeded" and result and "project_skills" in result:
             # Stored when written, so the skills list reads it from the project row, not the sandbox.
@@ -1052,7 +1070,7 @@ class Service:
             .returning(RunEvent.sequence)
             .add_cte(*ctes)
         )
-        # A succeeded run also marks its sandbox reusable, which refuses (and so rolls this back)
+        # A run that keeps its sandbox (keeps_sandbox) also marks it reusable, which refuses (and so rolls this back)
         # when the sandbox changed hands: then one transaction; otherwise the statement alone.
         async with AsyncSessionLocal.begin() if reusable else AutocommitSessionLocal() as db:
             event["sequence"] = await db.scalar(terminal)
@@ -1176,6 +1194,13 @@ class Service:
             if live.workflow.get("approved") and live.workflow.get("plan"):
                 # The model gets the approved plan itself as the request; the chat keeps the user's approval.
                 prompt = IMPLEMENT_PLAN.format(plan=live.workflow["plan"])
+                # Skills and services the user picked as "/name" in the request or a reply reach the build too.
+                replies = [e["reply"] for e in live.workflow["context"]["exchanges"]]
+                if picks := dict.fromkeys(PICKED.findall("\n".join([original_request(live), *replies]))):
+                    prompt += "\nThe user picked: " + " ".join(f"/{name}" for name in picks)
+            if live.services and live.workflow.get("mode") != "plan":
+                # A build runs commands and checks the preview from its first turn.
+                await live.services
             result = await run_editor(
                 live.sandbox,
                 prompt,
@@ -1291,11 +1316,15 @@ class Service:
             if live.naming:
                 # Its cost lands in live.metrics, which finish() persists; bounded by title.py's timeout.
                 await live.naming
+            if live.services:
+                # Unfinished only when the run ended without saving: its sandbox is retired below.
+                live.services.cancel()
+                await asyncio.gather(live.services, return_exceptions=True)
             # Creation registers ownership before restoring files; cancellation can interrupt restoration.
             if live.sandbox_started:
                 live.sandbox = live.sandbox or self.sandboxes.get(live.chat_id)
             live.metrics["elapsed_ms"] = previous_elapsed + round((time.monotonic() - started) * 1000)
-            if status != "succeeded" and live.sandbox_started:
+            if not keeps_sandbox(live, status) and live.sandbox_started:
                 # Completed mutation batches are already saved. Never archive a half-finished command.
                 if live.sandbox:
                     self.sandboxes[live.chat_id] = live.sandbox
@@ -1366,7 +1395,9 @@ class Service:
                 live.chat_id, *await self.runtimes.reserved(live.chat_id), requesting_run=live.id
             )
             live.sandbox_started = True
-        live.sandbox = await self.get_e2b_sandbox(live.chat_id)
+        started = time.monotonic()
+        live.sandbox = await self.get_e2b_sandbox(live.chat_id, live=live)
+        live.metrics["sandbox_ms"] = round((time.monotonic() - started) * 1000)
         # Commit unsafe state before the first possible mutation.
         await self.runtimes.invalidate(live.chat_id)
 
