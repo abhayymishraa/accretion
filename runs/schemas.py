@@ -39,12 +39,12 @@ class ModelList(CustomModel):
 
 class SteerPayload(BaseModel):
     # Spec 5 steering: an update the running build should take into account.
-    text: str = Field(min_length=1, max_length=4000)
+    text: str = Field(min_length=1)
 
 
 class DecisionPayload(BaseModel):
     action: Literal["approve", "answer", "revise", "dismiss"]
-    text: str = Field(default="", max_length=4000)
+    text: str = ""
 
 
 class RunEventItem(CustomModel):

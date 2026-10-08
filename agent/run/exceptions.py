@@ -61,7 +61,7 @@ class ClarificationLimit(Conflict):
 
 
 class InvalidPrompt(UnprocessableEntity):
-    DETAIL = "Describe a change in 1–12000 characters"
+    DETAIL = "Describe a change"
 
 
 class UnsupportedAction(UnprocessableEntity):

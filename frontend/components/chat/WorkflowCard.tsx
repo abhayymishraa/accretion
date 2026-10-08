@@ -210,7 +210,6 @@ function WorkflowDecisionCard({ message, onChanged, canRespond }: WorkflowCardPr
                                     id={fieldId}
                                     value={text}
                                     onChange={(event) => setText(event.target.value)}
-                                    maxLength={4000}
                                     disabled={busy}
                                     placeholder={plan ? "Describe your changes…" : "Your answer"}
                                 />
