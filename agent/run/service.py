@@ -395,7 +395,7 @@ class Service:
         self, user_id: int, prompt: str, chat_id: str | None = None, *, mode="auto", response=None, model_choice="auto"
     ) -> dict[str, Any]:
         prompt = prompt.strip()
-        if (not prompt and response is None) or len(prompt) > 12000:
+        if not prompt and response is None:
             raise InvalidPrompt
         async with self.admission, AsyncExitStack() as stack:
             # Answering a decision is one transaction from here to the new run: its parent stays
