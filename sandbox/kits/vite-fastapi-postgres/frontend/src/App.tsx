@@ -5,14 +5,15 @@ type Note = { id: number; text: string; created_at: string };
 export default function App() {
   const [notes, setNotes] = useState<Note[]>([]);
   const [text, setText] = useState("");
+  const [error, setError] = useState("");
 
-  const load = () =>
-    fetch("/api/notes")
-      .then((r) => r.json())
-      .then(setNotes);
+  async function load() {
+    const res = await fetch("/api/notes");
+    setNotes(await res.json());
+  }
 
   useEffect(() => {
-    load();
+    load().catch(() => setError("Could not load notes"));
   }, []);
 
   async function add(e: FormEvent) {
@@ -22,10 +23,10 @@ export default function App() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text }),
     });
-    if (res.ok) {
-      setText("");
-      load();
-    }
+    if (!res.ok) return setError("Could not save");
+    setText("");
+    setError("");
+    await load();
   }
 
   return (
@@ -36,12 +37,15 @@ export default function App() {
           value={text}
           onChange={(e) => setText(e.target.value)}
           maxLength={500}
-          required
           placeholder="Write a note"
+          aria-label="Note text"
           className="flex-1 rounded border border-gray-300 px-3 py-2"
         />
-        <button className="rounded bg-black px-4 py-2 text-white">Add</button>
+        <button className="rounded bg-black px-4 py-2 text-white disabled:opacity-50" disabled={!text.trim()}>
+          Add
+        </button>
       </form>
+      {error && <p className="mb-4 text-red-600">{error}</p>}
       <ul className="space-y-2">
         {notes.map((n) => (
           <li key={n.id} className="rounded border border-gray-200 p-3">
