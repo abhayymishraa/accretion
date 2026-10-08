@@ -10,8 +10,9 @@ const labels: Record<string, string> = {
     run_command: "Run command",
     search_project_history: "Search project history",
     list_files: "List files",
-    tool_search: "Find service tools",
-    call_mcp_tool: "Use a connected service",
+    // The timeline puts "Used" before these, so they name the thing, not the action.
+    tool_search: "a service tool search",
+    call_mcp_tool: "a connected service",
 };
 
 // A connected service's tool runs as mcp__<service>__<tool>.
@@ -19,7 +20,7 @@ const SERVICE_TOOL = /^mcp__(.+?)__(.+)$/;
 
 function toolLabel(name: string) {
     const service = SERVICE_TOOL.exec(name);
-    if (service) return `Use ${service[1]} · ${service[2].replaceAll("_", " ")}`;
+    if (service) return `${service[1]} · ${service[2].replaceAll("_", " ")}`;
     return labels[name] || name.replaceAll("_", " ");
 }
 
@@ -100,6 +101,9 @@ export function presentTool(tool: ToolCall) {
                   text("tool_name") ? `mcp__${text("service")}__${text("tool_name")}` : tool.name,
               ),
         summary,
+        skill: skillName,
+        service: text("service"),
+        toolName: text("tool_name"),
         files,
         references,
         stdout,

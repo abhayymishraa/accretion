@@ -25,6 +25,7 @@ import { presentTool } from "@/lib/tool-presentation";
 import { RunScreenshots } from "./RunScreenshots";
 import { TimelineNote } from "./TimelineNotes";
 import { Counts, DiffCard, FileLink, ROW, RowChevron, ShellBlock, TOGGLE } from "./ToolBlocks";
+import { ToolAbout } from "./ToolAbout";
 import { ToolResult } from "./ToolResult";
 
 const ICONS: Record<LineKind, LucideIcon> = {
@@ -60,9 +61,11 @@ const TimelineRow = memo(function TimelineRow({ line }: { line: ToolLine }) {
     // Opens on its own when it failed or the page reported problems.
     const [open, setOpen] = useState(failed || result.pageProblems.length > 0);
     const Glyph = ICONS[line.kind];
-    // A row opens only for something worth reading: a command's output, a diff, or what went wrong.
+    // A row opens only for something worth reading: a command's output, a diff, what went wrong, or what a
+    // skill or a service's tool is for.
+    const about = Boolean(result.skill || result.service);
     const expandable =
-        line.kind === "run" || (!running && (failed || Boolean(line.diff?.hunks.length)));
+        line.kind === "run" || (!running && (failed || about || Boolean(line.diff?.hunks.length)));
     const [done, going] = VERBS[line.kind];
     return (
         <div className="min-w-0">
@@ -121,7 +124,8 @@ const TimelineRow = memo(function TimelineRow({ line }: { line: ToolLine }) {
                         note={result.browserRestarted}
                     />
                 ) : (
-                    <div className="border-l border-hairline pb-2 pl-3">
+                    <div className="border-l border-hairline pb-2 pl-3 animate-in fade-in duration-150 ease-out motion-reduce:animate-none">
+                        {about && <ToolAbout result={result} />}
                         <ToolResult result={result} />
                     </div>
                 ))}
@@ -146,7 +150,7 @@ function TimelineSection({ lines, live }: { lines: ToolLine[]; live: boolean }) 
                 type="button"
                 aria-expanded={open}
                 onClick={() => setChoice(!open)}
-                className="group sticky -top-8 z-[2] max-md:-top-5 flex min-h-8 w-full cursor-pointer items-center gap-2 bg-surface-1 text-left text-[13.5px] text-muted-foreground [transition:color_130ms_ease] focus-visible:outline-2 focus-visible:outline-ring pointer-fine:hover:text-foreground"
+                className="group sticky -top-8 z-[2] max-md:-top-5 flex min-h-8 pointer-coarse:min-h-11 w-full cursor-pointer items-center gap-2 bg-surface-1 text-left text-[13.5px] text-muted-foreground [transition:color_130ms_ease] focus-visible:outline-2 focus-visible:outline-ring pointer-fine:hover:text-foreground"
             >
                 <Glyph size={15} strokeWidth={1.6} aria-hidden="true" className="shrink-0" />
                 <span className="min-w-0 truncate">{sectionTitle(lines)}</span>
