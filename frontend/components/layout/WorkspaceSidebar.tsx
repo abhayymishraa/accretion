@@ -2,7 +2,8 @@
 
 import { SidebarAccount } from "@/components/layout/SidebarAccount";
 import { SIDEBAR_ROW, SidebarProjects } from "@/components/layout/SidebarProjects";
-import { buttonVariants } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { SIDEBAR_WIDTH, useSidebarLayout, useSidebarResize } from "@/hooks/layout/useSidebarLayout";
 import type { UserData } from "@/types/auth.type";
 import { LayoutGrid, Plug, Plus, ScrollText, Search } from "lucide-react";
@@ -11,9 +12,10 @@ import { useRef, useState, type CSSProperties } from "react";
 
 // Labels stay readable to screen readers when the sidebar folds to icons.
 const LABEL = "min-w-0 truncate group-data-[collapsed=true]/sidebar:sr-only";
-const RAIL_ROW = `${SIDEBAR_ROW} group-data-[collapsed=true]/sidebar:justify-center group-data-[collapsed=true]/sidebar:px-0`;
+// Undoes the Button's centring and focus offset, so its rows match the link rows.
+const RAIL_ROW = `${SIDEBAR_ROW} justify-start focus-visible:outline-offset-0 group-data-[collapsed=true]/sidebar:justify-center group-data-[collapsed=true]/sidebar:px-0`;
 
-/** v0's sidebar with what Accretion has; the logo folds it to a strip of icons and back. */
+/** The workspace sidebar; the logo folds it to a strip of icons and back. */
 export function WorkspaceSidebar({
     current,
     userData,
@@ -40,7 +42,8 @@ export function WorkspaceSidebar({
             style={{ "--sidebar-width": `${width}px` } as CSSProperties}
             className="ember-workspace-sidebar group/sidebar relative flex md:sticky md:top-0 md:h-dvh md:self-start w-(--sidebar-width) shrink-0 flex-col gap-3 overflow-hidden border-r border-r-border bg-background px-3 py-3 [transition:width_200ms_var(--ease-out)] data-[collapsed=true]:w-14 data-[collapsed=true]:px-2 motion-reduce:[transition:none] data-[resizing]:[transition:none] max-md:hidden"
         >
-            <button
+            <Button
+                variant={null}
                 type="button"
                 onClick={() => setCollapsed(!collapsed)}
                 aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
@@ -59,7 +62,7 @@ export function WorkspaceSidebar({
                 <span className="font-brand text-[17px] font-semibold tracking-[-0.6px] group-data-[collapsed=true]/sidebar:hidden">
                     accretion
                 </span>
-            </button>
+            </Button>
             <Link
                 href="/chat"
                 title="New project"
@@ -71,7 +74,7 @@ export function WorkspaceSidebar({
             </Link>
             <nav aria-label="Workspace navigation" className="grid gap-px">
                 {searching && !collapsed ? (
-                    <input
+                    <Input
                         autoFocus
                         aria-label="Search projects"
                         placeholder="Search projects"
@@ -79,10 +82,11 @@ export function WorkspaceSidebar({
                         onChange={(event) => setQuery(event.target.value)}
                         onKeyDown={(event) => event.key === "Escape" && closeSearch()}
                         onBlur={() => !query && closeSearch()}
-                        className="h-8 w-full rounded-[8px] border border-border bg-surface-2 px-2.5 text-[12.5px] text-foreground outline-none [transition:border-color_130ms_ease] placeholder:text-muted-foreground focus-visible:border-ring"
+                        className="h-8 rounded-[8px] px-2.5 text-[12.5px] sm:text-[12.5px] pointer-coarse:h-11 pointer-coarse:text-[16px]"
                     />
                 ) : (
-                    <button
+                    <Button
+                        variant={null}
                         type="button"
                         title="Search projects"
                         onClick={() => {
@@ -93,7 +97,7 @@ export function WorkspaceSidebar({
                     >
                         <Search size={15} aria-hidden="true" />
                         <span className={LABEL}>Search</span>
-                    </button>
+                    </Button>
                 )}
                 <Link
                     href="/projects"
@@ -123,8 +127,8 @@ export function WorkspaceSidebar({
                     <span className={LABEL}>Connectors</span>
                 </Link>
             </nav>
-            {/* Logo, actions and account stay put; only the lists scroll, as in shadcn's SidebarContent. */}
-            <div className="-mx-1 min-h-0 flex-1 overflow-y-auto overscroll-contain px-1 pt-2 group-data-[collapsed=true]/sidebar:invisible group-data-[collapsed=true]/sidebar:overflow-hidden">
+            {/* Logo, actions and account stay put; only the lists scroll. */}
+            <div className="-mx-1 min-h-0 flex-1 overflow-y-auto overscroll-contain px-1 pt-2 [transition:opacity_150ms_var(--ease-out),visibility_150ms] motion-reduce:[transition:none] group-data-[collapsed=true]/sidebar:invisible group-data-[collapsed=true]/sidebar:opacity-0 group-data-[collapsed=true]/sidebar:overflow-hidden">
                 <SidebarProjects query={query} />
             </div>
             <SidebarAccount userData={userData} onSignOut={onSignOut} />

@@ -13,6 +13,9 @@ import { projectName, type ProjectPeriod, type ProjectSort } from "@/lib/project
 import { ArrowUpRight, ChevronDown, FolderOpen, Search } from "lucide-react";
 import Link from "next/link";
 
+const SELECT =
+    "h-11 w-full appearance-none rounded-[8px] border border-input bg-card py-2 pl-3 pr-10 text-base text-foreground shadow-xs outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]";
+
 export function ProjectCollection({
     compact = false,
     onOpen,
@@ -92,7 +95,7 @@ export function ProjectCollection({
                                     onChange={(event) =>
                                         setPeriod(event.target.value as ProjectPeriod)
                                     }
-                                    className="h-11 w-full appearance-none rounded-[8px] border border-input bg-card py-2 pl-3 pr-10 text-base text-foreground shadow-xs outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]"
+                                    className={SELECT}
                                 >
                                     <option value="all">All time</option>
                                     <option value="7">Last 7 days</option>
@@ -112,7 +115,7 @@ export function ProjectCollection({
                                     aria-label="Sort projects"
                                     value={sort}
                                     onChange={(event) => setSort(event.target.value as ProjectSort)}
-                                    className="h-11 w-full appearance-none rounded-[8px] border border-input bg-card py-2 pl-3 pr-10 text-base text-foreground shadow-xs outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]"
+                                    className={SELECT}
                                 >
                                     <option value="recent">Recently updated</option>
                                     <option value="newest">Newest created</option>
@@ -138,7 +141,11 @@ export function ProjectCollection({
                             : `${projects.length} ${projects.length === 1 ? "project" : "projects"}`}
                     </p>
                     {changed && (
-                        <Button variant="utility" onClick={resetFilters}>
+                        <Button
+                            variant="utility"
+                            className="starting:opacity-0 [transition:opacity_150ms_var(--ease-out),background-color_130ms_ease,color_130ms_ease,scale_100ms_var(--ease-out)]"
+                            onClick={resetFilters}
+                        >
                             Reset filters
                         </Button>
                     )}

@@ -8,7 +8,7 @@ import { useState } from "react";
 import styles from "./skills.module.css";
 import { EverywhereToggle } from "./SkillSwitch";
 
-const ACTION = "h-11 rounded-none px-3 text-[12.5px] pointer-coarse:h-11 pointer-fine:h-8";
+const ACTION = "h-11 rounded-none px-3 text-[12.5px] pointer-fine:h-8";
 
 interface SkillCardProps {
     skill: SkillSummary;
@@ -63,7 +63,11 @@ export function SkillCard({ skill, onPreview, onEdit, onDelete, onToggle }: Skil
                 {skill.description}
             </p>
             {error && (
-                <p role="alert" className="mt-2 text-[12.5px] text-destructive">
+                <p
+                    data-error-box="shown"
+                    role="alert"
+                    className="mt-2 text-[12.5px] text-destructive"
+                >
                     {error}
                 </p>
             )}

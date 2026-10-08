@@ -67,7 +67,7 @@
 :root {
     color-scheme: dark;
     --radius: 1.3rem;
-    /* Scrollbars as Vercel's chatbot draws them: a faint 4px thumb on no track. */
+    /* Scrollbars: a faint 4px thumb on no track. */
     --scrollbar-thumb: oklch(1 0 0 / 0.1);
     --scrollbar-thumb-hover: oklch(1 0 0 / 0.2);
     --background: oklch(0 0 0);
