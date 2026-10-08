@@ -78,7 +78,7 @@ from ..storage.storage import StorageError
 from ..tools.mcp import DEFAULT_SERVERS, Server
 from ..tools.mcp_tools import McpTools
 from ..tools.public_tools import EDIT_TOOLS, edit_summary
-from ..tools.skills import RuntimeSkills
+from ..tools.skills import PICKED, RuntimeSkills
 from ..tools.tools import MAX_COVER_BYTES, ROOT, FileWriteError, cover_image
 from . import bus
 from .answer import answer_question
@@ -1194,6 +1194,10 @@ class Service:
             if live.workflow.get("approved") and live.workflow.get("plan"):
                 # The model gets the approved plan itself as the request; the chat keeps the user's approval.
                 prompt = IMPLEMENT_PLAN.format(plan=live.workflow["plan"])
+                # Skills and services the user picked as "/name" in the request or a reply reach the build too.
+                replies = [e["reply"] for e in live.workflow["context"]["exchanges"]]
+                if picks := dict.fromkeys(PICKED.findall("\n".join([original_request(live), *replies]))):
+                    prompt += "\nThe user picked: " + " ".join(f"/{name}" for name in picks)
             if live.services and live.workflow.get("mode") != "plan":
                 # A build runs commands and checks the preview from its first turn.
                 await live.services

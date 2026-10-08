@@ -40,6 +40,8 @@ interface ChatInputProps {
     onCancel: () => void;
     canCancel: boolean;
     awaitingInput?: boolean;
+    /** The waiting card's kind: the composer's message is its reply. */
+    pendingKind: string | null;
     mode: "auto" | "plan";
     onModeChange: (mode: "auto" | "plan") => void;
     models: ModelOption[];
@@ -60,14 +62,15 @@ export function ChatInput({
     onCancel,
     canCancel,
     awaitingInput = false,
+    pendingKind,
     mode,
     onModeChange,
     models,
     modelChoice,
     onModelChoiceChange,
 }: ChatInputProps) {
-    // Typing stays open while building: the message becomes a steering update (spec 5).
-    const canCompose = connected && !awaitingInput;
+    // Typing stays open while building, as a steering update (spec 5), and while a card waits, as its reply.
+    const canCompose = connected;
     const prompt = useRef<HTMLTextAreaElement>(null);
     const { skills, ensureLoaded } = projectSkills;
     const { connections, ensureLoaded: loadConnections } = useProjectConnections(projectId);
@@ -178,9 +181,11 @@ export function ChatInput({
                                 disabled={!canCompose}
                                 {...menu.fieldProps(MENU_ID, canCompose && !!input.trim())}
                                 placeholder={
-                                    awaitingInput
-                                        ? "Answer or dismiss the proposal above to continue"
-                                        : "Describe a change to your app…"
+                                    pendingKind === "plan"
+                                        ? "Describe what should change in the plan…"
+                                        : awaitingInput
+                                          ? "Write your answer…"
+                                          : "Describe a change to your app…"
                                 }
                             />
                         </div>
@@ -231,7 +236,7 @@ export function ChatInput({
                             <ModelPicker
                                 models={models}
                                 value={modelChoice}
-                                disabled={!canCompose || isBuilding}
+                                disabled={!canCompose || isBuilding || awaitingInput}
                                 onChange={onModelChoiceChange}
                             />
 
