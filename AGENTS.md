@@ -45,6 +45,22 @@ Every change reaches `main` through a pull request. Only a hotfix goes to `main`
 - One active sandbox per user. Viewing a project (`preview_status`) or acquiring its sandbox calls `Service.park_others`, which pauses the user's other running sandboxes; one with a build in progress keeps running and is parked when its build ends. `park_others` returns at once when the project is already the user's `focus`: every sandbox started since (an open or a build of another project) moved the focus away. `preview_status` checks ownership in its one query and parks only after that check.
 - Sandboxes are created without `auto_resume`. A paused one wakes only through `acquire`, which reserves its lease first; the builder opens a sleeping preview itself. Turning `auto_resume` back on makes preview traffic resume a sandbox unmetered, and lets a stale tab undo the one-sandbox rule. A `lifecycle` change reaches existing sandboxes only after `E2B_RUNTIME_GENERATION` is raised.
 
+## Questions, changes and plans
+
+`agent/run/workflow.py` labels each message, `agent/run/answer.py` answers questions, `agent/run/service.py` runs both.
+
+- No router answers on its own: an answer from a call that cannot read the project is a guess. The cheap routing call only labels a message `change` or `question`, reasoning first, with worked examples; when unsure, or when the call fails, it is a change. A plan run and an answer to a build's question are not labeled.
+- A change runs the build loop. A question runs the same model over the latest saved revision with read-only tools (`list_files`, `read_files`), never the sandbox: nothing to wake, park or lease. Its reply is the run's reply; it stores no proposal card.
+- Plan mode (`mode: "plan"`, the composer's Plan toggle) runs the build loop with `read_files`, `request_decision`, `write_plan`, `read_skill` and `search_project_history` only, plus `agent/run/planning.md` appended to the system prompt. No commands and no connected services: either can change files. `write_plan(title, summary, for_user, for_builder)` writes `.accretion/plan.md` under fixed headings (the host writes them, so a model copying an older plan's shape cannot break the split), saves a revision and stops on a plan card carrying the plan's markdown (`WorkflowDecision.plan`).
+- A new project's first message always plans (`admit`). After that the user picks Build or Plan; Build never waits for approval.
+- A plan has two parts under fixed headings: `## What you'll get` in the user's words, then `## How it will be built` for the builder (approach, a `- [ ]` step checklist naming files, checks). The card shows the first part and folds the second behind "Technical details".
+- Approve continues in build mode with `plan_approved`, and the model's request is the plan itself (`IMPLEMENT_PLAN`); the chat keeps the user's approval. The builder builds the whole plan and ticks its steps. Change it (`revise`) plans again over the same file; an answer to a question keeps the asking run's mode (`prepare_continuation`). Approving switches the composer back to Build.
+- Later builds keep `.accretion/plan.md` true: tick finished steps, add new ones, delete what no longer holds. A build never writes a plan where there is none.
+- Project notes live in `.accretion/memory.md` (the kits ship it there; `make template-build` puts it in new projects). Older projects keep `AGENTS.md` at the root and the runner sends whichever exists as `project_memory`, with its path. Notes hold facts the code does not show, edited line by line; never a root `AGENTS.md`.
+- The build loop can still stop with one question (`request_decision`, clarify only); the user's answer continues that build without routing again.
+- A reply names a technology only to say the app does not use one the user named, and what it uses instead (`prompts.md`, and the plain-reply rewrite in `runner.py`).
+- Old runs keep their plan and answer cards: `public_workflow` and the cards still render them. A plan with `plan` text renders in the same card, its plan text and the Deck figure (`frontend/components/chat/PlanBody.tsx`, `Deck.tsx`, `hairline/deck.js`) in place of the old steps list.
+
 ## Context compaction
 
 `agent/context/compaction.py` trims context, `agent/context/transcript.py` stores it,
@@ -215,13 +231,13 @@ Domain-first, one package per concern. Adapted from
 [fastapi-best-practices](https://github.com/zhanymkanov/fastapi-best-practices).
 
 - `main.py` owns composition only: middleware, lifespan and router registration. No endpoint lives here.
-- One package per domain, each owning its own routes: `auth/`, `projects/`, `runs/`, `files/`, `previews/`, `health/`.
+- One package per domain, each owning its own routes: `auth/`, `projects/`, `runs/`, `files/`, `previews/`, `health/`, `skills/`, `connections/`.
 - `agent/` owns the build agent and has its own `agent/AGENTS.md`. Read it before changing that package.
 - `db/` owns the engine and session factory (`base.py`) and the ORM models (`models.py`) that no single domain owns. Alembic owns schema creation; there is no `migrate.py`.
-- `config.py`, `exceptions.py`, `plans.py` and `request_timing.py` sit at the root because more than one domain uses them. That is the only reason to put a module there.
+- `config.py`, `exceptions.py`, `models.py`, `plans.py` and `request_timing.py` sit at the root because more than one domain uses them. That is the only reason to put a module there.
 - `scripts/` is not imported by the app.
 
-A domain owns `models.py` when it is the only domain using those tables. Tables read by several domains stay in `db/models.py` — `Chat` is used by eight, and moving it into `projects/` would make the agent engine import from the API layer. Every module holding ORM models must be imported in `alembic/env.py`, or autogenerate proposes dropping its tables.
+A domain owns `models.py` when it is the only domain using those tables. Tables read by several domains stay in `db/models.py` — `Chat` is used by `agent/`, `projects/`, `runs/`, `skills/` and `connections/`, and moving it into `projects/` would make the agent engine import from the API layer. Every module holding ORM models must be imported in `alembic/env.py`, or autogenerate proposes dropping its tables.
 
 A deploy migrates while the previous release still serves, so a migration must work with that release's code: add first, then drop a column or table in a later deploy, once no released code reads it.
 
