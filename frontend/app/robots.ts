@@ -1,4 +1,4 @@
-import { SITE_URL as BASE } from "@/config/env";
+import { SITE_URL } from "@/config/env";
 import type { MetadataRoute } from "next";
 
 // The landing and auth pages are public; everything behind sign-in is not worth crawling. AI search crawlers are
@@ -20,6 +20,6 @@ export default function robots(): MetadataRoute.Robots {
                 "/waitlist",
             ],
         },
-        sitemap: `${BASE}/sitemap.xml`,
+        sitemap: `${SITE_URL}/sitemap.xml`,
     };
 }
