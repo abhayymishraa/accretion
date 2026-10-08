@@ -1210,6 +1210,11 @@ class Service:
                 }
                 status, reason = "awaiting_input", live.workflow["summary"]
                 return
+            if live.workflow.get("mode") == "plan":
+                # A plan run that ended on a reply changed no code and checked nothing: it is an answer, so it
+                # neither saves files nor moves the verified revision.
+                status, reason = "answered", result["summary"]
+                return
             await self.save_files(live)
             status, reason = (
                 "succeeded",

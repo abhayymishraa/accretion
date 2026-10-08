@@ -94,7 +94,7 @@ export function PreviewAddressBar({
                     }}
                     onBlur={() => setTyping(false)}
                     onChange={(event) => setPath(event.target.value)}
-                    className="h-7 w-full rounded-[7px] border border-border bg-surface-2 px-2.5 font-mono text-[12px] pointer-coarse:h-9 pointer-coarse:text-[16px] text-foreground outline-none [transition:border-color_130ms_ease] focus-visible:border-ring disabled:opacity-50"
+                    className="h-7 w-full rounded-[7px] border border-border bg-surface-2 px-2.5 font-mono text-[12px] pointer-coarse:h-11 pointer-coarse:text-[16px] text-foreground outline-none [transition:border-color_130ms_ease] focus-visible:border-ring disabled:opacity-50"
                 />
             </form>
             {ready && src && (

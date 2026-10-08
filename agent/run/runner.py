@@ -634,7 +634,8 @@ async def run_editor(
         started = time.monotonic()
         fatal_error = None
         try:
-            if call["name"] in mcp.by_name:
+            # Plan mode has no connected services: a tool loaded by an earlier run is not callable here either.
+            if not planning and call["name"] in mcp.by_name:
                 result = await mcp.call(call["name"], call["args"])
             elif call["name"] not in tools:
                 # An older run in this chat's transcript may have called a tool that has since been

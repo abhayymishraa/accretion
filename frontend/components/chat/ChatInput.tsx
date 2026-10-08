@@ -185,7 +185,7 @@ export function ChatInput({
                             />
                         </div>
 
-                        <div className="mt-2 flex items-center gap-2">
+                        <div className="mt-2 flex flex-wrap items-center gap-2">
                             <div className="flex items-center gap-0.5 pointer-coarse:gap-3">
                                 {EFFECTS.liquidComposerTools ? (
                                     <LiquidTools>{tools}</LiquidTools>
@@ -235,7 +235,7 @@ export function ChatInput({
                                 onChange={onModelChoiceChange}
                             />
 
-                            <div className="ml-auto flex items-center gap-2">
+                            <div className="ml-auto flex shrink-0 items-center gap-2">
                                 <ConnectionPill
                                     connected={connected}
                                     building={isBuilding}
