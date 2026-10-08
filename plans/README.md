@@ -32,6 +32,7 @@ agent, or with `improve-animations execute plans/<file>`.
 | 024 | [Fade the workspace Skills tab's content in over its skeleton](024-skills-panel-loaded-fade.md) | LOW | DONE |
 | 025 | [Press response on the sidebar's account button and budget pill](025-sidebar-account-press.md) | LOW | DONE |
 | 026 | [Fade in a card's new status when the user answers it](026-plan-status-fade.md) | LOW | DONE |
+| 027 | [Finish the landing strips' name reveal before the strips are fully on screen](027-landing-strip-stagger.md) | LOW | DONE |
 
 ## Order and dependencies
 
@@ -52,3 +53,5 @@ agent, or with `improve-animations execute plans/<file>`.
 018-023 come from the deep whole-frontend pass (2026-10-08), after plan mode landed on `fix/one-loop`. They touch different files and are independent. 018 first: the plan card is the newest, most visible surface. 023 asks the executor to read the `utility` variant's transition first and keep its values.
 
 024-026 come from the follow-up deep pass (2026-10-08). They are independent. 024 first: the Skills tab is the one loaded surface left that cuts from its skeleton (the Connectors tab and the connector detail page already fade, through `styles.cascade` and `styles.reveal`). 026 has a stop condition: drop it if statuses fading on every page load read as noise. After these, further motion would be motion for its own sake.
+
+027 comes from the landing-page pass (2026-10-08), after the stack and "Coming next" strips were added. It is independent and edits only `BuildPlate.tsx`. Every other landing animation already passed: hero rise, scroll reveals, FAQ disclosure and press scales.
