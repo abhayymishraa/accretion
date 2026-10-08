@@ -50,11 +50,19 @@ async def _write_config(sandbox, chat_id: str, kit: Kit) -> None:
 
 
 async def start_new(sandbox, chat_id: str, kit_id: str) -> None:
-    """A new project: the kit, dependencies included, copied from the template, then migrated and started."""
+    """A new project's files: the kit, dependencies included, moved into place from the template. start_services
+    then migrates and starts it."""
     kit = KITS[kit_id]
     source = shlex.quote(f"{TEMPLATE_KITS_DIR}/{kit.id}")
-    await sandbox.commands.run(f"cp -a {source}/. {ROOT}/", timeout=120)
+    # A rename on one disk, not a copy of every dependency file (10.8 s down to 0.5 s). The kit's .venv scripts
+    # keep their template path in the shebang, so that path stays as a link to the project.
+    await sandbox.commands.run(f"rmdir {ROOT} && mv {source} {ROOT} && ln -s {ROOT} {source}", timeout=120)
     await _write_config(sandbox, chat_id, kit)
+
+
+async def start_services(sandbox, kit_id: str) -> None:
+    """After start_new: the kit's database, migrated and seeded, then its services."""
+    kit = KITS[kit_id]
     await _start_database(sandbox, kit)
     await _run(sandbox, kit.migrate)
     await record_applied(sandbox, kit.model_dump())
