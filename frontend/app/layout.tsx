@@ -1,5 +1,6 @@
 import { ThemeProvider } from "@/components/layout/ThemeProvider";
 import { Toaster } from "@/components/ui/sonner";
+import { SITE_URL } from "@/config/env";
 import type { Metadata } from "next";
 import { DM_Sans, Open_Sans } from "next/font/google";
 import "./globals.css";
@@ -24,7 +25,7 @@ const DESCRIPTION =
     "Describe an app in plain words. Accretion plans it with you, then builds it with a real server and database.";
 
 export const metadata: Metadata = {
-    metadataBase: new URL(process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000"),
+    metadataBase: new URL(SITE_URL),
     title: "Accretion",
     description: DESCRIPTION,
     icons: {
