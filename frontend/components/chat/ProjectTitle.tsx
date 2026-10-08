@@ -60,11 +60,11 @@ export function ProjectTitle({
         <div className="flex min-w-0 items-center gap-1">
             {draft !== null ? (
                 // Sized by a hidden copy of the text in the same grid cell, so the field is exactly
-                // as wide as the name (CSS-Tricks' auto-growing input; field-sizing lacks Firefox).
+                // as wide as the name (field-sizing lacks Firefox).
                 <div className="inline-grid min-w-0 max-w-full [&>*]:[grid-area:1/1]">
                     <span
                         aria-hidden="true"
-                        className={`${TITLE_TEXT} invisible overflow-hidden whitespace-pre`}
+                        className={`${TITLE_TEXT} invisible overflow-hidden whitespace-pre pointer-coarse:text-[16px]`}
                     >
                         {draft || " "}
                     </span>
@@ -83,9 +83,9 @@ export function ProjectTitle({
                             if (event.key === "Escape") finish(false);
                         }}
                         onBlur={() => finish(true)}
-                        // Open WebUI's rename input: the title's own type, no box or ring of its own;
+                        // The title's own type, no box or ring of its own;
                         // the tinted field and the selection show it is being edited.
-                        className={`${TITLE_TEXT} w-full min-w-0 border-0 bg-surface-2 outline-none focus-visible:outline-none`}
+                        className={`${TITLE_TEXT} w-full min-w-0 border-0 bg-surface-2 outline-none focus-visible:outline-none pointer-coarse:text-[16px]`}
                     />
                 </div>
             ) : title === null ? (
@@ -107,7 +107,7 @@ export function ProjectTitle({
             <DropdownMenu>
                 <DropdownMenuTrigger
                     aria-label="Project menu"
-                    className="grid size-7 shrink-0 cursor-pointer place-items-center rounded-[7px] text-muted-foreground [transition:background-color_130ms_ease,color_130ms_ease] focus-visible:outline-2 focus-visible:outline-ring pointer-fine:hover:bg-surface-2 pointer-fine:hover:text-foreground"
+                    className="grid size-7 shrink-0 cursor-pointer place-items-center rounded-[7px] pointer-coarse:size-11 text-muted-foreground [transition:background-color_130ms_ease,color_130ms_ease] focus-visible:outline-2 focus-visible:outline-ring pointer-fine:hover:bg-surface-2 pointer-fine:hover:text-foreground"
                 >
                     <ChevronDown size={15} />
                 </DropdownMenuTrigger>

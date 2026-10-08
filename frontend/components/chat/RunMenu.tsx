@@ -107,7 +107,7 @@ export function RunMenu({
                     role="menuitem"
                     type="button"
                     onClick={() => void copy(runId, "Run id copied")}
-                    className="flex min-h-9 w-full cursor-pointer items-center px-3 text-left text-[12.5px] text-foreground pointer-fine:hover:bg-surface-1"
+                    className="flex min-h-9 pointer-coarse:min-h-11 w-full cursor-pointer items-center px-3 text-left text-[12.5px] text-foreground pointer-fine:hover:bg-surface-1"
                 >
                     Copy run id
                 </button>
@@ -118,7 +118,7 @@ export function RunMenu({
                     onClick={() =>
                         transcript !== null && void copy(transcript, "Build steps copied")
                     }
-                    className="flex min-h-9 w-full cursor-pointer items-center px-3 text-left text-[12.5px] text-foreground pointer-fine:hover:bg-surface-1 disabled:cursor-default disabled:text-muted-foreground"
+                    className="flex min-h-9 pointer-coarse:min-h-11 w-full cursor-pointer items-center px-3 text-left text-[12.5px] text-foreground pointer-fine:hover:bg-surface-1 disabled:cursor-default disabled:text-muted-foreground"
                 >
                     {transcript !== null
                         ? "Copy build steps"

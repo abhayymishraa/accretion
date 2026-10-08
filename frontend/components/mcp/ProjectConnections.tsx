@@ -1,6 +1,6 @@
 "use client";
 
-import { SkillSearch } from "@/components/skills/SkillFilters";
+import { SkillSearch, TOOLBAR_LINK } from "@/components/skills/SkillFilters";
 import { ErrorBox } from "@/components/ui/ErrorBox";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useProjectConnections } from "@/hooks/connections/useProjectConnections";
@@ -11,9 +11,6 @@ import { useEffect, useState } from "react";
 import { ConnectorRow, type ConnectorState, stateOf } from "./ConnectorRow";
 import { Board } from "./Board";
 
-// The toolbar's way out, the same control as the Skills tab's "Library".
-const MANAGE =
-    "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-[6px] border border-border bg-surface-2 px-3 text-[12.5px] text-foreground shadow-xs [transition:background-color_130ms_ease,scale_100ms_var(--ease-out)] active:scale-[0.97] motion-reduce:active:scale-100 focus-visible:outline-2 focus-visible:outline-ring pointer-coarse:h-11 pointer-fine:hover:bg-surface-3";
 const LABEL = "font-mono text-[10px] tracking-[0.12em] text-muted-foreground uppercase";
 
 // The read-out's counts. The list groups only by what the user must act on, so a row never jumps away
@@ -68,7 +65,7 @@ function Empty() {
             <p className="mt-1 max-w-[36ch] text-xs leading-[1.5] text-muted-foreground">
                 Connect services like Notion, Linear or GitHub to give your builds extra tools.
             </p>
-            <Link href="/connectors" className={`${MANAGE} mt-4`}>
+            <Link href="/connectors" className={`${TOOLBAR_LINK} mt-4`}>
                 Add a connector
                 <ArrowUpRight size={13} aria-hidden="true" className="text-muted-foreground" />
             </Link>
@@ -117,9 +114,9 @@ export function ProjectConnections({ projectId }: { projectId: string }) {
                         value={query}
                         onChange={setQuery}
                         label="Search connectors"
-                        className="h-8 rounded-[6px] text-[12.5px]"
+                        className="h-8 rounded-[6px] text-[12.5px] sm:text-[12.5px]"
                     />
-                    <Link href="/connectors" className={MANAGE}>
+                    <Link href="/connectors" className={TOOLBAR_LINK}>
                         Manage
                         <ArrowUpRight
                             size={13}

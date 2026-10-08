@@ -3,6 +3,7 @@
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useConnections } from "@/hooks/connections/useConnections";
+import { cn } from "@/lib/utils";
 import { ChevronLeft, Plus } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -122,14 +123,17 @@ export default function AddByAddress() {
                     <div className="flex flex-wrap justify-end gap-2">
                         <Link
                             href="/connectors"
-                            className={`${buttonVariants({ variant: "secondary" })} h-9 rounded-[8px] px-4 text-[14px] no-underline pointer-coarse:h-11 max-sm:flex-1`}
+                            className={cn(
+                                buttonVariants({ variant: "secondary" }),
+                                "rounded-[8px] px-4 text-[14px] max-sm:flex-1",
+                            )}
                         >
                             Cancel
                         </Link>
                         <Button
                             type="submit"
                             disabled={busy}
-                            className="h-9 rounded-[8px] px-4 text-[14px] pointer-coarse:h-11 max-sm:flex-1"
+                            className="rounded-[8px] px-4 text-[14px] max-sm:flex-1"
                         >
                             <Plus size={14} aria-hidden="true" />
                             {busy ? "Adding" : "Add service"}

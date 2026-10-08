@@ -154,7 +154,7 @@ export function GitHubImportSheet({ open, onClose }: { open: boolean; onClose: (
                                                 type="checkbox"
                                                 checked={chosen.has(skill.path)}
                                                 onChange={() => toggle(skill.path)}
-                                                className="mt-1 size-4 shrink-0 accent-[var(--primary)]"
+                                                className="mt-1 size-4 shrink-0 accent-primary"
                                             />
                                             <span className="min-w-0">
                                                 <span className="block truncate font-mono text-[13px] text-primary">

@@ -26,7 +26,7 @@ export function ModelPicker({ models, value, disabled = false, onChange }: Model
                 value={value}
                 disabled={disabled}
                 onChange={(event) => onChange(event.target.value)}
-                className="h-8 w-full cursor-pointer appearance-none truncate rounded-md border border-input bg-transparent pr-8 pl-[3.4rem] text-foreground max-sm:pl-2.5 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:opacity-50"
+                className="h-8 pointer-coarse:h-11 w-full cursor-pointer appearance-none truncate rounded-md border border-input bg-transparent pr-8 pl-[3.4rem] text-foreground max-sm:pl-2.5 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:opacity-50"
             >
                 <option value="auto">Auto</option>
                 {models.map((model) => (

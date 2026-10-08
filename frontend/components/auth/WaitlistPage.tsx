@@ -72,7 +72,7 @@ export default function WaitlistPage() {
                     onClick={signOut}
                     className={cn(
                         styles.lift,
-                        "h-9 cursor-pointer rounded-[8px] px-3.5 text-[14px] font-medium transition-[background-color,transform] duration-150 ease-out active:scale-[0.97] pointer-fine:hover:bg-[var(--surface-2)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]/50",
+                        "h-9 pointer-coarse:h-11 cursor-pointer rounded-[8px] px-3.5 text-[14px] font-medium transition-[background-color,transform] duration-150 ease-out active:scale-[0.97] pointer-fine:hover:bg-[var(--surface-2)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]/50",
                     )}
                 >
                     Sign out
