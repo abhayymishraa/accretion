@@ -23,30 +23,6 @@
                 transparent 55%
             );
     }
-
-    /* Auth-page artwork. Shares the workspace palette; no standalone colours. */
-    .ember-art {
-        aspect-ratio: 0.9;
-        width: 100%;
-        position: relative;
-        isolation: isolate;
-        overflow: hidden;
-        display: flex;
-        flex-direction: column;
-        justify-content: space-between;
-        padding: 32px;
-        border: 1px solid var(--border);
-        border-radius: 14px;
-        color: var(--foreground);
-        background:
-            radial-gradient(
-                ellipse at 8% 110%,
-                color-mix(in oklab, var(--primary) 70%, transparent) 0%,
-                color-mix(in oklab, var(--primary) 28%, transparent) 27%,
-                transparent 70%
-            ),
-            var(--surface-1);
-    }
 }
 
 @media (prefers-reduced-motion: reduce) {

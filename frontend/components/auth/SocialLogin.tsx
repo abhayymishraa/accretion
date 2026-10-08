@@ -19,7 +19,7 @@ export function SocialLogin({
     const { options, helperMessage } = useSocialLogin(registration, onOptions);
 
     return (
-        <div className="ember-social-login mt-6 [&>div]:grid [&>div]:grid-cols-[1fr_1fr] [&>div]:gap-3 [&_.ember-helper]:mt-3.5 [&_.ember-helper]:leading-[1.5]">
+        <div className="mt-6 [&>div]:grid [&>div]:grid-cols-[1fr_1fr] [&>div]:gap-3 [&_.ember-helper]:mt-3.5 [&_.ember-helper]:leading-[1.5]">
             <div>
                 {(["google", "github"] as const).map((provider) => (
                     <Button

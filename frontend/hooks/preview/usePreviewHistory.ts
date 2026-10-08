@@ -2,14 +2,13 @@
 
 import { useEffect, useRef, useState, type RefObject } from "react";
 
-// Onlook's FrameNavigationManager keeps the last 50 paths; so do we.
+// Keeps the last 50 paths.
 const LIMIT = 50;
 
 /**
  * The preview's history, built from the page changes reported by the bridge that
- * agent/sandbox/preview_proxy.py adds to every page (after Dyad's shim and Onlook's navigation
- * stack). Back and forward ask the bridge to load a recorded path; a preview without the bridge
- * reports nothing, and the buttons stay disabled.
+ * agent/sandbox/preview_proxy.py adds to every page. Back and forward ask the bridge to load a
+ * recorded path; a preview without the bridge reports nothing, and the buttons stay disabled.
  */
 export function usePreviewHistory(
     frame: RefObject<HTMLIFrameElement | null>,

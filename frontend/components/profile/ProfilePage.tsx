@@ -18,13 +18,13 @@ export default function ProfilePage() {
     const budget = user?.cost_allowance;
     return (
         <>
-            <div className="ember-workspace-shell flex min-h-dvh [&>.ember-workspace]:flex-1 [&>.ember-workspace]:min-w-0 [&>.ember-workspace]:w-full [&>.ember-workspace]:mx-auto">
+            <div className="flex min-h-dvh">
                 <WorkspaceSidebar userData={user} onSignOut={signOut} />
                 <main
-                    className="ember-profile w-full min-w-0 max-w-275 mx-auto py-9.5 px-[clamp(20px,_4vw,_56px)] max-md:py-6 max-md:px-4.5"
+                    className="w-full min-w-0 max-w-275 mx-auto py-9.5 px-[clamp(20px,_4vw,_56px)] max-md:py-6 max-md:px-4.5"
                     id="main-content"
                 >
-                    <div className="ember-profile-heading mb-6.5 [&_h1]:text-[clamp(28px,_3vw,_36px)] [&_h1]:tracking-[-1.3px] [&_h1]:font-medium [&_h1]:my-1.5 [&_h1]:mx-0 [&>p:last-child]:text-[14px] [&>p:last-child]:leading-[1.6] [&>p:last-child]:text-muted-foreground">
+                    <div className="mb-6.5 [&_h1]:text-[clamp(28px,_3vw,_36px)] [&_h1]:tracking-[-1.3px] [&_h1]:font-medium [&_h1]:my-1.5 [&_h1]:mx-0 [&>p:last-child]:text-[14px] [&>p:last-child]:leading-[1.6] [&>p:last-child]:text-muted-foreground">
                         <p className="ember-eyebrow uppercase tracking-[0.12em] text-[10px] font-medium text-accent-foreground mb-5.5">
                             Your workspace, your way
                         </p>
@@ -34,7 +34,7 @@ export default function ProfilePage() {
                     <ErrorBox message={error} />
                     {!user ? (
                         error ? (
-                            <div className="ember-profile-loading py-10">
+                            <div className="py-10">
                                 <Button variant="default" onClick={() => setAttempt((v) => v + 1)}>
                                     Try again
                                 </Button>
@@ -77,7 +77,7 @@ export default function ProfilePage() {
                                 <section aria-labelledby="signin-title">
                                     <h2 id="signin-title">Sign-in methods</h2>
                                     <p>Keep your ideas within reach.</p>
-                                    <div className="ember-profile-methods mt-4.5 [&>div]:flex [&>div]:items-center [&>div]:gap-[13px] [&>div]:min-h-[75px] [&>div]:border-b [&>div]:border-b-border [&>div>svg]:shrink-0 [&_span]:flex-1 [&_span]:text-[14px] [&_small]:block [&_small]:text-muted-foreground [&_small]:text-[12px] [&_small]:mt-1 [&_button]:py-2.5 [&_button]:px-3.5">
+                                    <div className="mt-4.5 [&>div]:flex [&>div]:items-center [&>div]:gap-[13px] [&>div]:min-h-[75px] [&>div]:border-b [&>div]:border-b-border [&>div>svg]:shrink-0 [&_span]:flex-1 [&_span]:text-[14px] [&_small]:block [&_small]:text-muted-foreground [&_small]:text-[12px] [&_small]:mt-1 [&_button]:py-2.5 [&_button]:px-3.5">
                                         {(["google", "github"] as const).map((provider) => {
                                             const connected = user.providers?.includes(provider);
                                             return (
@@ -134,7 +134,7 @@ export default function ProfilePage() {
                                 </section>
                             </div>
                             <p
-                                className="ember-profile-status min-h-6 mt-5 text-accent-foreground text-[14px]"
+                                className="min-h-6 mt-5 text-accent-foreground text-[14px]"
                                 role="status"
                             >
                                 {message && (

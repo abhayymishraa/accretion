@@ -3,7 +3,7 @@
 export type PromptCategory =
     "Accessibility" | "SEO" | "Usability" | "Performance" | "General" | "Workflow";
 
-export interface Prompt {
+interface Prompt {
     category: PromptCategory;
     name: string;
     prompt: string;

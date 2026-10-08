@@ -149,7 +149,7 @@ export function PreviewPanel({
             {visible && (activeTab === "preview" || retainPreview) && (
                 // Every state fills the pane edge to edge under the address bar; only phone width is framed.
                 <div
-                    className={`ember-preview-stage relative flex min-h-0 flex-1 justify-center overflow-auto [&_iframe]:h-full [&_iframe]:w-full [&_iframe]:opacity-0 [&_iframe[data-loaded]]:opacity-100 [&_iframe]:min-h-70 [&_iframe]:bg-white [&>.ember-empty]:w-full [&>.ember-empty]:justify-center ${live && mobile ? "p-4 max-md:p-2 [&_iframe]:border [&_iframe]:border-border" : ""}`}
+                    className={`relative flex min-h-0 flex-1 justify-center overflow-auto [&_iframe]:h-full [&_iframe]:w-full [&_iframe]:opacity-0 [&_iframe[data-loaded]]:opacity-100 [&_iframe]:min-h-70 [&_iframe]:bg-white [&>.ember-empty]:w-full [&>.ember-empty]:justify-center ${live && mobile ? "p-4 max-md:p-2 [&_iframe]:border [&_iframe]:border-border" : ""}`}
                     style={activeTab !== "preview" ? { display: "none" } : undefined}
                 >
                     {live ? (
@@ -208,7 +208,7 @@ export function PreviewPanel({
                 </div>
             )}
             {activeTab === "files" && (
-                <div className="ember-preview-files flex-1 min-h-0 overflow-hidden">
+                <div className="flex-1 min-h-0 overflow-hidden">
                     <FileViewer
                         key={projectId}
                         files={files}
