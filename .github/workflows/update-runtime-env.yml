@@ -30,7 +30,7 @@ on:
       DEFAULT_KIT:
         description: Kit a new project starts from
         type: choice
-        options: [vite-fastapi-postgres, next-postgres, vite-express-mongo]
+        options: [vite-fastapi-postgres, vite-express-postgres, next-postgres, vite-express-mongo]
         default: vite-fastapi-postgres
       redeploy:
         description: Rerun deploy-backend.yml afterwards
