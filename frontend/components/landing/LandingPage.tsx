@@ -25,7 +25,11 @@ const blurDataURL = readFileSync(path.join(process.cwd(), "public/brand/meadow.l
 const QUESTIONS: [string, string][] = [
     [
         "What can I build?",
-        "Web apps: dashboards, tools, portfolios, trackers. Anything a React project can be.",
+        "Web apps with a working server and a real database, in the stack you name: trackers, dashboards, internal tools, shops. Slide decks, PDFs and reports are coming next.",
+    ],
+    [
+        "Does it start building right away?",
+        "Your first message gets a plan. Read it, change it, approve it. After that, pick Build or Plan for each request.",
     ],
     [
         "Can I change the result?",
@@ -38,7 +42,7 @@ const QUESTIONS: [string, string][] = [
     ],
     [
         "How does usage work?",
-        "Your account carries a generation balance. A build spends it; browsing does not.",
+        "Your account has a build budget each month. Building and answering questions spend it; browsing your projects does not.",
     ],
 ];
 
@@ -132,8 +136,8 @@ export default function LandingPage() {
                         style={{ ["--i" as string]: 3 }}
                         className={`${styles.heroRise} mt-5 max-w-[42ch] text-[16.5px] leading-[1.62] text-white/92 text-pretty [text-shadow:0_1px_18px_rgb(10_30_50_/_0.45)]`}
                     >
-                        Say what you want in plain words. Accretion writes it, builds it, and shows
-                        you the result.
+                        Describe it in plain words. Accretion plans it with you, then builds the
+                        full app, database included.
                     </p>
                     <div
                         style={{ ["--i" as string]: 4 }}

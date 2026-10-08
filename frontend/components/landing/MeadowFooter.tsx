@@ -31,7 +31,7 @@ const COLUMNS = [
             ["Profile", "/profile"],
         ],
     ],
-    ["More", [["GitHub", "https://github.com/abhayymishraa/webbuilder"]]],
+    ["More", [["GitHub", "https://github.com/abhayymishraa/accretion"]]],
 ] as const;
 
 export function MeadowFooter() {

@@ -23,8 +23,8 @@ const STEPS = [
     },
     {
         n: "02",
-        title: "It writes it and runs the build.",
-        body: "Source, install, build, preview. You watch each step as it happens.",
+        title: "Read the plan, then it builds.",
+        body: "See what you'll get in your own words. Approve it, and it writes the screens, the server and the database.",
         art: "/brand/stamp-build.png",
         blur: lqip("stamp-build"),
         artFirst: true,
@@ -51,7 +51,7 @@ export function StepStamps() {
                 style={{ ["--i" as string]: 0 }}
                 className={`${styles.reveal} mx-auto max-w-[20ch] text-center text-[clamp(26px,3vw,38px)] leading-[1.15] font-medium tracking-[-0.03em] text-balance`}
             >
-                Three printings, one plate.
+                From a sentence to a running app.
             </h2>
 
             <ul className="mx-auto mt-12 grid max-w-[64rem] grid-cols-3 gap-7 px-6 max-md:grid-cols-1 max-md:max-w-[26rem]">
