@@ -1,61 +1,54 @@
-# Accretion
+<div align="center">
 
-Talk an idea into a running React app. Describe it, watch it build, keep shaping
-it by chat, with a live preview the whole way.
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="frontend/public/brand/accretion-lockup-dark.svg">
+  <img src="frontend/public/brand/accretion-lockup-light.svg" alt="accretion" width="300">
+</picture>
 
-A Next.js frontend, a FastAPI backend, and one bounded agent loop that edits
-files inside an E2B sandbox. The backend runs a production build plus browser
-checks, allows two targeted repairs, then persists the outcome. Stop and
-reconnect work on a run independently of its event stream.
+### Every app begins as a sentence.
 
-## Stack
+Describe an app in plain words. Accretion plans it with you, then builds the whole thing:
+the screens, the server and a real database.
 
-| | |
-|---|---|
-| Frontend | Next.js, deployed on Vercel |
-| Backend | FastAPI, one container on a VM behind Caddy |
-| Database | PostgreSQL |
-| Sandbox | E2B, Vite on port 5173 |
-| Model | Any entry in `agent/routing/models.toml`, set with `DEFAULT_MODEL` |
+[How it works](#how-it-works) · [Run it locally](#run-it-locally) · [Starter apps](sandbox/README.md)
 
-## Quickstart
+<br>
 
-Needs Docker Compose v2, Python 3.12+, uv, Node.js 22+, make.
+<img src="frontend/public/brand/accretion-social.jpg" alt="Every app begins as a sentence, with a prompt bar in Plan mode" width="820">
 
-```bash
-cp .env.example .env
-cp frontend/.env.example frontend/.env.local
-# fill OPENAI_API_KEY, E2B_API_KEY, and a 32+ char SECRET_KEY in .env
+</div>
 
-uv sync
-npm --prefix frontend ci
-```
+## What you get
 
-Three terminals from the repo root:
-
-```bash
-docker compose up -d --build --wait   # PostgreSQL + MinIO
-make backend                          # localhost:8000
-make frontend                         # localhost:3000
-```
-
-`make backend` migrates the database and creates the local bucket before
-starting Uvicorn. This is a fresh local database, separate from production.
-Open http://localhost:3000 and make an account.
-
-After editing `.env`, restart `make backend`. Uvicorn's reload does not pick up
-a changed environment.
+- **A plan before any code.** Your first message comes back as a plan in your own words. Change it, approve it, then it builds.
+- **A full app, not a mockup.** Frontend, API and database, in the stack you name or one it picks for you.
+- **Checked like a person would.** Every change is clicked through in a real browser, on desktop and phone, before you see it.
+- **Yours to keep.** Read every file, edit it yourself, or download the whole project and run it anywhere.
+- **Ask, don't just build.** Questions about your app get answers from its actual code, without touching it.
 
 ## How it works
 
-A run is one bounded agent loop. It reads and edits files in the sandbox, then
-the backend builds the project and drives a browser over the result at desktop
-and mobile sizes. A failed check earns at most two targeted repairs before the
-run ends with a recorded outcome.
+1. **Describe it.** Type what you want, the way you would tell a friend.
+2. **Review the plan.** Read what you'll get. The technical steps stay folded until you want them.
+3. **Watch it build.** Approve, and each step is built, checked in the browser and ticked off. Keep chatting to change anything.
 
-Context is compacted rather than summarized first: superseded file reads are
-dropped, long tool output keeps only its head and tail, and loaded reference
-material is released before any summarizing model call is made.
+## Run it locally
 
-- [Sandbox template](sandbox/README.md), pinned versions and build policy
-- [Deployment and rollback](deploy/README.md)
+You need Docker, Python 3.12+ with [uv](https://docs.astral.sh/uv/), Node.js 22+ and make.
+
+```bash
+cp .env.example .env                              # add E2B_API_KEY, SECRET_KEY and one model key
+cp frontend/.env.example frontend/.env.local
+uv sync && npm --prefix frontend ci
+make template-build                               # your own sandbox image with every starter app
+
+docker compose up -d --build --wait               # database and file storage
+make backend                                      # http://localhost:8000
+make frontend                                     # http://localhost:3000
+```
+
+Open http://localhost:3000 and create an account.
+
+<div align="center">
+<sub>Built with Next.js, FastAPI and E2B.</sub>
+</div>
