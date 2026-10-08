@@ -32,6 +32,9 @@ on:
         type: choice
         options: [vite-fastapi-postgres, vite-express-postgres, next-postgres, vite-express-mongo]
         default: vite-fastapi-postgres
+      RESEND_FROM:
+        description: Sender of every email, as Name <address>; the address must be on a domain verified in Resend
+        default: "Accretion <hello@accretion.abhayymishraa.com>"
       redeploy:
         description: Rerun deploy-backend.yml afterwards
         type: boolean
@@ -58,6 +61,7 @@ jobs:
           NEW_ALLOWED_ORIGINS: ${{ inputs.ALLOWED_ORIGINS }}
           NEW_E2B_TEMPLATE: ${{ inputs.E2B_TEMPLATE }}
           NEW_DEFAULT_KIT: ${{ inputs.DEFAULT_KIT }}
+          NEW_RESEND_FROM: ${{ inputs.RESEND_FROM }}
         run: |
           set -euo pipefail
           : "${DEPLOY_HOST:?Missing DEPLOY_HOST}"
@@ -81,6 +85,10 @@ jobs:
           done
           [[ "$NEW_ALLOWED_ORIGINS" =~ ^${origin}(,${origin})*$ ]] || { echo 'Invalid ALLOWED_ORIGINS'; exit 1; }
 
+          # A display name and one address, nothing else: no quotes, no newline that could add a line to runtime.env.
+          sender='^[A-Za-z0-9 ._-]+ <[A-Za-z0-9._%+-]+@[a-z0-9]([a-z0-9.-]*[a-z0-9])?\.[a-z]{2,}>$'
+          [[ "$NEW_RESEND_FROM" =~ $sender ]] || { echo 'Invalid RESEND_FROM; use Name <address>'; exit 1; }
+
           install -d -m 700 ~/.ssh
           printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
           printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
@@ -90,6 +98,8 @@ jobs:
                     -o StrictHostKeyChecking=yes -o ConnectTimeout=15)
 
           # Values travel as environment variables, never on the command line.
+          # ssh joins them into one line that the host parses again, so RESEND_FROM is quoted to keep its
+          # spaces and <> as one value; the sender check above rejects any ' inside it.
           ssh "${ssh_args[@]}" \
             "ubuntu@$DEPLOY_HOST" \
             NEW_MONTHLY_BUDGET_USD="$NEW_MONTHLY_BUDGET_USD" \
@@ -100,6 +110,7 @@ jobs:
             NEW_ALLOWED_ORIGINS="$NEW_ALLOWED_ORIGINS" \
             NEW_E2B_TEMPLATE="$NEW_E2B_TEMPLATE" \
             NEW_DEFAULT_KIT="$NEW_DEFAULT_KIT" \
+            NEW_RESEND_FROM="'$NEW_RESEND_FROM'" \
             'bash -s' <<'REMOTE'
           set -euo pipefail
           file=/opt/webbuilder/runtime.env
@@ -120,7 +131,7 @@ jobs:
           trap 'rm -f "$tmp"' EXIT
           sudo cat "$file" | awk '
             BEGIN {
-              split("MONTHLY_BUDGET_USD MAX_CONCURRENT_RUNS MAX_LIVE_SANDBOXES FRONTEND_URL PUBLIC_API_URL ALLOWED_ORIGINS E2B_TEMPLATE DEFAULT_KIT", a, " ")
+              split("MONTHLY_BUDGET_USD MAX_CONCURRENT_RUNS MAX_LIVE_SANDBOXES FRONTEND_URL PUBLIC_API_URL ALLOWED_ORIGINS E2B_TEMPLATE DEFAULT_KIT RESEND_FROM", a, " ")
               for (i in a) want[a[i]] = ENVIRON["NEW_" a[i]]
             }
             {
@@ -168,7 +179,7 @@ jobs:
           fi
 
           # Report key names and whether they changed. Never print other lines.
-          for k in MONTHLY_BUDGET_USD MAX_CONCURRENT_RUNS MAX_LIVE_SANDBOXES FRONTEND_URL PUBLIC_API_URL ALLOWED_ORIGINS E2B_TEMPLATE DEFAULT_KIT; do
+          for k in MONTHLY_BUDGET_USD MAX_CONCURRENT_RUNS MAX_LIVE_SANDBOXES FRONTEND_URL PUBLIC_API_URL ALLOWED_ORIGINS E2B_TEMPLATE DEFAULT_KIT RESEND_FROM; do
             before=$(sudo grep -E "^${k}=" "$backup" | head -1 | cut -d= -f2- || true)
             after=$(sudo grep -E "^${k}=" "$file" | head -1 | cut -d= -f2- || true)
             printf '  %-32s %s -> %s\n' "$k" "${before:-<unset>}" "$after"
