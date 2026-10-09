@@ -2,10 +2,21 @@
 
 import { useState } from "react";
 
+import { cn } from "@/lib/utils";
+
 // Shared by auth, profile and chat. Lives here rather than in any feature because
 // components/ui is this repo's home for controls more than one feature needs.
 // `children` is an action offered with the error, such as Retry.
-export function ErrorBox({ message, children }: { message: string; children?: React.ReactNode }) {
+export function ErrorBox({
+    message,
+    children,
+    className,
+}: {
+    message: string;
+    children?: React.ReactNode;
+    // A lighter look for an error that sits on a line of its own, such as under a list row.
+    className?: string;
+}) {
     const [held, setHeld] = useState(message);
     if (message && message !== held) setHeld(message);
 
@@ -18,7 +29,10 @@ export function ErrorBox({ message, children }: { message: string; children?: Re
     return (
         <p
             data-error-box={message ? "shown" : ""}
-            className="rounded-[10px] border border-destructive/40 bg-destructive/8 px-4 py-3 text-[13px] leading-[1.5] wrap-anywhere text-destructive"
+            className={cn(
+                "rounded-[10px] border border-destructive/40 bg-destructive/8 px-4 py-3 text-[13px] leading-[1.5] wrap-anywhere text-destructive",
+                className,
+            )}
             role="alert"
             aria-live="polite"
         >

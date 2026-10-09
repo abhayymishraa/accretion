@@ -2,6 +2,7 @@
 
 import { useId, useState } from "react";
 
+import { SecretRequest } from "@/components/secrets/SecretRequest";
 import { Button } from "@/components/ui/button";
 import { ErrorBox } from "@/components/ui/ErrorBox";
 import { useWorkflowDecision } from "@/hooks/chat/useWorkflowDecision";
@@ -119,6 +120,13 @@ function WorkflowDecisionCard({ message, onChanged, canRespond }: WorkflowCardPr
             ) : null}
             {offered && (
                 <div data-disclosure={waiting ? "open" : ""}>
+                    {question && waiting && proposal.secrets?.length ? (
+                        <SecretRequest
+                            names={proposal.secrets}
+                            busy={busy}
+                            onAnswer={(text) => respond(runId, "answer", text)}
+                        />
+                    ) : null}
                     {!plan && options.length > 0 && (
                         <div
                             role="group"

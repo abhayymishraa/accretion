@@ -18,6 +18,8 @@ export interface WorkflowProposal {
     options?: string[];
     // A plan from plan mode: the whole plan file, as markdown.
     plan?: string;
+    // Keys a question asks for: the card shows a value field for each.
+    secrets?: string[];
     revision_id?: string | null;
     resolution?: DecisionAction;
     continuation_id?: string | null;

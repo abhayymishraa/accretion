@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef, useState, type PointerEvent } from "rea
 // A new object per click, so the viewer selects the file again even when the path repeats.
 export type OpenedFile = { path: string };
 // The workspace panel's tabs: the app preview, its files (Code), its skills and its connectors.
-export type WorkspaceTab = "preview" | "files" | "skills" | "connectors";
+export type WorkspaceTab = "preview" | "files" | "skills" | "connectors" | "secrets";
 
 export function useWorkspaceLayout() {
     const containerRef = useRef<HTMLElement>(null);
