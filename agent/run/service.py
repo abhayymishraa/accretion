@@ -5,7 +5,7 @@ import json
 import logging
 import time
 import uuid
-from contextlib import AsyncExitStack
+from contextlib import AsyncExitStack, suppress
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
@@ -61,8 +61,10 @@ from ..routing import jev
 from ..routing import providers as routing_providers
 from ..routing import router as routing_router
 from ..sandbox import migrations, project
+from ..sandbox import secrets as sandbox_secrets
 from ..sandbox.commands import CommandStateError
 from ..sandbox.kits import KITS
+from ..sandbox.models import ProjectSecret
 from ..sandbox.preview import PROXY_PORT, PreviewError, control_preview
 from ..sandbox.sandbox_runtime import RUNTIME_TIMEOUT, SandboxRuntimes
 from ..sandbox.workspace import ROOT, FileWriteError
@@ -136,8 +138,8 @@ _SERVER_FIELDS = ("id", "name", "title", "description", "url", "auth", "header_n
 
 async def build_setup(chat_id):
     """In one query: the project's kit, its skills (the owner's library less those turned off for the project or
-    for the whole account; RuntimeSkills keeps the required ones), and its MCP servers (the owner's servers that
-    are on for the account and not turned off for the project)."""
+    for the whole account; RuntimeSkills keeps the required ones), its MCP servers (the owner's servers that
+    are on for the account and not turned off for the project), and the user's keys."""
     library = library_rows(Chat.user_id, Skill.name, Skill.description, Skill.instructions)
     account = select(User.disabled_skills).where(User.id == Chat.user_id).scalar_subquery()
     pairs = [part for name in _SERVER_FIELDS for part in (name, getattr(McpServer, name))]
@@ -150,10 +152,11 @@ async def build_setup(chat_id):
         )
         .scalar_subquery()
     )
+    keys = select(ProjectSecret.user_ciphertext).where(ProjectSecret.chat_id == Chat.id).scalar_subquery()
     async with AutocommitSessionLocal() as db:
-        kit, disabled, rows, account_off, connected = (
+        kit, disabled, rows, account_off, connected, sealed = (
             await db.execute(
-                select(Chat.kit, Chat.disabled_skills, library, account, servers).where(Chat.id == chat_id)
+                select(Chat.kit, Chat.disabled_skills, library, account, servers, keys).where(Chat.id == chat_id)
             )
         ).one()
     # Only the tools the user approved reach the build. Defaults go last: their names are reserved, and last
@@ -162,7 +165,7 @@ async def build_setup(chat_id):
     mcp = McpTools([*owned, *DEFAULT_SERVERS.values()])
     # Reads and hashes the bundled skill files: off the event loop.
     skills = await asyncio.to_thread(RuntimeSkills.for_project, [*disabled, *account_off], rows)
-    return usable_kit(kit), skills, mcp
+    return usable_kit(kit), skills, mcp, sandbox_secrets.user_values(sealed)
 
 
 DELETE_DATA, KEEP_DATA = "Delete the data", "Keep my data"
@@ -763,6 +766,7 @@ class Service:
             raise SandboxSetupError(f"{exc}. No editing model request was made.") from None
         sandbox, restore = await self.runtimes.acquire(id, chat.user_id, revision, template, runtime)
         if not restore:
+            await project.sync_secrets(sandbox, id)
             return sandbox
         try:
             await sandbox.commands.run(
@@ -888,6 +892,16 @@ class Service:
                     live.events.append(event)
         if event:
             await bus.publish(bus.run_channel(live.id), event)
+
+    async def apply_secrets(self, chat_id, user_id) -> None:
+        """After a key is saved: a preview running now reopens, which restarts the app with the key
+        (project.sync_secrets). Otherwise the next open or build writes it. An open build keeps the sandbox it
+        has; its next request gets the key."""
+        row = await self.runtimes.get(chat_id)
+        if not row or row.state != "running" or not row.reusable:
+            return
+        with suppress(OperationInProgress):
+            await self.open_preview(chat_id, user_id)
 
     async def open_preview(self, chat_id, user_id) -> dict[str, Any]:
         async with self.admission:
@@ -1189,7 +1203,7 @@ class Service:
                 await self.emit(live, "stage", message="Choosing how to build it")
                 await pick_kit(live)
             await self.open_sandbox(live)
-            kit, skills, mcp = await build_setup(live.chat_id)
+            kit, skills, mcp, user_keys = await build_setup(live.chat_id)
             stack = KITS[kit].model_dump()
             prompt = live.prompt
             if live.workflow.get("approved") and live.workflow.get("plan"):
@@ -1225,6 +1239,7 @@ class Service:
                 skills=skills,
                 mcp=mcp,
                 planning=live.workflow.get("mode") == "plan",
+                secrets=user_keys,
             )
             if "decision" in result:
                 current = await latest_revision(live.chat_id)

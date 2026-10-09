@@ -12,8 +12,12 @@ from .config import sandbox_settings
 from .kits import KITS, TEMPLATE_KITS_DIR, Kit
 from .migrations import record_applied
 from .preview import control_preview
-from .secrets import ensure_secrets, env_file
+from .secrets import ensure_secrets, env_file, user_env_file, user_secrets
 from .workspace import ROOT
+
+# The user's keys, read only by the app's services (preview_process.kit_env). Its .env. name keeps it out of
+# saved revisions, the file tools and the file tree, like .env.
+USER_ENV = ".env.json"
 
 
 async def template_ref() -> str:
@@ -42,11 +46,29 @@ async def _run(sandbox, command: str, *, timeout_seconds: int = 180) -> None:
 
 
 async def _write_config(sandbox, chat_id: str, kit: Kit) -> None:
-    """.env from the project's secrets (mode 600) and the kit's stack.json for the process controller."""
-    values = await ensure_secrets(chat_id, kit)
+    """.env and .env.json from the project's secrets (mode 600) and the kit's stack.json for the process
+    controller."""
+    values, user = await ensure_secrets(chat_id, kit)
     await sandbox.files.write(f"{ROOT}/.env", env_file(values))
-    await sandbox.commands.run(f"chmod 600 {ROOT}/.env && mkdir -p {ROOT}/.accretion {ROOT}/db", timeout=10)
+    await sandbox.files.write(f"{ROOT}/{USER_ENV}", user_env_file(user))
+    await sandbox.commands.run(
+        f"chmod 600 {ROOT}/.env {ROOT}/{USER_ENV} && mkdir -p {ROOT}/.accretion {ROOT}/db", timeout=10
+    )
     await sandbox.files.write(f"{ROOT}/.accretion/stack.json", json.dumps(kit.model_dump(), indent=2))
+
+
+async def sync_secrets(sandbox, chat_id: str) -> None:
+    """A reused sandbox gets the user's current keys; the app restarts only when they changed, so a key saved
+    since the sandbox started reaches the app without a rebuild."""
+    content = user_env_file(await user_secrets(chat_id))
+    path = f"{ROOT}/{USER_ENV}"
+    # No file reads as no keys, as kit_env reads it.
+    current = await sandbox.files.read(path) if await sandbox.files.exists(path) else user_env_file({})
+    if current == content:
+        return
+    await sandbox.files.write(path, content)
+    await sandbox.commands.run(f"chmod 600 {path}", timeout=10)
+    await control_preview(sandbox, "restart")
 
 
 async def start_new(sandbox, chat_id: str, kit_id: str) -> None:
