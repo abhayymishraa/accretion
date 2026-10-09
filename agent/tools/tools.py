@@ -16,12 +16,13 @@ class FileChange(BaseModel):
 
 
 def definitions(workspace: Workspace):
-    @tool
-    async def read_files(
-        paths: Annotated[list[str], Field(min_length=1, max_length=12)],
-    ) -> dict[str, Any]:
-        """Read relevant project files together. Unchanged files are cached; avoid repeat reads.
-        Images (png, jpg, gif, webp) are shown to the user, and to you when you can read images."""
+    @tool(
+        description=(
+            "Read relevant project files together. Unchanged files are cached; avoid repeat reads."
+            " Images (png, jpg, gif, webp) are shown to the user, and to you when you can read images."
+        )
+    )
+    async def read_files(paths: Annotated[list[str], Field(min_length=1, max_length=12)]) -> dict[str, Any]:
         return await workspace.read_many(paths)
 
     @tool
