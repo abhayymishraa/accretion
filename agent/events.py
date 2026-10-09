@@ -14,6 +14,7 @@ from sqlalchemy import select
 from db.base import AsyncSessionLocal, AutocommitSessionLocal
 from db.models import Run, RunEvent
 
+from .sandbox.workspace import HIDDEN
 from .storage.persistence import put_object, read_object
 from .storage.storage import StorageError
 
@@ -54,7 +55,6 @@ def redact(value, *, max_length=4000, max_items=250):
     return value if max_length is None else value[:max_length]
 
 
-HIDDEN = "<secret-hidden>"
 # Shorter values are not hidden: they would cut ordinary words out of the output, and a real key is longer.
 _MIN_SECRET = 8
 # The second net, for keys nobody saved (one hardcoded in a file, one printed by a tool): detect-secrets' patterns

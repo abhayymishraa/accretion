@@ -15,6 +15,8 @@ import secrets
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth.config import auth_settings
 from db.base import AsyncSessionLocal, AutocommitSessionLocal
@@ -63,21 +65,27 @@ def kit_names(kit: Kit) -> list[str]:
     return sorted([*kit.env, *_derived(kit, dict.fromkeys(kit.env, ""))])
 
 
+async def _locked_row(db: AsyncSession, chat_id: str) -> ProjectSecret:
+    """The project's row, created empty if missing, locked for this transaction. The insert is conflict-safe, so a
+    first save and a first build at the same time cannot both create it."""
+    empty = fernet(_PROJECT_SECRETS).encrypt(b"{}")
+    await db.execute(insert(ProjectSecret).values(chat_id=chat_id, ciphertext=empty).on_conflict_do_nothing())
+    row = await db.get(ProjectSecret, chat_id, with_for_update=True, populate_existing=True)
+    assert row is not None, "inserted above"
+    return row
+
+
 async def ensure_secrets(chat_id: str, kit: Kit) -> tuple[dict[str, str], dict[str, str]]:
     """The project's .env values, generating any the kit needs that do not exist yet, and the user's values."""
     async with AsyncSessionLocal.begin() as db:
-        row = await db.get(ProjectSecret, chat_id, with_for_update=True)
-        values: dict[str, str] = json.loads(fernet(_PROJECT_SECRETS).decrypt(row.ciphertext)) if row else {}
+        row = await _locked_row(db, chat_id)
+        values: dict[str, str] = json.loads(fernet(_PROJECT_SECRETS).decrypt(row.ciphertext))
         missing = [name for name in kit.env if name not in values]
         for name in missing:
             values[name] = secrets.token_urlsafe(24)
-        if missing or row is None:
-            ciphertext = fernet(_PROJECT_SECRETS).encrypt(json.dumps(values).encode())
-            if row is None:
-                db.add(ProjectSecret(chat_id=chat_id, ciphertext=ciphertext))
-            else:
-                row.ciphertext = ciphertext
-        user = user_values(row.user_ciphertext if row else None)
+        if missing:
+            row.ciphertext = fernet(_PROJECT_SECRETS).encrypt(json.dumps(values).encode())
+        user = user_values(row.user_ciphertext)
     return {**values, **_derived(kit, values)}, user
 
 
@@ -91,21 +99,16 @@ async def set_user_secret(db, chat_id: str, name: str, value: str | None) -> dic
     """Save (value) or remove (None) one user secret in the caller's transaction; the project's secrets after it.
 
     The row is locked: two saves at once would each write back the other's missing value."""
-    row = await db.get(ProjectSecret, chat_id, with_for_update=True)
-    values = user_values(row.user_ciphertext if row else None)
+    row = await _locked_row(db, chat_id)
+    values = user_values(row.user_ciphertext)
     if value is not None and name not in values and len(values) >= MAX_SECRETS:
         raise SecretLimit
     if value is None:
         values.pop(name, None)
     else:
         values[name] = value
-    sealed = fernet(_USER_SECRETS).encrypt(json.dumps(values).encode()) if values else None
-    if row is None:
-        # A project can get a key before its first build; the kit's values are generated at its first start.
-        empty = fernet(_PROJECT_SECRETS).encrypt(b"{}")
-        db.add(ProjectSecret(chat_id=chat_id, ciphertext=empty, user_ciphertext=sealed))
-    else:
-        row.user_ciphertext = sealed
+    # A project can get a key before its first build; the kit's values are generated at its first start.
+    row.user_ciphertext = fernet(_USER_SECRETS).encrypt(json.dumps(values).encode()) if values else None
     return values
 
 

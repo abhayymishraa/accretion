@@ -46,7 +46,9 @@ export function AddKeyForm({ saved, managed, onSave }: AddKeyFormProps) {
                 event.preventDefault();
                 if (!SECRET_NAME.test(name))
                     return setError(
-                        name ? "A name can't start with a number." : "Give the key a name.",
+                        name
+                            ? "A name starts with a letter or _ and has at most 128 characters."
+                            : "Give the key a name.",
                     );
                 if (taken) return setError(taken);
                 if (!value) return setError("Paste the value first.");

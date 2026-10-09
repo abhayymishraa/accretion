@@ -38,6 +38,21 @@ _IMAGE_TYPES = {b"\x89PNG": "image/png", b"\xff\xd8\xff": "image/jpeg", b"GIF8":
 IMAGE_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".gif", ".webp"})
 
 
+# What the model sees in place of a key (events.hide_secrets). Defined here, where writes are guarded, because
+# events imports this module through storage.
+HIDDEN = "<secret-hidden>"
+
+
+def _refuse_hidden(before: dict[str, str | None], after: dict[str, str]) -> None:
+    """A key the model was shown as HIDDEN must never be written back as that text: it would replace the key."""
+    for path, content in after.items():
+        if HIDDEN in content and HIDDEN not in (before.get(path) or ""):
+            raise ValueError(
+                f"{path}: {HIDDEN} stands for a key hidden from you; writing it would replace the key."
+                " Read keys from the environment (process.env.NAME) instead of copying them."
+            )
+
+
 class FileWriteError(Exception):
     """A native upload failed; retire the sandbox rather than checkpoint partial writes."""
 
@@ -121,6 +136,7 @@ class Workspace:
             raise ValueError("Batch is too large")
         changes = {path: content for path, (_, content) in zip(paths, files, strict=True)}
         before = dict(zip(paths, await asyncio.gather(*(self.previous(path) for path in paths)), strict=True))
+        _refuse_hidden(before, changes)
         await self.write(changes)
         return before, changes
 
@@ -252,6 +268,7 @@ class Workspace:
             updated[path] = content.replace(item.old_string, item.new_string, -1 if item.replace_all else 1)
             if len(updated[path].encode()) > MAX_FILE_BYTES:
                 raise ValueError(f"Edit {number} ({path}): file exceeds the source-size limit")
+        _refuse_hidden(originals, updated)
         await self.write(updated)
         return originals, updated
 

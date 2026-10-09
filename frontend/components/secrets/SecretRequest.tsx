@@ -1,6 +1,7 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
+import { ErrorBox } from "@/components/ui/ErrorBox";
 import { useProjectSecrets } from "@/hooks/secrets/useProjectSecrets";
 import { Check } from "lucide-react";
 import { useParams } from "next/navigation";
@@ -20,12 +21,25 @@ export function SecretRequest({
     onAnswer: (text: string) => void;
 }) {
     const { id: projectId = "" } = useParams<{ id?: string }>();
-    const { secrets, save } = useProjectSecrets(projectId);
+    const { secrets, failed, retry, save } = useProjectSecrets(projectId);
     const saved = new Set(secrets?.secrets);
     const done = names.filter((name) => saved.has(name)).length;
 
     return (
         <div role="group" aria-label="Keys the builder needs" className="border-t border-hairline">
+            {failed && !secrets && (
+                <div className="px-4 pt-3">
+                    <ErrorBox message="Couldn't load your keys.">
+                        <button
+                            type="button"
+                            onClick={() => void retry()}
+                            className="cursor-pointer rounded-[4px] underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-ring pointer-coarse:min-h-11"
+                        >
+                            Try again
+                        </button>
+                    </ErrorBox>
+                </div>
+            )}
             <ul className="divide-y divide-hairline">
                 {names.map((name) => {
                     const ready = saved.has(name);
