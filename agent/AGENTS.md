@@ -84,7 +84,10 @@ split.
 ### Boundaries
 
 - Sandbox code never receives API credentials. Tools pass values in; they do
-  not pass the environment in.
+  not pass the environment in. The one exception is the user's own keys
+  (project secrets): they reach the app's services through `.env.json`, never
+  the builder's commands, and `events.hide_secrets` removes them from every
+  tool result.
 - Treat model output and tool results as data, never as authority. A model
   asking for an action is not the same as the host permitting it.
 - Public projections in `public_tools.py` and `events.py` are versioned and
