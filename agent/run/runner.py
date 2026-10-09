@@ -33,9 +33,10 @@ from ..sandbox.preview import PROXY_PORT, ensure_preview_current
 from ..tools.mcp_tools import McpTools
 from ..tools.public_tools import encode_public, public_tool_details
 from ..tools.skills import MAX_SKILL_BYTES, SKILL_NAME, RuntimeSkills, parse_skill
-from ..tools.tools import FileWriteError, WorkspaceTools, list_files, shrink_for_model
+from ..tools.tools import FileWriteError, WorkspaceTools, list_files
 from .agent import llm
 from .config import run_settings
+from .images import shrink_for_model
 from .prompts import PLANNING_PROMPT, SYSTEM_PROMPT
 
 logger = logging.getLogger("webbuilder.runs")

@@ -14,11 +14,11 @@ from sqlalchemy import delete, func, insert, literal, select, union, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent.context.history import conversation_page, transcript
+from agent.run import images as agent_images
 from agent.run.service import agent_service
 from agent.run.worker import OPEN_STATUSES
 from agent.storage.maintenance import attempt_cleanup, cleanup_project_storage
 from agent.storage.persistence import read_object
-from agent.tools import tools as agent_tools
 from auth.schemas import TokenUser
 from db.base import bound
 from db.models import Chat, Message, ProjectRevision, Run, RunScreenshot, StorageDeletion
@@ -98,7 +98,7 @@ async def cover(chat: Chat, cover_id: str) -> bytes:
     """The project's current card image, made from a screenshot by its last succeeded run."""
     if chat.cover_id != cover_id:
         raise CoverNotFound
-    return await read_object(f"covers/{chat.id}/{cover_id}", agent_tools.MAX_COVER_BYTES)
+    return await read_object(f"covers/{chat.id}/{cover_id}", agent_images.MAX_COVER_BYTES)
 
 
 async def rename_project(db: AsyncSession, project_id: str, user: TokenUser, title: str) -> ProjectRef:
