@@ -28,9 +28,9 @@ from the tools.
 
 | Package | Owns | Modules |
 | --- | --- | --- |
-| `run/` | The editing loop and what it is built from | `agent.py`, `prompts.py`, `runner.py`, `service.py`, `worker.py`, `bus.py`, `workflow.py`, `answer.py`, `decisions.py`, `diagnostics.py`, `structured.py`, `title.py`, `exceptions.py` |
-| `sandbox/` | The E2B environment and everything executed inside it | `sandbox_runtime.py`, `preview.py`, `preview_process.py`, `preview_proxy.py`, `commands.py`, `check_data.py`, `archive.py`, `kits.py`, `project.py`, `secrets.py`, `migrations.py`, `models.py` |
-| `tools/` | The tool surface offered to the model | `tools.py`, `public_tools.py`, `skills.py`, `mcp.py`, `mcp_tools.py` |
+| `run/` | The editing loop and what it is built from | `agent.py`, `prompts.py`, `runner.py`, `service.py`, `worker.py`, `bus.py`, `workflow.py`, `answer.py`, `decisions.py`, `diagnostics.py`, `structured.py`, `title.py`, `images.py`, `exceptions.py` |
+| `sandbox/` | The E2B environment and everything executed inside it | `sandbox_runtime.py`, `preview.py`, `preview_process.py`, `preview_proxy.py`, `commands.py`, `check_data.py`, `archive.py`, `kits.py`, `project.py`, `secrets.py`, `migrations.py`, `models.py`, `workspace.py`, `command_policy.py` |
+| `tools/` | The tool surface offered to the model: names, schemas, argument-shape checks and results, never E2B calls | `tools.py`, `public_tools.py`, `skills.py`, `mcp.py`, `mcp_tools.py` |
 | `context/` | What the model is shown and what it remembers | `compaction.py`, `context.py`, `transcript.py`, `history.py`, `models.py` |
 | `budget/` | Cost admission and accounting | `budget.py`, `model_budget.py`, `sandbox_budget.py`, `usage.py`, `models.py` |
 | `routing/` | Which model runs: the registry, a client per provider, Jev, the pick, and history rewrite on a model change | `models.toml`, `registry.py`, `providers.py`, `jev.py`, `router.py`, `history.py`, `failures.py` |
@@ -42,6 +42,11 @@ of the groups above, so pushing it into any one of them would make
 that group look like an owner when it is a shared boundary. `diagnostics.py`
 goes to `run/` because `service.py` is its only caller — it reads like a shared
 surface but is not one yet.
+
+`sandbox/workspace.py` (`Workspace`) is the one way a model tool reaches the sandbox: file reads and writes with
+their path and size limits, the read cache and revision counters, commands, agent-browser and its page check. A tool
+in `tools/` checks the shape of the model's arguments, calls one `Workspace` method and shapes the result. Commands
+the host refuses live in `sandbox/command_policy.py`.
 
 ### Settings
 

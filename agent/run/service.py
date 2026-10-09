@@ -65,6 +65,7 @@ from ..sandbox.commands import CommandStateError
 from ..sandbox.kits import KITS
 from ..sandbox.preview import PROXY_PORT, PreviewError, control_preview
 from ..sandbox.sandbox_runtime import RUNTIME_TIMEOUT, SandboxRuntimes
+from ..sandbox.workspace import ROOT, FileWriteError
 from ..storage.persistence import (
     archive_slots,
     latest_revision,
@@ -79,7 +80,6 @@ from ..tools.mcp import DEFAULT_SERVERS, Server
 from ..tools.mcp_tools import McpTools
 from ..tools.public_tools import EDIT_TOOLS, edit_summary
 from ..tools.skills import PICKED, RuntimeSkills
-from ..tools.tools import ROOT, FileWriteError
 from . import bus
 from .answer import answer_question
 from .config import run_settings

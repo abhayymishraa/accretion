@@ -10,8 +10,8 @@ from typing import Any
 
 from e2b import SandboxException
 
-from ..tools.tools import ROOT
 from . import migrations
+from .workspace import ROOT
 
 SNAPSHOT = "/tmp/accretion-before-checks.dump"
 

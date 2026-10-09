@@ -8,12 +8,12 @@ import shlex
 
 from e2b import AsyncTemplate
 
-from ..tools.tools import ROOT
 from .config import sandbox_settings
 from .kits import KITS, TEMPLATE_KITS_DIR, Kit
 from .migrations import record_applied
 from .preview import control_preview
 from .secrets import ensure_secrets, env_file
+from .workspace import ROOT
 
 
 async def template_ref() -> str:
