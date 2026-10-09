@@ -20,7 +20,7 @@ from db.models import Chat, ProjectRevision, Run, RunEvent
 
 from ..run import bus
 from ..sandbox.archive import MAX_ARCHIVE, content_hash, manifest
-from ..tools.tools import ROOT
+from ..sandbox.workspace import ROOT
 from .config import storage_settings
 from .storage import StorageError, storage_call
 

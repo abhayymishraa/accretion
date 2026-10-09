@@ -1,6 +1,8 @@
 """Small, versioned public projections: what ran and what changed, never read bodies or skill text."""
 
+import difflib
 import json
+from typing import Any
 
 from ..events import redact
 
@@ -9,6 +11,44 @@ MAX_PUBLIC_BYTES = 4000
 MAX_COMMAND_CHARS = 600
 # Tools whose results list the files they changed.
 EDIT_TOOLS = ("write_files", "edit_file", "edit_files")
+# What the chat shows of an edit, never what the model sees: one line of context around each change
+# and the whole diff, uncapped.
+_DIFF_CONTEXT = 1
+
+
+def file_diffs(before: dict[str, str | None], after: dict[str, str]) -> list[dict[str, Any]]:
+    """Line diffs for the chat, one per file, whole. A None `before` is a file whose old text was
+    unreadable: it gets counts but no hunks, marked truncated."""
+    diffs = []
+    for path, new_text in after.items():
+        old_text = before.get(path)
+        old, new = (old_text or "").splitlines(), new_text.splitlines()
+        matcher = difflib.SequenceMatcher(None, old, new, autojunk=False)
+        opcodes = matcher.get_opcodes()
+        added = sum(j2 - j1 for tag, _, _, j1, j2 in opcodes if tag in {"replace", "insert"})
+        removed = sum(i2 - i1 for tag, i1, i2, _, _ in opcodes if tag in {"replace", "delete"})
+        hunks: list[list[list[Any]]] = []
+        truncated = old_text is None
+        for group in [] if truncated else matcher.get_grouped_opcodes(_DIFF_CONTEXT):
+            lines: list[list[Any]] = []
+            for tag, i1, i2, j1, j2 in group:
+                if tag == "equal":
+                    lines += [[" ", j1 + k + 1, new[j1 + k]] for k in range(j2 - j1)]
+                    continue
+                lines += [["-", i + 1, old[i]] for i in range(i1, i2)]
+                lines += [["+", j + 1, new[j]] for j in range(j1, j2)]
+            hunks.append(lines)
+        diffs.append(
+            {
+                "path": path,
+                "created": old_text == "",
+                "added": added,
+                "removed": removed,
+                "hunks": hunks,
+                "truncated": truncated,
+            }
+        )
+    return diffs
 
 
 def edit_summary(event):

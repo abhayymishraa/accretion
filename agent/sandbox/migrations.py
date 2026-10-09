@@ -13,7 +13,7 @@ from typing import Any
 
 from e2b import CommandExitException, SandboxException
 
-from ..tools.tools import ROOT
+from .workspace import ROOT
 
 APPLIED = ".accretion/migrated.json"
 _ENV = "set -a; . ./.env; set +a; "

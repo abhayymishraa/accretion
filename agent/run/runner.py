@@ -30,12 +30,14 @@ from ..sandbox import migrations
 from ..sandbox.check_data import CheckData
 from ..sandbox.commands import CommandStateError
 from ..sandbox.preview import PROXY_PORT, ensure_preview_current
+from ..sandbox.workspace import FileWriteError, Workspace, list_files
 from ..tools.mcp_tools import McpTools
 from ..tools.public_tools import encode_public, public_tool_details
 from ..tools.skills import MAX_SKILL_BYTES, SKILL_NAME, RuntimeSkills, parse_skill
-from ..tools.tools import FileWriteError, WorkspaceTools, list_files, shrink_for_model
+from ..tools.tools import definitions
 from .agent import llm
 from .config import run_settings
+from .images import shrink_for_model
 from .prompts import PLANNING_PROMPT, SYSTEM_PROMPT
 
 logger = logging.getLogger("webbuilder.runs")
@@ -191,7 +193,7 @@ def estimate_input_tokens(model, messages, tool_schema: str) -> tuple[int, str]:
     return count + 2000 + images * 4096, estimator
 
 
-async def read_project_file(workspace: WorkspaceTools, path: str) -> str | None:
+async def read_project_file(workspace: Workspace, path: str) -> str | None:
     """The file's text, or None when it is missing or unreadable (the same errors current_file expects)."""
     try:
         return await workspace.read(path)
@@ -200,7 +202,7 @@ async def read_project_file(workspace: WorkspaceTools, path: str) -> str | None:
 
 
 async def verify(
-    workspace: WorkspaceTools,
+    workspace: Workspace,
     stack: dict[str, Any],
     migrate: Callable[[], Awaitable[dict[str, Any]]] | None = None,
 ) -> dict[str, Any]:
@@ -248,12 +250,12 @@ async def run_editor(
     mcp: McpTools,
     planning: bool = False,
 ):
-    workspace = WorkspaceTools(sandbox)
+    workspace = Workspace(sandbox)
     if model is None:
         # llm is imported at module level on purpose: building it validates
         # DEFAULT_MODEL and its key, so a bad setting fails at boot.
         model = llm
-    tools = {t.name: t for t in workspace.definitions()}
+    tools = {t.name: t for t in definitions(workspace)}
     # Imported here, not at the top: workflow imports structured, which imports this module.
     from .workflow import WorkflowDecision
 

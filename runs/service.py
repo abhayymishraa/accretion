@@ -8,9 +8,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from agent.events import EVENT_PAGE
 from agent.routing import providers as routing_providers
 from agent.run.service import agent_service
+from agent.sandbox import workspace as agent_workspace
 from agent.storage.persistence import archive_slots, read_object
 from agent.storage.storage import StorageError
-from agent.tools import tools as agent_tools
 from auth.schemas import TokenUser
 from db.models import Chat, Run, RunEvent, RunScreenshot
 from projects.exceptions import ProjectNotFound
@@ -147,4 +147,4 @@ async def screenshot(db: AsyncSession, run_id: str, user: TokenUser, screenshot_
         raise ProjectNotFound
     if row.object_key is None:
         raise ScreenshotNotFound
-    return await read_object(row.object_key, agent_tools.MAX_SCREENSHOT_BYTES), row.media_type
+    return await read_object(row.object_key, agent_workspace.MAX_SCREENSHOT_BYTES), row.media_type
