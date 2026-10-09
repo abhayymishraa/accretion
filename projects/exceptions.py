@@ -1,6 +1,6 @@
 """Failures callers can see when acting on a project."""
 
-from exceptions import Conflict, NotFound, PermissionDenied
+from exceptions import BadRequest, Conflict, NotFound, PermissionDenied
 
 
 class ProjectNotFound(NotFound):
@@ -21,3 +21,11 @@ class NotChatOwner(PermissionDenied):
 
 class ProjectBusy(Conflict):
     DETAIL = "Stop the active operation before deleting this project"
+
+
+class SecretNameReserved(BadRequest):
+    DETAIL = "Accretion sets this name for the app. Pick another name."
+
+
+class TooManySecrets(BadRequest):
+    DETAIL = "A project holds at most 100 keys. Delete one first."

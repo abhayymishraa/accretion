@@ -17,6 +17,9 @@ from agent.context.history import conversation_page, transcript
 from agent.run import images as agent_images
 from agent.run.service import agent_service
 from agent.run.worker import OPEN_STATUSES
+from agent.sandbox import secrets as sandbox_secrets
+from agent.sandbox.kits import KITS
+from agent.sandbox.models import ProjectSecret
 from agent.storage.maintenance import attempt_cleanup, cleanup_project_storage
 from agent.storage.persistence import read_object
 from auth.schemas import TokenUser
@@ -24,8 +27,23 @@ from db.base import bound
 from db.models import Chat, Message, ProjectRevision, Run, RunScreenshot, StorageDeletion
 from projects.constants import LIVE_RUN_STATUSES
 from projects.dependencies import owned_chat
-from projects.exceptions import ChatNotFound, CoverNotFound, NotChatOwner, ProjectBusy, ProjectNotFound
-from projects.schemas import MessagePage, ProjectList, ProjectRef, ProjectSummary, RunAdmission
+from projects.exceptions import (
+    ChatNotFound,
+    CoverNotFound,
+    NotChatOwner,
+    ProjectBusy,
+    ProjectNotFound,
+    SecretNameReserved,
+    TooManySecrets,
+)
+from projects.schemas import (
+    MessagePage,
+    ProjectList,
+    ProjectRef,
+    ProjectSecrets,
+    ProjectSummary,
+    RunAdmission,
+)
 
 
 async def message_page(
@@ -161,3 +179,41 @@ async def delete_project(db: AsyncSession, project_id: str, user: TokenUser, bac
 
 async def start_project(user: TokenUser, prompt: str, mode: str, model_choice: str) -> RunAdmission:
     return RunAdmission.model_validate(await agent_service.admit(user.id, prompt, mode=mode, model_choice=model_choice))
+
+
+def _secret_list(kit: str | None, values: dict[str, str]) -> ProjectSecrets:
+    return ProjectSecrets(
+        secrets=sorted(values),
+        managed=sandbox_secrets.kit_names(KITS[kit]) if kit in KITS else [],
+    )
+
+
+async def project_secrets(db: AsyncSession, project_id: str, user: TokenUser) -> ProjectSecrets:
+    """One query: the project, checked as the user's, its kit and its sealed keys."""
+    found = (
+        await db.execute(
+            select(Chat.kit, ProjectSecret.user_ciphertext)
+            .outerjoin(ProjectSecret, ProjectSecret.chat_id == Chat.id)
+            .where(Chat.id == project_id, Chat.user_id == user.id)
+        )
+    ).one_or_none()
+    if found is None:
+        raise ProjectNotFound
+    kit, sealed = found
+    return _secret_list(kit, sandbox_secrets.user_values(sealed))
+
+
+async def save_project_secret(
+    db: AsyncSession, project_id: str, user: TokenUser, name: str, value: str | None, background: BackgroundTasks
+) -> ProjectSecrets:
+    """Save (value) or delete (None) one key. A preview running now restarts with it after the reply."""
+    if name in sandbox_secrets.RESERVED:
+        raise SecretNameReserved
+    chat = await owned_chat(project_id, user, db)
+    try:
+        values = await sandbox_secrets.set_user_secret(db, project_id, name, value)
+    except sandbox_secrets.SecretLimit:
+        raise TooManySecrets from None
+    await db.commit()
+    background.add_task(agent_service.apply_secrets, project_id, user.id)
+    return _secret_list(chat.kit, values)
