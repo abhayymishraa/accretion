@@ -209,7 +209,8 @@ async def save_project_secret(
     """Save (value) or delete (None) one key. A preview running now restarts with it after the reply."""
     if name in sandbox_secrets.RESERVED:
         raise SecretNameReserved
-    chat = await owned_chat(project_id, user, db)
+    # Locked like delete_project locks it: a project deleted meanwhile answers "not found", not a failed write.
+    chat = await owned_chat(project_id, user, db, for_update=True)
     try:
         values = await sandbox_secrets.set_user_secret(db, project_id, name, value)
     except sandbox_secrets.SecretLimit:
