@@ -1,13 +1,24 @@
 """Projects: the chat that owns a generated app, its history and its lifecycle."""
 
-from fastapi import APIRouter, BackgroundTasks, Response
+from typing import Annotated
 
+from fastapi import APIRouter, BackgroundTasks, Path, Response
+
+from agent.sandbox import secrets as sandbox_secrets
 from auth.dependencies import CurrentUser
 from db.base import Autocommit, DbSession
 from projects import service
 from projects.constants import DEFAULT_MESSAGE_PAGE
 from projects.dependencies import OwnedProject
-from projects.schemas import MessagePage, ProjectList, ProjectRef, ProjectRename, RunAdmission
+from projects.schemas import (
+    MessagePage,
+    ProjectList,
+    ProjectRef,
+    ProjectRename,
+    ProjectSecrets,
+    ProjectSecretValue,
+    RunAdmission,
+)
 from request_timing import timed
 from runs.schemas import ChatPayload
 
@@ -57,3 +68,30 @@ async def delete_project(
     project_id: str, current_user: CurrentUser, background: BackgroundTasks, db: DbSession
 ) -> None:
     await service.delete_project(db, project_id, current_user, background)
+
+
+SecretName = Annotated[str, Path(pattern=f"^{sandbox_secrets.NAME.pattern}$")]
+
+
+@router.get("/projects/{project_id}/secrets", dependencies=[Autocommit])
+async def list_project_secrets(project_id: str, current_user: CurrentUser, db: DbSession) -> ProjectSecrets:
+    return await service.project_secrets(db, project_id, current_user)
+
+
+@router.put("/projects/{project_id}/secrets/{name}")
+async def save_project_secret(
+    project_id: str,
+    name: SecretName,
+    payload: ProjectSecretValue,
+    current_user: CurrentUser,
+    background: BackgroundTasks,
+    db: DbSession,
+) -> ProjectSecrets:
+    return await service.save_project_secret(db, project_id, current_user, name, payload.value, background)
+
+
+@router.delete("/projects/{project_id}/secrets/{name}")
+async def delete_project_secret(
+    project_id: str, name: SecretName, current_user: CurrentUser, background: BackgroundTasks, db: DbSession
+) -> ProjectSecrets:
+    return await service.save_project_secret(db, project_id, current_user, name, None, background)

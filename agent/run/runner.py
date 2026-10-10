@@ -23,6 +23,7 @@ from ..context.context import CONTEXT_RULES, choose_files, mentions
 from ..context.transcript import append as append_transcript
 from ..context.transcript import load as load_transcript
 from ..context.transcript import replace as replace_transcript
+from ..events import hide_secrets, secret_forms
 from ..routing.failures import cool_down, is_context_overflow, is_transient, out_of_credits
 from ..routing.history import for_model
 from ..routing.providers import bind_tools, cache_options, chat_model, entry_for, output_truncated, same_tier
@@ -249,8 +250,11 @@ async def run_editor(
     skills: RuntimeSkills,
     mcp: McpTools,
     planning: bool = False,
+    secrets: dict[str, str],
 ):
+    """secrets: the user's keys. The model learns their names; any value in a tool's output is hidden."""
     workspace = Workspace(sandbox)
+    hidden = secret_forms(secrets.values())
     if model is None:
         # llm is imported at module level on purpose: building it validates
         # DEFAULT_MODEL and its key, so a bad setting fails at boot.
@@ -264,11 +268,16 @@ async def run_editor(
         summary: str,
         question: str,
         options: list[str] = Field(default=[]),
+        secrets: list[str] = Field(default=[]),
     ) -> dict[str, Any]:
         """Ask the user one question, only for a newly discovered choice that changes the result. Never combine
         with other calls. Supply the question and up to three suggested answers, each within 300 characters.
+        To get keys the app needs from the user, name them in secrets: the user types each value into a field
+        on the card that only the app receives. Never ask for a key's value in the question or the options.
         """
-        decision = WorkflowDecision(kind="clarify", summary=summary, question=question, options=options)
+        decision = WorkflowDecision(
+            kind="clarify", summary=summary, question=question, options=options, secrets=secrets
+        )
         return {"ok": True, "decision": decision.model_dump()}
 
     tools[request_decision.name] = request_decision
@@ -441,6 +450,8 @@ async def run_editor(
                         else {}
                     ),
                     "request": prompt,
+                    # The user's keys by name; the running app has their values, the model never does.
+                    **({"project_secrets": sorted(secrets)} if secrets else {}),
                     **({"mentioned_files": mentioned} if mentioned else {}),
                     **({"mentioned_folders": folders} if folders else {}),
                     **({"picked_skills": picked} if picked else {}),
@@ -660,6 +671,8 @@ async def run_editor(
             if isinstance(exc, (CommandStateError, FileWriteError)):
                 fatal_error = exc
                 result.update(error_type=type(exc).__name__, status="unknown")
+        # Before anything reads the result: the model, the transcript and the chat all see it after this.
+        result = hide_secrets(result, hidden)
         duration = round((time.monotonic() - started) * 1000)
         diffs = result.pop("_diffs", None)
         screenshots = result.pop("_screenshots", None) or []

@@ -227,6 +227,30 @@ Users connect remote MCP servers; builds use the tools they approved. `agent/too
 - Project switch: `chats.disabled_mcp_servers`, like `disabled_skills`. Account switch: `mcp_servers.enabled`, which keeps the credentials. Deleting a server drops its name from every project list in the same statement.
 - `connections/catalog.py` lists servers whose sign-in was checked by hand. It is curated, not read live from the MCP Registry (in preview, and it asks hosts to mirror it).
 
+## Project secrets
+
+Users save their own keys (Stripe, OpenAI) for an app. `agent/sandbox/secrets.py` stores them, `projects/` serves
+them, `agent/sandbox/project.py` writes them into the sandbox, `agent/run/runner.py` hides them.
+
+- Sealed in `project_secrets.user_ciphertext`, apart from the kit's generated values in `ciphertext`, so a release
+  still serving reads its kit values unchanged. The API returns names only; a saved value is never sent back.
+- Written to `.env.json` in the project. Only the app's services read it (`preview_process.kit_env`); the
+  builder's commands source `.env` alone. The `.env.` name keeps it out of revisions, file tools and the file tree.
+- The model gets the names in the request (`project_secrets`), never a value. `events.hide_secrets` replaces each
+  value, and its Base64 at every alignment, in a tool result before the model, the transcript or the chat sees it.
+  Values under 8 characters are not hidden. A second net hides keys nobody saved (hardcoded in a file, printed
+  by a tool): `detect-secrets`' patterns for providers' key formats, plus whole PEM private key blocks. Its
+  entropy, keyword, Artifactory and IP detectors stay off: they flag lockfile hashes and ordinary words.
+- A build asks for a missing key with `request_decision(secrets=[...])`; the card saves each value as a project
+  secret and answers with the names.
+- A save reaches a running preview at once (`Service.apply_secrets` reopens it; `project.sync_secrets` restarts
+  the app only when the keys changed). A build already running keeps its sandbox; its next request gets the key.
+- A name starting with `VITE_` or `NEXT_PUBLIC_` is public: built into the web page. No stored flag; the name
+  decides. Kit-owned names (`secrets.RESERVED`) cannot be set.
+- The limit we accept: the key sits on the computer the builder's shell runs on. A builder trying on purpose can
+  still read it and print it in a form the filter does not know. This stops accidents, not a determined attack.
+  No egress allowlist and no proxy injection: decided, for demo builders.
+
 ## Python structure
 
 Domain-first, one package per concern. Adapted from

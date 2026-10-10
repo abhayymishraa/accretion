@@ -8,6 +8,7 @@ from sqlalchemy import select
 from db.base import AutocommitSessionLocal
 from db.models import Chat, Message
 
+from ..sandbox.secrets import NAME, RESERVED
 from .runner import VerificationError
 from .structured import ask_structured
 
@@ -61,6 +62,8 @@ class WorkflowDecision(BaseModel):
     )
     # The plan file's markdown, shown whole on the approval card; only a plan from plan mode carries it.
     plan: str = Field(default="", max_length=12_000)
+    # Keys a question asks the user for: the card shows a field for each, saved as a project secret.
+    secrets: list[str] = Field(default_factory=list, max_length=10)
 
     @model_validator(mode="after")
     def valid_content(self):
@@ -72,8 +75,10 @@ class WorkflowDecision(BaseModel):
             raise ValueError("A plan requires its text")
         if self.kind != "plan" and self.plan:
             raise ValueError("Only a plan may contain plan text")
-        if self.kind != "clarify" and (self.question or self.options):
+        if self.kind != "clarify" and (self.question or self.options or self.secrets):
             raise ValueError("Only clarification may contain question options")
+        if any(not NAME.fullmatch(name) or name in RESERVED for name in self.secrets):
+            raise ValueError("Name each key in capitals, digits and underscores, like STRIPE_SECRET_KEY")
         return self
 
 
@@ -90,6 +95,7 @@ def public_workflow(workflow):
             "question",
             "options",
             "plan",
+            "secrets",
             "revision_id",
             "continuation_id",
             "resolution",

@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import type { OpenedFile, WorkspaceTab } from "@/hooks/chat/useWorkspaceLayout";
 import type { ProjectSkills } from "@/hooks/skills/useProjectSkills";
 import { ProjectConnections } from "@/components/mcp/ProjectConnections";
+import { ProjectSecretsPanel } from "@/components/secrets/ProjectSecretsPanel";
 import { ProjectSkillsPanel } from "@/components/skills/ProjectSkillsPanel";
 import { Button } from "@/components/ui/button";
 import { ErrorBox } from "@/components/ui/ErrorBox";
@@ -220,6 +221,7 @@ export function PreviewPanel({
             )}
             {activeTab === "skills" && <ProjectSkillsPanel projectSkills={projectSkills} />}
             {activeTab === "connectors" && <ProjectConnections projectId={projectId} />}
+            {activeTab === "secrets" && <ProjectSecretsPanel projectId={projectId} />}
         </section>
     );
 }

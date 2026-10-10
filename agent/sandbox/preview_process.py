@@ -20,7 +20,8 @@ GROUPS = Path("/tmp/accretion-services.json")
 
 
 def kit_env():
-    """The project's .env (written by the host) on top of the sandbox environment."""
+    """The project's .env, then the user's keys in .env.json (both written by the host), on top of the sandbox
+    environment. Only the app's services get the user's keys; the builder's commands source .env alone."""
     env = dict(os.environ)
     dotenv = ROOT / ".env"
     if dotenv.is_file():
@@ -28,6 +29,9 @@ def kit_env():
             name, sep, value = line.partition("=")
             if sep and name.strip() and not name.lstrip().startswith("#"):
                 env[name.strip()] = value.strip()
+    user = ROOT / ".env.json"
+    if user.is_file():
+        env.update(json.loads(user.read_text()))
     return env
 
 

@@ -149,6 +149,8 @@
     --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
     /* Strong ease-in-out for something resizing in place, like the preview frame's device switch. */
     --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+    /* Vercel's overlay curve: a slight settle past the end, for a confirm that grows out of the button that asked. */
+    --ease-overlay: cubic-bezier(0.175, 0.885, 0.32, 1.1);
     /* Makes `auto` animatable, which is what lets a disclosure transition its
        height. Inert everywhere nothing transitions a keyword size. */
     interpolate-size: allow-keywords;
@@ -344,6 +346,17 @@
     display: block;
 }
 
+/* Reduced motion: a new key still arrives gently, as a fade in place. */
+@media (prefers-reduced-motion: reduce) {
+    [data-row-new] {
+        transition: opacity 150ms var(--ease-out);
+
+        @starting-style {
+            opacity: 0;
+        }
+    }
+}
+
 @media (prefers-reduced-motion: no-preference) {
     [data-error-box] {
         opacity: 0;
@@ -385,6 +398,47 @@
 
     [data-loaded-in] {
         animation: content-in 180ms var(--ease-out) both;
+    }
+
+    /* An in-place confirm (the App keys row's Delete?): it grows from the control that opened it. */
+    [data-row-confirm] {
+        transform-origin: right center;
+        transition:
+            opacity 300ms var(--ease-overlay),
+            scale 300ms var(--ease-overlay);
+
+        @starting-style {
+            opacity: 0;
+            scale: 0.96;
+        }
+    }
+
+    /* A list row leaving: it folds its height and fades, so the rows below slide up instead of jumping.
+       Faster than the confirm came in; the caller removes the row once it has folded. */
+    [data-row] {
+        display: grid;
+        grid-template-rows: 1fr;
+        transition:
+            grid-template-rows 200ms var(--ease-out),
+            opacity 150ms var(--ease-out);
+    }
+    [data-row][data-leaving] {
+        grid-template-rows: 0fr;
+        opacity: 0;
+    }
+    /* A row added while the list is open unfolds the way a deleted one folds. Rows already there when the
+       panel opened never play it. clip, with a margin, keeps the buttons' focus rings visible. */
+    [data-row][data-row-new] {
+        @starting-style {
+            grid-template-rows: 0fr;
+            opacity: 0;
+        }
+    }
+    [data-row][data-leaving] > *,
+    [data-row][data-row-new] > * {
+        min-height: 0;
+        overflow: clip;
+        overflow-clip-margin: 4px;
     }
     @keyframes content-in {
         from {

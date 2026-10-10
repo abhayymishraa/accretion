@@ -65,3 +65,15 @@ class RunAdmission(CustomModel):
     chat_id: str
     run_id: str | None = None
     status: str
+
+
+class ProjectSecrets(CustomModel):
+    """Names only: a saved value is never sent back."""
+
+    secrets: list[str]
+    # The keys the platform gives the app (database connection, APP_SECRET): shown, never editable.
+    managed: list[str]
+
+
+class ProjectSecretValue(CustomModel):
+    value: Annotated[str, StringConstraints(min_length=1, max_length=8192)]

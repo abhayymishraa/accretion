@@ -16,6 +16,7 @@ import {
     FileCode,
     FolderArchive,
     Globe,
+    KeyRound,
     Link2,
     PanelLeft,
     Plus,
@@ -32,9 +33,10 @@ const EXTRA_TABS: { tab: ExtraTab; label: string; icon: LucideIcon }[] = [
     { tab: "files", label: "Code", icon: FileCode },
     { tab: "skills", label: "Skills", icon: BookOpen },
     { tab: "connectors", label: "Connectors", icon: Plug },
+    { tab: "secrets", label: "Keys", icon: KeyRound },
 ];
 
-/** The workspace panel's tab row: Preview stays, Code, Skills and Connectors open from "+",
+/** The workspace panel's tab row: Preview stays, Code, Skills, Connectors and Keys open from "+",
  * extras under •••. */
 export function PreviewToolbar({
     activeTab,
