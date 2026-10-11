@@ -9,7 +9,7 @@ import { ChatInput } from "@/components/chat/ChatInput";
 import { MessageBubble } from "@/components/chat/MessageBubble";
 import { OpenFileContext } from "@/components/chat/OpenFileContext";
 import { PreviewPanel } from "@/components/chat/PreviewPanel";
-import { ProjectTitle } from "@/components/chat/ProjectTitle";
+import { ProjectBar } from "@/components/chat/ProjectBar";
 import { WorkspaceSidebar } from "@/components/layout/WorkspaceSidebar";
 import { Sparkles } from "lucide-react";
 import { ThinkingOrb } from "thinking-orbs";
@@ -133,9 +133,7 @@ export default function ChatWorkspace({ chatId }: { chatId: string }) {
                             aria-label="Project conversation"
                             style={{ width: showPreview ? `${100 - previewWidth}%` : "100%" }}
                         >
-                            <div className="flex h-11 shrink-0 items-center border-b border-b-border bg-background px-3 max-md:hidden">
-                                <ProjectTitle projectId={chatId} revisionId={revisionId} />
-                            </div>
+                            <ProjectBar projectId={chatId} revisionId={revisionId} />
                             <div
                                 className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 py-8 [overflow-anchor:none] max-md:px-4 max-md:py-5"
                                 ref={conversationRef}

@@ -3,9 +3,12 @@ import { EFFECTS } from "@/config/effects";
 import dynamic from "next/dynamic";
 import type { OpenedFile, WorkspaceTab } from "@/hooks/chat/useWorkspaceLayout";
 import type { ProjectSkills } from "@/hooks/skills/useProjectSkills";
+import { AppServicesPanel } from "@/components/appservices/AppServicesPanel";
+import { ProjectRepoPanel } from "@/components/github/ProjectRepoPanel";
 import { ProjectConnections } from "@/components/mcp/ProjectConnections";
 import { ProjectSecretsPanel } from "@/components/secrets/ProjectSecretsPanel";
 import { ProjectSkillsPanel } from "@/components/skills/ProjectSkillsPanel";
+import { ProjectDatabasePanel } from "@/components/supabase/ProjectDatabasePanel";
 import { Button } from "@/components/ui/button";
 import { ErrorBox } from "@/components/ui/ErrorBox";
 import { TetrisLoader } from "@/components/ui/loader-tetris";
@@ -222,6 +225,9 @@ export function PreviewPanel({
             {activeTab === "skills" && <ProjectSkillsPanel projectSkills={projectSkills} />}
             {activeTab === "connectors" && <ProjectConnections projectId={projectId} />}
             {activeTab === "secrets" && <ProjectSecretsPanel projectId={projectId} />}
+            {activeTab === "github" && <ProjectRepoPanel projectId={projectId} />}
+            {activeTab === "database" && <ProjectDatabasePanel projectId={projectId} />}
+            {activeTab === "services" && <AppServicesPanel projectId={projectId} />}
         </section>
     );
 }
