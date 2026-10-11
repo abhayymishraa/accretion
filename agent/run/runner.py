@@ -247,6 +247,7 @@ async def run_editor(
     migrate=None,
     save_screenshot: Callable[[bytes, str], Awaitable[str | None]] | None = None,
     *,
+    read_database: Callable[[str], Awaitable[dict[str, Any]]],
     skills: RuntimeSkills,
     mcp: McpTools,
     planning: bool = False,
@@ -270,10 +271,11 @@ async def run_editor(
         options: list[str] = Field(default=[]),
         secrets: list[str] = Field(default=[]),
     ) -> dict[str, Any]:
-        """Ask the user one question, only for a newly discovered choice that changes the result. Never combine
-        with other calls. Supply the question and up to three suggested answers, each within 300 characters.
-        To get keys the app needs from the user, name them in secrets: the user types each value into a field
-        on the card that only the app receives. Never ask for a key's value in the question or the options.
+        """Ask the user one question, only for a newly discovered choice that changes the result or a key the app
+        needs. Never combine with other calls. Supply the question and up to three suggested answers, each within
+        300 characters. To get keys the app needs from the user, name them in secrets: the user types each value
+        into a field on the card that only the app receives. Never ask for a key's value in the question or the
+        options.
         """
         decision = WorkflowDecision(
             kind="clarify", summary=summary, question=question, options=options, secrets=secrets
@@ -281,6 +283,16 @@ async def run_editor(
         return {"ok": True, "decision": decision.model_dump()}
 
     tools[request_decision.name] = request_decision
+
+    @tool
+    async def query_database(sql: str) -> dict[str, Any]:
+        """Run one read-only SQL query on the app's Supabase database and get the rows back, to check its tables,
+        columns, policies and data. It cannot change anything: schema changes go in migration files, which the host
+        applies. Only works once the user has connected Supabase."""
+        # Present in every build, so connecting Supabase never changes the tool list, the start of the cached prefix.
+        return await read_database(sql)
+
+    tools[query_database.name] = query_database
     if planning:
         # Plan mode reads, and changes one file, the plan, through write_plan: no commands and no connected
         # services, since either can change files.

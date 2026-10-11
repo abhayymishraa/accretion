@@ -17,6 +17,9 @@ import agent.sandbox.models
 import agent.storage.models
 import auth.models
 import db.models
+import gateway.models
+import github_sync.models
+import supabase_connect.models
 from alembic import context
 from db.base import Base, database_url
 
@@ -34,6 +37,9 @@ MODEL_MODULES = (
     agent.storage.models,
     auth.models,
     db.models,
+    gateway.models,
+    github_sync.models,
+    supabase_connect.models,
 )
 
 target_metadata = Base.metadata
