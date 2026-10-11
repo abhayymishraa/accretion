@@ -38,7 +38,7 @@ export function ProjectCard({
             <Link
                 href={`/chat/${project.id}`}
                 onClick={onOpen}
-                className={`flex min-w-0 flex-col text-foreground no-underline focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-4 ${compact ? "gap-3 rounded-xl p-4" : `${styles.card} gap-3 rounded-2xl`}`}
+                className={`flex min-w-0 flex-col text-foreground no-underline focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-4 ${compact ? "gap-3 rounded-xl p-4 transition-transform duration-[140ms] ease-[var(--ease-out)] active:scale-[0.985] motion-reduce:active:scale-100" : `${styles.card} gap-3 rounded-2xl`}`}
             >
                 {!compact && (
                     <div className="relative aspect-[16/10] overflow-hidden rounded-2xl border border-border bg-surface-2">

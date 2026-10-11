@@ -10,6 +10,7 @@ import re
 import shlex
 from collections.abc import Collection
 from typing import Any
+from urllib.parse import urlsplit
 
 from e2b import CommandExitException, SandboxException
 
@@ -17,6 +18,8 @@ from .workspace import ROOT
 
 APPLIED = ".accretion/migrated.json"
 _ENV = "set -a; . ./.env; set +a; "
+# pg_dump 17 and later write transaction_timeout, which a Postgres 15 server (a Supabase project) refuses on restore.
+DUMP_COMPAT = "sed '/^SET transaction_timeout/d'"
 
 # Spec 6 step 3: dropping or emptying a table or column, or changing a column's type, loses data.
 _DESTRUCTIVE = re.compile(
@@ -40,11 +43,13 @@ class DestructiveMigration(Exception):
         self.files = files
 
 
-async def _sh(sandbox, command: str, timeout_seconds: int = 180) -> tuple[bool, str]:
+async def _sh(
+    sandbox, command: str, timeout_seconds: int = 180, envs: dict[str, str] | None = None
+) -> tuple[bool, str]:
     """A failed or timed-out command is a result, not an exception: the gate must always get to
     its restore and cleanup steps."""
     try:
-        result = await sandbox.commands.run(command, cwd=ROOT, timeout=timeout_seconds)
+        result = await sandbox.commands.run(command, cwd=ROOT, envs=envs, timeout=timeout_seconds)
     except CommandExitException as exc:
         return False, (exc.stdout + exc.stderr)[-4000:]
     except SandboxException as exc:
@@ -121,8 +126,46 @@ async def _dry_run(sandbox, stack: dict[str, Any]) -> tuple[bool, str]:
         await _sh(sandbox, _ENV + drop, 60)
 
 
-async def gate(sandbox, stack: dict[str, Any], *, allow_data_loss: Collection[str] = ()) -> dict[str, Any]:
-    """`allow_data_loss` lists the migration files the user approved after being asked."""
+async def _apply_remote(
+    sandbox,
+    stack: dict[str, Any],
+    changed: list[str],
+    database_url: str,
+) -> dict[str, Any]:
+    """The app's database is hosted (Supabase): no local copy to dry-run on, so back up its public schema, migrate,
+    and restore the backup if the migration fails. Its URL reaches only these commands' environment, never a file
+    the builder can read."""
+    envs = {"REMOTE_DATABASE_URL": database_url}
+    backup = "/tmp/accretion-premigrate.sql"
+    dump = (
+        'set -o pipefail; pg_dump --schema=public --clean --if-exists --no-owner --no-privileges "$REMOTE_DATABASE_URL"'
+        f" | {DUMP_COMPAT} > {backup}"
+    )
+    if not (await _sh(sandbox, _ENV + dump, envs=envs))[0]:
+        return {"ok": False, "migrations": "backup_failed", "files": changed}
+    migrate = f'DATABASE_URL="$REMOTE_DATABASE_URL" bash -c {shlex.quote(stack["migrate"])}'
+    ok, output = await _sh(sandbox, _ENV + migrate, envs=envs)
+    # The output goes to the model; a tool that prints its connection string must not hand it the password.
+    password = urlsplit(database_url).password
+    if password:
+        output = output.replace(password, "***")
+    if not ok:
+        restore = f'psql "$REMOTE_DATABASE_URL" -q -v ON_ERROR_STOP=1 --single-transaction -f {backup} >/dev/null'
+        restored, _ = await _sh(sandbox, _ENV + restore, envs=envs)
+        state = "failed_and_restored" if restored else "failed_restore_failed"
+        return {"ok": False, "migrations": state, "files": changed, "output": output}
+    return {"ok": True, "migrations": "applied", "files": changed}
+
+
+async def gate(
+    sandbox,
+    stack: dict[str, Any],
+    *,
+    allow_data_loss: Collection[str] = (),
+    database_url: str | None = None,
+) -> dict[str, Any]:
+    """`allow_data_loss` lists the migration files the user approved after being asked. `database_url` is a hosted
+    database the app runs on instead of its built-in one."""
     current = await _hashes(sandbox, stack["migrations"])
     try:
         applied = json.loads(await sandbox.files.read(f"{ROOT}/{APPLIED}"))
@@ -140,6 +183,11 @@ async def gate(sandbox, stack: dict[str, Any], *, allow_data_loss: Collection[st
     ]
     if destructive:
         raise DestructiveMigration(destructive)
+    if database_url:
+        result = await _apply_remote(sandbox, stack, changed, database_url)
+        if result["ok"]:
+            await sandbox.files.write(f"{ROOT}/{APPLIED}", json.dumps(current))
+        return result
     ok, output = await _dry_run(sandbox, stack)
     if not ok:
         return {"ok": False, "migrations": "dry_run_failed", "files": changed, "output": output}

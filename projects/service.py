@@ -18,13 +18,14 @@ from agent.run import images as agent_images
 from agent.run.service import agent_service
 from agent.run.worker import OPEN_STATUSES
 from agent.sandbox import secrets as sandbox_secrets
-from agent.sandbox.kits import KITS
+from agent.sandbox.kits import KITS, public_prefix
 from agent.sandbox.models import ProjectSecret
 from agent.storage.maintenance import attempt_cleanup, cleanup_project_storage
 from agent.storage.persistence import read_object
 from auth.schemas import TokenUser
 from db.base import bound
 from db.models import Chat, Message, ProjectRevision, Run, RunScreenshot, StorageDeletion
+from gateway import env as gateway_env
 from projects.constants import LIVE_RUN_STATUSES
 from projects.dependencies import owned_chat
 from projects.exceptions import (
@@ -182,10 +183,16 @@ async def start_project(user: TokenUser, prompt: str, mode: str, model_choice: s
 
 
 def _secret_list(kit: str | None, values: dict[str, str]) -> ProjectSecrets:
-    return ProjectSecrets(
-        secrets=sorted(values),
-        managed=sandbox_secrets.kit_names(KITS[kit]) if kit in KITS else [],
-    )
+    if kit not in KITS:
+        return ProjectSecrets(secrets=sorted(values), managed=[])
+    # The other kind's public copies (VITE_ in a Next.js app) are never written, so they are not listed.
+    prefix = public_prefix(kit)
+    platform = {
+        name
+        for name in gateway_env.PLATFORM_NAMES
+        if name.startswith(prefix) or not name.startswith(("VITE_", "NEXT_PUBLIC_"))
+    }
+    return ProjectSecrets(secrets=sorted(values), managed=sorted({*sandbox_secrets.kit_names(KITS[kit]), *platform}))
 
 
 async def project_secrets(db: AsyncSession, project_id: str, user: TokenUser) -> ProjectSecrets:
@@ -207,7 +214,7 @@ async def save_project_secret(
     db: AsyncSession, project_id: str, user: TokenUser, name: str, value: str | None, background: BackgroundTasks
 ) -> ProjectSecrets:
     """Save (value) or delete (None) one key. A preview running now restarts with it after the reply."""
-    if name in sandbox_secrets.RESERVED:
+    if name in sandbox_secrets.RESERVED or name in gateway_env.PLATFORM_NAMES:
         raise SecretNameReserved
     # Locked like delete_project locks it: a project deleted meanwhile answers "not found", not a failed write.
     chat = await owned_chat(project_id, user, db, for_update=True)

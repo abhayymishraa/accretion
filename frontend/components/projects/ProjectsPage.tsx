@@ -6,7 +6,7 @@ import { WorkspaceSidebar } from "@/components/layout/WorkspaceSidebar";
 import { ProjectCollection } from "@/components/projects/ProjectCollection";
 import { ProjectCollectionSkeleton } from "@/components/projects/ProjectCollectionSkeleton";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Plus } from "lucide-react";
+import { GitBranch, Plus } from "lucide-react";
 import Link from "next/link";
 
 import { useProjectsPage } from "@/hooks/projects/useProjectsPage";
@@ -29,16 +29,28 @@ export default function ProjectsPage() {
                             <h1>Made by you.</h1>
                             <p>Your projects, ready to pick up again.</p>
                         </div>
-                        <Link
-                            href="/chat"
-                            className={buttonVariants({
-                                variant: "default",
-                                className: "md:hidden",
-                            })}
-                        >
-                            <Plus size={17} />
-                            New project
-                        </Link>
+                        <div className="flex flex-wrap gap-2 max-md:w-full">
+                            <Link
+                                href="/integrations/github"
+                                className={buttonVariants({
+                                    variant: "secondary",
+                                    className: "max-md:flex-1",
+                                })}
+                            >
+                                <GitBranch size={16} />
+                                Import from GitHub
+                            </Link>
+                            <Link
+                                href="/chat"
+                                className={buttonVariants({
+                                    variant: "default",
+                                    className: "md:hidden max-md:flex-1",
+                                })}
+                            >
+                                <Plus size={17} />
+                                New project
+                            </Link>
+                        </div>
                     </div>
                     {hasSession ? (
                         <div data-loaded-in="">

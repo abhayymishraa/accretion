@@ -1,6 +1,7 @@
 "use client";
 
 import { Button, buttonVariants } from "@/components/ui/button";
+import { ErrorBox } from "@/components/ui/ErrorBox";
 import { Input } from "@/components/ui/input";
 import { useConnections } from "@/hooks/connections/useConnections";
 import { cn } from "@/lib/utils";
@@ -115,11 +116,10 @@ export default function AddByAddress() {
                             your builds may use.
                         </p>
                     </div>
-                    {error && (
-                        <p role="alert" className="text-[12px] leading-4 text-destructive">
-                            {error}
-                        </p>
-                    )}
+                    <ErrorBox
+                        message={error}
+                        className="rounded-none border-0 bg-transparent p-0 text-[12px] leading-4"
+                    />
                     <div className="flex flex-wrap justify-end gap-2">
                         <Link
                             href="/connectors"

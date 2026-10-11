@@ -36,10 +36,13 @@ SKILL_DIRECTORIES = {
     "vercel-react-best-practices": "react-best-practices",
     "agent-browser": "agent-browser",
     "skill-creator": "skill-creator",
+    "accretion-services": "accretion-services",
 }
 # Platform skills every project keeps: Accretion's own features rely on them, so a user cannot turn
 # them off. skills/service.py refuses the change; for_project ignores an older stored one.
-REQUIRED_SKILLS = frozenset({"agent-browser", "find-skills", "skill-creator", "vercel-react-best-practices"})
+REQUIRED_SKILLS = frozenset(
+    {"accretion-services", "agent-browser", "find-skills", "skill-creator", "vercel-react-best-practices"}
+)
 assert REQUIRED_SKILLS <= SKILL_DIRECTORIES.keys(), "a required skill must be a bundled one"
 # Where each bundled skill sits in the skills menus, as (category, subcategory). The order here is
 # the order the menus show: categories, then subcategories, as they first appear.
@@ -65,6 +68,7 @@ SKILL_CATEGORIES = {
     "agent-browser": ("Platform", "Browser"),
     "find-skills": ("Platform", "Skills"),
     "skill-creator": ("Platform", "Skills"),
+    "accretion-services": ("Platform", "Services"),
 }
 assert SKILL_CATEGORIES.keys() == SKILL_DIRECTORIES.keys(), "every bundled skill needs exactly one category"
 # Only these bundled reference directories are exposed, never project files or scripts.

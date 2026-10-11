@@ -68,3 +68,8 @@ def _load() -> dict[str, Kit]:
 
 
 KITS = _load()
+
+
+def public_prefix(kit_id: str) -> str:
+    """The prefix a kit's web page reads its public variables under."""
+    return "NEXT_PUBLIC_" if kit_id.startswith("next-") else "VITE_"

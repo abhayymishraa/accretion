@@ -1,6 +1,7 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
+import { ErrorBox } from "@/components/ui/ErrorBox";
 import { Input } from "@/components/ui/input";
 import type { Connections } from "@/hooks/connections/useConnections";
 import type { Connection } from "@/types/connection.type";
@@ -78,11 +79,10 @@ export function KeyForm({
                     </p>
                 </div>
             )}
-            {error && (
-                <p role="alert" className="text-[12.5px] text-destructive">
-                    {error}
-                </p>
-            )}
+            <ErrorBox
+                message={error}
+                className="rounded-none border-0 bg-transparent p-0 text-[12.5px]"
+            />
             <div className="flex flex-wrap gap-2">
                 <Button type="submit" disabled={busy}>
                     {busy ? "Saving" : "Save key"}

@@ -11,6 +11,8 @@ import type { WorkspaceTab } from "@/hooks/chat/useWorkspaceLayout";
 import { useProjectDownload } from "@/hooks/files/useProjectDownload";
 import {
     BookOpen,
+    Database,
+    GitBranch,
     Plug,
     Ellipsis,
     FileCode,
@@ -20,6 +22,7 @@ import {
     Link2,
     PanelLeft,
     Plus,
+    Sparkles,
     X,
     type LucideIcon,
 } from "lucide-react";
@@ -34,10 +37,12 @@ const EXTRA_TABS: { tab: ExtraTab; label: string; icon: LucideIcon }[] = [
     { tab: "skills", label: "Skills", icon: BookOpen },
     { tab: "connectors", label: "Connectors", icon: Plug },
     { tab: "secrets", label: "Keys", icon: KeyRound },
+    { tab: "github", label: "GitHub", icon: GitBranch },
+    { tab: "database", label: "Database", icon: Database },
+    { tab: "services", label: "App services", icon: Sparkles },
 ];
 
-/** The workspace panel's tab row: Preview stays, Code, Skills, Connectors and Keys open from "+",
- * extras under •••. */
+/** The workspace panel's tab row: Preview stays; the rest open from "+", extras under •••. */
 export function PreviewToolbar({
     activeTab,
     onTabChange,

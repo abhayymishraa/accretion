@@ -20,12 +20,15 @@ from config import settings
 from connections.router import router as connections_router
 from db.base import engine
 from files.router import router as files_router
+from gateway.router import router as gateway_router
+from github_sync.router import router as github_router
 from health.router import router as health_router
 from previews.router import router as previews_router
 from projects.router import router as projects_router
 from request_timing import request_timing
 from runs.router import router as runs_router
 from skills.router import router as skills_router
+from supabase_connect.router import router as supabase_router
 
 
 @asynccontextmanager
@@ -69,5 +72,8 @@ for domain_router in (
     previews_router,
     skills_router,
     connections_router,
+    github_router,
+    supabase_router,
+    gateway_router,
 ):
     app.include_router(domain_router)

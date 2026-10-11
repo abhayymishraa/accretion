@@ -8,12 +8,19 @@ import shlex
 
 from e2b import AsyncTemplate
 
+from gateway import env as gateway_env
+from supabase_connect import env as supabase_env
+
 from .config import sandbox_settings
 from .kits import KITS, TEMPLATE_KITS_DIR, Kit
-from .migrations import record_applied
+from .migrations import APPLIED, record_applied
 from .preview import control_preview
 from .secrets import ensure_secrets, env_file, user_env_file, user_secrets
 from .workspace import ROOT
+
+# The migration record as of the dump, beside it: after a Supabase link ends, .accretion/migrated.json lists what
+# Supabase got, and the restored dump is older. Its db/dump. name keeps it with the dump (never pushed to GitHub).
+DUMP_APPLIED = "db/dump.migrated.json"
 
 # The user's keys, read only by the app's services (preview_process.kit_env). Its .env. name keeps it out of
 # saved revisions, the file tools and the file tree, like .env.
@@ -45,22 +52,41 @@ async def _run(sandbox, command: str, *, timeout_seconds: int = 180) -> None:
         await sandbox.commands.run(f"set -a; . ./.env; set +a; {command}", cwd=ROOT, timeout=timeout_seconds)
 
 
+async def app_env(chat_id: str, kit_id: str) -> dict[str, str]:
+    """What the platform gives the app: its key to the app services and, once linked, its Supabase database. Merged
+    with the user's keys as `platform | user`; the names never overlap: a user secret cannot take a platform name."""
+    return {**await gateway_env.app_env(chat_id, kit_id), **await supabase_env.app_env(chat_id, kit_id)}
+
+
+# Platform values any visitor may see: addresses and the app's id. They are neither hidden nor treated as keys.
+_PUBLIC_VALUES = ("ACCRETION_API_URL", "ACCRETION_APP_ID", "SUPABASE_URL")
+
+
+def private(platform: dict[str, str]) -> dict[str, str]:
+    """The platform values that are keys: hidden from the builder, and refused in files pushed to GitHub."""
+    return {
+        name: value
+        for name, value in platform.items()
+        if name not in _PUBLIC_VALUES and not name.startswith(("VITE_", "NEXT_PUBLIC_"))
+    }
+
+
 async def _write_config(sandbox, chat_id: str, kit: Kit) -> None:
-    """.env and .env.json from the project's secrets (mode 600) and the kit's stack.json for the process
-    controller."""
+    """.env and .env.json from the project's secrets and the platform's values (mode 600), and the kit's
+    stack.json for the process controller."""
     values, user = await ensure_secrets(chat_id, kit)
     await sandbox.files.write(f"{ROOT}/.env", env_file(values))
-    await sandbox.files.write(f"{ROOT}/{USER_ENV}", user_env_file(user))
+    await sandbox.files.write(f"{ROOT}/{USER_ENV}", user_env_file(await app_env(chat_id, kit.id) | user))
     await sandbox.commands.run(
         f"chmod 600 {ROOT}/.env {ROOT}/{USER_ENV} && mkdir -p {ROOT}/.accretion {ROOT}/db", timeout=10
     )
     await sandbox.files.write(f"{ROOT}/.accretion/stack.json", json.dumps(kit.model_dump(), indent=2))
 
 
-async def sync_secrets(sandbox, chat_id: str) -> None:
-    """A reused sandbox gets the user's current keys; the app restarts only when they changed, so a key saved
-    since the sandbox started reaches the app without a rebuild."""
-    content = user_env_file(await user_secrets(chat_id))
+async def sync_secrets(sandbox, chat_id: str, kit_id: str) -> None:
+    """A reused sandbox gets the user's current keys and the platform's values; the app restarts only when they
+    changed, so a key saved or a database linked since the sandbox started reaches the app without a rebuild."""
+    content = user_env_file(await app_env(chat_id, kit_id) | await user_secrets(chat_id))
     path = f"{ROOT}/{USER_ENV}"
     # No file reads as no keys, as kit_env reads it.
     current = await sandbox.files.read(path) if await sandbox.files.exists(path) else user_env_file({})
@@ -101,16 +127,23 @@ async def restore(sandbox, chat_id: str, kit_id: str) -> None:
     await _start_database(sandbox, kit)
     # Kits write their dump as db/dump.* (stack.json `dump`); db/ may also hold source files.
     listing = await sandbox.commands.run(f"ls {ROOT}/db/dump.* 2>/dev/null || true", timeout=10)
-    if kit.restore and listing.stdout.strip():
-        # The dump matches the revision's .accretion/migrated.json; a newer migration file in the
-        # revision stays unapplied until the gate runs it.
-        await _run(sandbox, kit.restore)
-    else:
-        await _run(sandbox, kit.migrate)
-        await record_applied(sandbox, kit.model_dump())
+    # Linked to Supabase, the data and schema live there: an older revision's dump would only fill the unused local
+    # database, and its migrations run through the gate against Supabase.
+    if not await supabase_env.linked(chat_id):
+        if kit.restore and listing.stdout.strip():
+            # The dump matches its own migration record; a newer migration file in the revision stays unapplied
+            # until the gate runs it. Revisions from before the record have only .accretion/migrated.json.
+            await _run(sandbox, kit.restore)
+            await sandbox.commands.run(
+                f"cd {ROOT} && if [ -f {DUMP_APPLIED} ]; then cp {DUMP_APPLIED} {APPLIED}; fi", timeout=10
+            )
+        else:
+            await _run(sandbox, kit.migrate)
+            await record_applied(sandbox, kit.model_dump())
     await control_preview(sandbox, "start")
 
 
 async def dump(sandbox, kit_id: str) -> None:
     """Spec 3: the database travels with the revision, dumped into db/ before each checkpoint."""
     await _run(sandbox, KITS[kit_id].dump, timeout_seconds=120)
+    await sandbox.commands.run(f"cd {ROOT} && if [ -f {APPLIED} ]; then cp {APPLIED} {DUMP_APPLIED}; fi", timeout=10)

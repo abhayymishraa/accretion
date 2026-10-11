@@ -50,7 +50,10 @@ from db.models import (
     library_rows,
 )
 from exceptions import TooManyRequests
+from github_sync import sync as github_sync
 from plans import month_window
+from supabase_connect import env as supabase_env
+from supabase_connect import sandbox as supabase_sandbox
 
 from ..budget.budget import BudgetLimitError, BudgetSpentError, has_budget_left, month_spend, remaining_in, require_left
 from ..budget.model_budget import spend_scope
@@ -196,11 +199,12 @@ def original_request(live) -> str:
 
 
 def keeps_sandbox(live: "LiveRun", status: str) -> bool:
-    """A run whose sandbox stays for the next one: it succeeded, or it stopped on a plan card it just saved, so
-    the sandbox holds that revision and Approve reconnects to it instead of restoring."""
+    """A run whose sandbox stays for the next one: it succeeded, or it stopped on the model's question or plan
+    card, so the sandbox holds that revision and the preview stays up while the user answers. The answer
+    reconnects to it instead of restoring."""
     if not live.revision_id:
         return False
-    return status == "succeeded" or (status == "awaiting_input" and live.workflow.get("kind") == "plan")
+    return status == "succeeded" or (status == "awaiting_input" and live.paused_saved)
 
 
 async def pick_kit(live) -> None:
@@ -258,9 +262,16 @@ class LiveRun:
     sandbox: AsyncSandbox | None = None
     cancelling: bool = False
     revision_id: str | None = None
+    # The saved revision the build started from: GitHub sync checks nothing was pulled on top of it meanwhile.
+    base_revision_id: str | None = None
     user_id: int | None = None
     message_id: str | None = None
     workflow: dict[str, Any] = field(default_factory=dict[str, Any])
+    # The run stopped on the model's question or plan card. The runner saved the files first (runner PAUSING),
+    # so the sandbox holds the latest saved revision. A host question (ask) can stop mid-change and is not one.
+    paused_saved: bool = False
+    # Files changed on GitHub that this run took to show the builder; put back unless the run succeeds.
+    outside: list[str] = field(default_factory=list)
     sandbox_started: bool = False
     # A new project's database, migrations and preview (project.start_services), started beside the first
     # model call: a plan only reads files until it saves.
@@ -297,6 +308,16 @@ class Service:
         # The project each user opened last: one active sandbox per user (park_others).
         self.focus: dict[int, str] = {}
         self.workers = Workers(self)
+        # GitHub sync after a run and on open; strong references until each ends.
+        self.background: set[asyncio.Task[Any]] = set()
+        # When each project last checked its GitHub head: viewing polls preview_status, the check needs less.
+        self.head_checked: dict[str, float] = {}
+
+    def later(self, work, name: str) -> None:
+        """Run work after the reply. Each sync function records its own failure on its row."""
+        task = asyncio.create_task(work, name=name)
+        self.background.add(task)
+        task.add_done_callback(self.background.discard)
 
     async def require_sandbox_capacity(self, chat_id, reserved, state, *, requesting_run=None):
         """reserved and state as SandboxRuntimes.reserved(chat_id) reads them, or a caller's own query.
@@ -361,6 +382,12 @@ class Service:
         # Viewing a project is what makes it the user's active one, even when its sandbox is already up
         # and nothing is acquired. Outside admission: parking calls the provider.
         await self.park_others(chat_id, user_id)
+        # A GitHub change whose notice was lost is found when the project is viewed (no polling). A pulled
+        # revision makes the preview read as sleeping, and opening it restores the new files.
+        now = time.monotonic()
+        if now - self.head_checked.get(chat_id, -60.0) >= 60:
+            self.head_checked[chat_id] = now
+            self.later(github_sync.check_head(chat_id), f"github-head:{chat_id}")
         return status
 
     async def startup(self):
@@ -398,7 +425,8 @@ class Service:
         if self.maintenance_task:
             self.maintenance_task.cancel()
             await asyncio.gather(self.maintenance_task, return_exceptions=True)
-        tasks = [r.task for r in self.active.values() if r.task]
+        # A GitHub sync cut short leaves its row as it was; the next run or open syncs again.
+        tasks = [*(r.task for r in self.active.values() if r.task), *self.background]
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
@@ -766,7 +794,8 @@ class Service:
             raise SandboxSetupError(f"{exc}. No editing model request was made.") from None
         sandbox, restore = await self.runtimes.acquire(id, chat.user_id, revision, template, runtime)
         if not restore:
-            await project.sync_secrets(sandbox, id)
+            await project.sync_secrets(sandbox, id, kit_id)
+            await self.prepare_database(sandbox, id, kit_id)
             return sandbox
         try:
             await sandbox.commands.run(
@@ -786,6 +815,7 @@ class Service:
             async with archive_slots:
                 await sandbox_archive(sandbox, "restore", await revision_bytes(revision))
             await project.restore(sandbox, id, kit_id)
+            await self.prepare_database(sandbox, id, kit_id)
         else:
             await project.start_new(sandbox, id, kit_id)
             services = project.start_services(sandbox, kit_id)
@@ -794,6 +824,13 @@ class Service:
             else:
                 await services
         return sandbox
+
+    async def prepare_database(self, sandbox, chat_id, kit_id) -> None:
+        """A Supabase project linked since the sandbox last ran gets the app's data copied in, then the app restarts
+        on it."""
+        if await supabase_sandbox.prepare(sandbox, chat_id, kit_id):
+            # The link is ready now: the app's values change, and the app restarts on them.
+            await project.sync_secrets(sandbox, chat_id, kit_id)
 
     async def preview_ready(self, sandbox, port):
         await sandbox.commands.run(
@@ -871,8 +908,9 @@ class Service:
         template = runtime.template_id if runtime else await project.template_ref()
         if live.services:
             await live.services
-        # Spec 3: the database travels with the revision.
-        await project.dump(live.sandbox, kit_id)
+        # Spec 3: the database travels with the revision, unless it lives in Supabase.
+        if not await supabase_env.linked(live.chat_id):
+            await project.dump(live.sandbox, kit_id)
         async with archive_slots:
             archive = await sandbox_archive(live.sandbox, "pack")
             # The checkpoint event takes a sequence number too (see LiveRun.emit_lock), and is stored
@@ -988,6 +1026,13 @@ class Service:
             self.opening.discard(chat_id)
 
     async def finish(self, live, status, reason, result=None):
+        if status != "succeeded" and live.outside:
+            # Before the run closes: the next run, admitted once it does, must find them.
+            await github_sync.return_outside_changes(live.chat_id, live.outside)
+        url = result["url"] if result and status == "succeeded" else None
+        if url is None and live.sandbox and keeps_sandbox(live, status):
+            # A question or plan card keeps the sandbox, so its preview stays up while the user answers.
+            url = "https://" + live.sandbox.get_host(PROXY_PORT)
         event = self.event(
             live,
             "run_finished",
@@ -996,7 +1041,7 @@ class Service:
             message=reason,
             metrics=live.metrics,
             workflow=public_workflow(live.workflow),
-            url=result["url"] if result and status == "succeeded" else None,
+            url=url,
             revision_id=live.revision_id,
         )
         # The reply is shown whole, live as in history (Run.reason): redacted, not cut at the event bound.
@@ -1095,6 +1140,10 @@ class Service:
                 await self.runtimes.mark_reusable(db, live.chat_id, live.revision_id)
         live.events.append(event)
         await bus.publish(bus.run_channel(live.id), event)
+        self.later(
+            self.after_run(live.chat_id, status, live.revision_id, live.base_revision_id, original_request(live)),
+            f"github:{live.chat_id}",
+        )
         if reusable and live.last_screenshot:
             await self.save_cover(live, live.last_screenshot)
         logger.info(
@@ -1125,6 +1174,23 @@ class Service:
                 }
             )
         )
+
+    async def after_run(self, chat_id, status, revision_id, base_revision_id, request) -> None:
+        """GitHub follows the project: a good build is pushed, then a change GitHub sent during the build is pulled."""
+        if status == "succeeded" and revision_id:
+            await github_sync.push_revision(chat_id, request, base_revision_id)
+        await github_sync.follow(chat_id, after_build=True)
+
+    async def migrate(self, live, stack) -> dict[str, Any]:
+        """The migration gate, against the linked Supabase database when there is one. There, the builder also gets
+        Supabase's security findings, such as tables anyone can read."""
+        target = await supabase_sandbox.migration_target(live.chat_id)
+        result = await migrations.gate(
+            live.sandbox, stack, allow_data_loss=approved_data_loss(live), database_url=target
+        )
+        if target and result["migrations"] == "applied":
+            result["security"] = await supabase_sandbox.security_findings(live.chat_id)
+        return result
 
     async def model_for(self, live):
         """One model for every call in this run (spec 5). A continuation keeps its parent's."""
@@ -1202,9 +1268,15 @@ class Service:
             if await latest_revision(live.chat_id) is None:
                 await self.emit(live, "stage", message="Choosing how to build it")
                 await pick_kit(live)
+            base = await latest_revision(live.chat_id)
+            live.base_revision_id = base.id if base else None
             await self.open_sandbox(live)
             kit, skills, mcp, user_keys = await build_setup(live.chat_id)
             stack = KITS[kit].model_dump()
+            # The app's keys: the model learns the names, the runner hides the values.
+            keys = project.private(await project.app_env(live.chat_id, kit)) | user_keys
+            # Files someone changed on GitHub since the last build: the builder reads them before editing.
+            live.outside = await github_sync.take_outside_changes(live.chat_id)
             prompt = live.prompt
             if live.workflow.get("approved") and live.workflow.get("plan"):
                 # The model gets the approved plan itself as the request; the chat keeps the user's approval.
@@ -1230,16 +1302,18 @@ class Service:
                     # The plan's text is the request already; it is not sent twice.
                     "approach": {k: v for k, v in public_workflow(live.workflow).items() if k != "plan"},
                     "plan_approved": live.workflow.get("approved", False),
+                    **({"changed_on_github": live.outside} if live.outside else {}),
                 },
                 memory=ProjectContext(live.chat_id, live.user_id, live.message_id)
                 if live.user_id is not None and live.message_id is not None
                 else None,
-                migrate=lambda: migrations.gate(live.sandbox, stack, allow_data_loss=approved_data_loss(live)),
+                migrate=lambda: self.migrate(live, stack),
+                read_database=lambda sql: supabase_sandbox.read_query(live.chat_id, sql),
                 save_screenshot=lambda data, media_type: self.save_screenshot(live, data, media_type),
                 skills=skills,
                 mcp=mcp,
                 planning=live.workflow.get("mode") == "plan",
-                secrets=user_keys,
+                secrets=keys,
             )
             if "decision" in result:
                 current = await latest_revision(live.chat_id)
@@ -1249,6 +1323,9 @@ class Service:
                     "revision_id": current.id if current else None,
                     "approved": False,
                 }
+                # A question that changed no files saved nothing in this run: the sandbox holds the latest revision.
+                live.revision_id = live.workflow["revision_id"]
+                live.paused_saved = True
                 status, reason = "awaiting_input", live.workflow["summary"]
                 return
             if live.workflow.get("mode") == "plan":
