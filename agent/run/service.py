@@ -270,6 +270,8 @@ class LiveRun:
     # The run stopped on the model's question or plan card. The runner saved the files first (runner PAUSING),
     # so the sandbox holds the latest saved revision. A host question (ask) can stop mid-change and is not one.
     paused_saved: bool = False
+    # Files changed on GitHub that this run took to show the builder; put back unless the run succeeds.
+    outside: list[str] = field(default_factory=list)
     sandbox_started: bool = False
     # A new project's database, migrations and preview (project.start_services), started beside the first
     # model call: a plan only reads files until it saves.
@@ -1136,7 +1138,9 @@ class Service:
         live.events.append(event)
         await bus.publish(bus.run_channel(live.id), event)
         self.later(
-            self.after_run(live.chat_id, status, live.revision_id, live.base_revision_id, original_request(live)),
+            self.after_run(
+                live.chat_id, status, live.revision_id, live.base_revision_id, original_request(live), live.outside
+            ),
             f"github:{live.chat_id}",
         )
         if reusable and live.last_screenshot:
@@ -1170,8 +1174,11 @@ class Service:
             )
         )
 
-    async def after_run(self, chat_id, status, revision_id, base_revision_id, request) -> None:
-        """GitHub follows the project: a good build is pushed, then a change GitHub sent during the build is pulled."""
+    async def after_run(self, chat_id, status, revision_id, base_revision_id, request, outside) -> None:
+        """GitHub follows the project: a good build is pushed, then a change GitHub sent during the build is pulled.
+        A run that did not succeed gives back the GitHub changes it took, so the next build still sees them."""
+        if status != "succeeded" and outside:
+            await github_sync.return_outside_changes(chat_id, outside)
         if status == "succeeded" and revision_id:
             await github_sync.push_revision(chat_id, request, base_revision_id)
         await github_sync.follow(chat_id, after_build=True)
@@ -1271,7 +1278,7 @@ class Service:
             # The app's keys: the model learns the names, the runner hides the values.
             keys = project.private(await project.app_env(live.chat_id, kit)) | user_keys
             # Files someone changed on GitHub since the last build: the builder reads them before editing.
-            outside = await github_sync.take_outside_changes(live.chat_id)
+            live.outside = await github_sync.take_outside_changes(live.chat_id)
             prompt = live.prompt
             if live.workflow.get("approved") and live.workflow.get("plan"):
                 # The model gets the approved plan itself as the request; the chat keeps the user's approval.
@@ -1297,7 +1304,7 @@ class Service:
                     # The plan's text is the request already; it is not sent twice.
                     "approach": {k: v for k, v in public_workflow(live.workflow).items() if k != "plan"},
                     "plan_approved": live.workflow.get("approved", False),
-                    **({"changed_on_github": outside} if outside else {}),
+                    **({"changed_on_github": live.outside} if live.outside else {}),
                 },
                 memory=ProjectContext(live.chat_id, live.user_id, live.message_id)
                 if live.user_id is not None and live.message_id is not None

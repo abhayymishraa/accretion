@@ -151,8 +151,9 @@ async def _apply_remote(
         output = output.replace(password, "***")
     if not ok:
         restore = f'psql "$REMOTE_DATABASE_URL" -q -v ON_ERROR_STOP=1 --single-transaction -f {backup} >/dev/null'
-        await _sh(sandbox, _ENV + restore, envs=envs)
-        return {"ok": False, "migrations": "failed_and_restored", "files": changed, "output": output}
+        restored, _ = await _sh(sandbox, _ENV + restore, envs=envs)
+        state = "failed_and_restored" if restored else "failed_restore_failed"
+        return {"ok": False, "migrations": state, "files": changed, "output": output}
     return {"ok": True, "migrations": "applied", "files": changed}
 
 

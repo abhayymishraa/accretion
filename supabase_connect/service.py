@@ -209,15 +209,17 @@ def _out(kit: str, row: ProjectDatabase | None, signed_in: bool) -> DatabaseOut:
     if row.status == "creating" and datetime.now(UTC) - row.updated_at > _SETUP_STALE:
         # The setup ran in the background of a server that restarted: nothing will finish it.
         message = "Setting up Supabase was interrupted. Disconnect it and connect again."
+    status = row.status
     if row.status == "ready" and not signed_in:
         message = "Reconnect Supabase to keep using it."
+        status = "reconnect"
     return DatabaseOut(
         offered=offered,
         linked=True,
         ref=row.project_ref,
         name=row.project_name,
         region=row.region,
-        status=row.status,
+        status=status,
         message=message or _MESSAGES.get(row.status),
         dashboard_url=f"https://supabase.com/dashboard/project/{row.project_ref}",
         findings=[Finding.model_validate(item) for item in row.detail.get("findings", [])],

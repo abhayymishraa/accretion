@@ -21,7 +21,8 @@ from typing import Any
 from urllib.parse import quote
 
 import httpx
-from sqlalchemy import delete, func, insert, select, update
+from sqlalchemy import delete, func, insert, literal, select, update
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.exc import SQLAlchemyError
 
 from agent import events
@@ -427,6 +428,9 @@ async def push_revision(chat_id: str, message: str, base_revision_id: str | None
         repo, chat, account = link
         if repo.status in ("reconnect", "gone") or chat.latest_saved_revision_id in (None, repo.synced_revision_id):
             return False
+        # A build's checkpoints are pushed by after_run once it ends, never mid-build.
+        if base_revision_id is None and await _build_open(chat_id):
+            return False
         token, account = await _token(account)
         local = await _local(repo, chat, True)
         if local is None:
@@ -517,7 +521,21 @@ async def take_outside_changes(chat_id: str) -> list[str]:
     except SQLAlchemyError:
         logger.exception("Reading outside changes failed chat_id=%s", chat_id)
         return []
-    return list(changes or [])
+    # A file given back by a run that did not succeed may also have changed again since.
+    return list(dict.fromkeys(changes or []))
+
+
+async def return_outside_changes(chat_id: str, files: list[str]) -> None:
+    """Give back changes a run took but did not build on, beside any that arrived since."""
+    try:
+        async with AutocommitSessionLocal() as db:
+            await db.execute(
+                update(ProjectRepo)
+                .where(ProjectRepo.chat_id == chat_id)
+                .values(outside_changes=ProjectRepo.outside_changes.op("||")(literal(files, JSONB)))
+            )
+    except SQLAlchemyError:
+        logger.exception("Returning outside changes failed chat_id=%s", chat_id)
 
 
 async def switch_branch(chat_id: str, branch: str) -> None:

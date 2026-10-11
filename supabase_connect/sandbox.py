@@ -100,7 +100,7 @@ async def security_findings(chat_id: str) -> list[dict[str, str]]:
 # The query runs with the Management API's rights, which read Supabase's own schemas: stored secrets, users' emails and
 # password hashes. ponytail: a name check stops accidents, not a builder set on it (a function can still reach them);
 # run as a narrower role if that matters.
-_PRIVATE_SCHEMAS = re.compile(r"\b(?:auth|vault|pgsodium|storage|supabase_functions|net)\s*\.", re.IGNORECASE)
+_PRIVATE_SCHEMAS = re.compile(r"\b(?:auth|vault|pgsodium|storage|supabase_functions|net)\"?\s*\.", re.IGNORECASE)
 
 
 async def read_query(chat_id: str, sql: str) -> dict[str, Any]:
