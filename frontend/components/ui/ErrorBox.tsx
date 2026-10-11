@@ -10,10 +10,13 @@ import { cn } from "@/lib/utils";
 export function ErrorBox({
     message,
     children,
+    onRetry,
     className,
 }: {
     message: string;
     children?: React.ReactNode;
+    // Offers "Try again" in the box.
+    onRetry?: () => void;
     // A lighter look for an error that sits on a line of its own, such as under a list row.
     className?: string;
 }) {
@@ -38,6 +41,18 @@ export function ErrorBox({
         >
             {held}
             {children && <> {children}</>}
+            {onRetry && (
+                <>
+                    {" "}
+                    <button
+                        type="button"
+                        onClick={onRetry}
+                        className="cursor-pointer rounded-[4px] underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-ring pointer-coarse:min-h-11"
+                    >
+                        Try again
+                    </button>
+                </>
+            )}
         </p>
     );
 }

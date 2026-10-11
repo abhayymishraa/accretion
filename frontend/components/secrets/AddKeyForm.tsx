@@ -1,6 +1,7 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
+import { IconSwap } from "@/components/ui/IconSwap";
 import { Input } from "@/components/ui/input";
 import { PUBLIC, SECRET_NAME, secretName } from "@/hooks/secrets/useProjectSecrets";
 import { Eye, EyeOff } from "lucide-react";
@@ -27,7 +28,6 @@ export function AddKeyForm({ saved, managed, onSave }: AddKeyFormProps) {
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState("");
     const name = secretName(typed);
-    const EyeIcon = shown ? EyeOff : Eye;
     const taken = managed.includes(name)
         ? `${name} is set by Accretion. Pick another name.`
         : saved.includes(name)
@@ -103,9 +103,13 @@ export function AddKeyForm({ saved, managed, onSave }: AddKeyFormProps) {
                             onClick={() => setShown(!shown)}
                             aria-label={shown ? "Hide value" : "Show value"}
                             aria-pressed={shown}
-                            className="absolute inset-y-px right-px grid w-8 cursor-pointer place-items-center rounded-r-[8px] text-muted-foreground focus-visible:outline-2 focus-visible:outline-ring pointer-coarse:w-11"
+                            className="absolute inset-y-px right-px grid w-8 cursor-pointer place-items-center rounded-r-[8px] text-muted-foreground [transition:scale_140ms_var(--ease-out)] active:scale-[0.97] motion-reduce:active:scale-100 focus-visible:outline-2 focus-visible:outline-ring pointer-coarse:w-11"
                         >
-                            <EyeIcon size={14} aria-hidden="true" />
+                            <IconSwap
+                                swapped={shown}
+                                from={<Eye size={14} aria-hidden="true" />}
+                                to={<EyeOff size={14} aria-hidden="true" />}
+                            />
                         </button>
                     </div>
                 </div>

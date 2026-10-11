@@ -60,7 +60,16 @@ export function SecretRequest({
                                     </span>
                                 )}
                             </div>
-                            {!ready && secrets && <KeyValueForm name={name} inline onSave={save} />}
+                            {secrets && (
+                                // Stays mounted so a saved key's field folds away (globals.css [data-disclosure]).
+                                <div
+                                    data-disclosure={ready ? "" : "open"}
+                                    inert={ready}
+                                    className="[overflow-clip-margin:4px]"
+                                >
+                                    <KeyValueForm name={name} inline onSave={save} />
+                                </div>
+                            )}
                         </li>
                     );
                 })}

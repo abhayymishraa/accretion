@@ -92,7 +92,7 @@ function WorkflowDecisionCard({ message, onChanged, canRespond }: WorkflowCardPr
                     </p>
                 )}
                 {question && proposal.question && (
-                    <details className="text-xs text-muted-foreground">
+                    <details data-faq="" className="text-xs text-muted-foreground">
                         <summary className="cursor-pointer rounded-[4px] py-1 focus-visible:outline-2 focus-visible:outline-ring">
                             Why this question?
                         </summary>
