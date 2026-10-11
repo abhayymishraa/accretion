@@ -1026,6 +1026,9 @@ class Service:
             self.opening.discard(chat_id)
 
     async def finish(self, live, status, reason, result=None):
+        if status != "succeeded" and live.outside:
+            # Before the run closes: the next run, admitted once it does, must find them.
+            await github_sync.return_outside_changes(live.chat_id, live.outside)
         url = result["url"] if result and status == "succeeded" else None
         if url is None and live.sandbox and keeps_sandbox(live, status):
             # A question or plan card keeps the sandbox, so its preview stays up while the user answers.
@@ -1138,9 +1141,7 @@ class Service:
         live.events.append(event)
         await bus.publish(bus.run_channel(live.id), event)
         self.later(
-            self.after_run(
-                live.chat_id, status, live.revision_id, live.base_revision_id, original_request(live), live.outside
-            ),
+            self.after_run(live.chat_id, status, live.revision_id, live.base_revision_id, original_request(live)),
             f"github:{live.chat_id}",
         )
         if reusable and live.last_screenshot:
@@ -1174,11 +1175,8 @@ class Service:
             )
         )
 
-    async def after_run(self, chat_id, status, revision_id, base_revision_id, request, outside) -> None:
-        """GitHub follows the project: a good build is pushed, then a change GitHub sent during the build is pulled.
-        A run that did not succeed gives back the GitHub changes it took, so the next build still sees them."""
-        if status != "succeeded" and outside:
-            await github_sync.return_outside_changes(chat_id, outside)
+    async def after_run(self, chat_id, status, revision_id, base_revision_id, request) -> None:
+        """GitHub follows the project: a good build is pushed, then a change GitHub sent during the build is pulled."""
         if status == "succeeded" and revision_id:
             await github_sync.push_revision(chat_id, request, base_revision_id)
         await github_sync.follow(chat_id, after_build=True)
