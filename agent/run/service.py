@@ -196,11 +196,12 @@ def original_request(live) -> str:
 
 
 def keeps_sandbox(live: "LiveRun", status: str) -> bool:
-    """A run whose sandbox stays for the next one: it succeeded, or it stopped on a plan card it just saved, so
-    the sandbox holds that revision and Approve reconnects to it instead of restoring."""
+    """A run whose sandbox stays for the next one: it succeeded, or it stopped on the model's question or plan
+    card, so the sandbox holds that revision and the preview stays up while the user answers. The answer
+    reconnects to it instead of restoring."""
     if not live.revision_id:
         return False
-    return status == "succeeded" or (status == "awaiting_input" and live.workflow.get("kind") == "plan")
+    return status == "succeeded" or (status == "awaiting_input" and live.paused_saved)
 
 
 async def pick_kit(live) -> None:
@@ -261,6 +262,9 @@ class LiveRun:
     user_id: int | None = None
     message_id: str | None = None
     workflow: dict[str, Any] = field(default_factory=dict[str, Any])
+    # The run stopped on the model's question or plan card. The runner saved the files first (runner PAUSING),
+    # so the sandbox holds the latest saved revision. A host question (ask) can stop mid-change and is not one.
+    paused_saved: bool = False
     sandbox_started: bool = False
     # A new project's database, migrations and preview (project.start_services), started beside the first
     # model call: a plan only reads files until it saves.
@@ -988,6 +992,10 @@ class Service:
             self.opening.discard(chat_id)
 
     async def finish(self, live, status, reason, result=None):
+        url = result["url"] if result and status == "succeeded" else None
+        if url is None and live.sandbox and keeps_sandbox(live, status):
+            # A question or plan card keeps the sandbox, so its preview stays up while the user answers.
+            url = "https://" + live.sandbox.get_host(PROXY_PORT)
         event = self.event(
             live,
             "run_finished",
@@ -996,7 +1004,7 @@ class Service:
             message=reason,
             metrics=live.metrics,
             workflow=public_workflow(live.workflow),
-            url=result["url"] if result and status == "succeeded" else None,
+            url=url,
             revision_id=live.revision_id,
         )
         # The reply is shown whole, live as in history (Run.reason): redacted, not cut at the event bound.
@@ -1249,6 +1257,9 @@ class Service:
                     "revision_id": current.id if current else None,
                     "approved": False,
                 }
+                # A question that changed no files saved nothing in this run: the sandbox holds the latest revision.
+                live.revision_id = live.workflow["revision_id"]
+                live.paused_saved = True
                 status, reason = "awaiting_input", live.workflow["summary"]
                 return
             if live.workflow.get("mode") == "plan":
