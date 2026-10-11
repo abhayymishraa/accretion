@@ -81,3 +81,9 @@
 !skills/*.py
 !connections/
 !connections/*.py
+!gateway/
+!gateway/*.py
+!github_sync/
+!github_sync/*.py
+!supabase_connect/
+!supabase_connect/*.py

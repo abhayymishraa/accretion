@@ -28,6 +28,9 @@ COPY files/ ./files/
 COPY previews/ ./previews/
 COPY skills/ ./skills/
 COPY connections/ ./connections/
+COPY gateway/ ./gateway/
+COPY github_sync/ ./github_sync/
+COPY supabase_connect/ ./supabase_connect/
 USER app
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=6s --start-period=60s --retries=3 \
