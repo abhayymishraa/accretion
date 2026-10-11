@@ -428,8 +428,9 @@ async def push_revision(chat_id: str, message: str, base_revision_id: str | None
         repo, chat, account = link
         if repo.status in ("reconnect", "gone") or chat.latest_saved_revision_id in (None, repo.synced_revision_id):
             return False
-        # A build's checkpoints are pushed by after_run once it ends, never mid-build.
-        if base_revision_id is None and await _build_open(chat_id):
+        # A build's checkpoints are pushed by after_run once it ends, never mid-build. After a run, an open build
+        # is a newer one, whose own after_run pushes.
+        if await _build_open(chat_id):
             return False
         token, account = await _token(account)
         local = await _local(repo, chat, True)
@@ -467,8 +468,8 @@ async def push_revision(chat_id: str, message: str, base_revision_id: str | None
 
 
 async def follow(chat_id: str, *, after_build: bool) -> bool:
-    """after_build: pull what GitHub got while a build ran. Call it after the build's finish statement: it does not
-    wait for the build row, it trusts the caller that the build ended."""
+    """after_build: pull what GitHub got while a build ran. Call it after the build's finish statement, so any build
+    still open is a newer one, which defers the pull to that build's own end."""
 
     async def work() -> bool:
         link = await _load(chat_id)
@@ -488,7 +489,8 @@ async def follow(chat_id: str, *, after_build: bool) -> bool:
             if values:
                 await _set(chat_id, **values)
             return False
-        if not after_build and await _build_open(chat_id):
+        # After a run, an open build is a newer one: its own after_run pulls.
+        if await _build_open(chat_id):
             await _set(chat_id, pending_sha=head)
             return False
         return await _take(repo, chat, account, token, head, repo.branch)
