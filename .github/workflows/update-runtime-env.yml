@@ -2,7 +2,8 @@ name: Update runtime env
 
 # Manual only. Patches an allowlisted set of the monthly budget, public origins and kit templates in
 # the Oracle runtime file, then reruns the backend deploy so the next release
-# picks them up.
+# picks them up. App service keys come from repository secrets (GH_APP_*, SUPABASE_OAUTH_*): each one set
+# is written, each one unset leaves the file's value alone. GitHub reserves the GITHUB_ prefix for secrets.
 on:
   workflow_dispatch:
     inputs:
@@ -35,6 +36,9 @@ on:
       RESEND_FROM:
         description: Sender of every email, as Name <address>; the address must be on a domain verified in Resend
         default: "Accretion <hello@accretion.abhayymishraa.com>"
+      APP_EMAIL_FROM:
+        description: Sender of generated apps' sign-in emails, as Name <address> on a domain verified in Resend
+        default: "Accretion <hello@accretion.abhayymishraa.com>"
       redeploy:
         description: Rerun deploy-backend.yml afterwards
         type: boolean
@@ -62,6 +66,15 @@ jobs:
           NEW_E2B_TEMPLATE: ${{ inputs.E2B_TEMPLATE }}
           NEW_DEFAULT_KIT: ${{ inputs.DEFAULT_KIT }}
           NEW_RESEND_FROM: ${{ inputs.RESEND_FROM }}
+          NEW_APP_EMAIL_FROM: ${{ inputs.APP_EMAIL_FROM }}
+          RAW_GITHUB_APP_ID: ${{ secrets.GH_APP_ID }}
+          RAW_GITHUB_APP_SLUG: ${{ secrets.GH_APP_SLUG }}
+          RAW_GITHUB_APP_CLIENT_ID: ${{ secrets.GH_APP_CLIENT_ID }}
+          RAW_GITHUB_APP_CLIENT_SECRET: ${{ secrets.GH_APP_CLIENT_SECRET }}
+          RAW_GITHUB_APP_PRIVATE_KEY: ${{ secrets.GH_APP_PRIVATE_KEY }}
+          RAW_GITHUB_APP_WEBHOOK_SECRET: ${{ secrets.GH_APP_WEBHOOK_SECRET }}
+          RAW_SUPABASE_OAUTH_CLIENT_ID: ${{ secrets.SUPABASE_OAUTH_CLIENT_ID }}
+          RAW_SUPABASE_OAUTH_CLIENT_SECRET: ${{ secrets.SUPABASE_OAUTH_CLIENT_SECRET }}
         run: |
           set -euo pipefail
           : "${DEPLOY_HOST:?Missing DEPLOY_HOST}"
@@ -88,6 +101,19 @@ jobs:
           # A display name and one address, nothing else: no quotes, no newline that could add a line to runtime.env.
           sender='^[A-Za-z0-9 ._-]+ <[A-Za-z0-9._%+-]+@[a-z0-9]([a-z0-9.-]*[a-z0-9])?\.[a-z]{2,}>$'
           [[ "$NEW_RESEND_FROM" =~ $sender ]] || { echo 'Invalid RESEND_FROM; use Name <address>'; exit 1; }
+          [[ "$NEW_APP_EMAIL_FROM" =~ $sender ]] || { echo 'Invalid APP_EMAIL_FROM; use Name <address>'; exit 1; }
+
+          # Secrets travel on stdin ahead of the remote script, never on a command line, base64-encoded so no
+          # character in them can break the script. The private key goes as one line with "\n" escaped, which
+          # the API unescapes. An unset secret travels empty.
+          secret_keys="GITHUB_APP_ID GITHUB_APP_SLUG GITHUB_APP_CLIENT_ID GITHUB_APP_CLIENT_SECRET GITHUB_APP_PRIVATE_KEY GITHUB_APP_WEBHOOK_SECRET SUPABASE_OAUTH_CLIENT_ID SUPABASE_OAUTH_CLIENT_SECRET"
+          secret_lines=""
+          for key in $secret_keys; do
+            raw="RAW_${key}"
+            value="${!raw//$'\r'/}"
+            value="${value//$'\n'/\\n}"
+            secret_lines+="SECRET_${key}=$(printf '%s' "$value" | base64 -w0)"$'\n'
+          done
 
           install -d -m 700 ~/.ssh
           printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
@@ -111,8 +137,14 @@ jobs:
             NEW_E2B_TEMPLATE="$NEW_E2B_TEMPLATE" \
             NEW_DEFAULT_KIT="$NEW_DEFAULT_KIT" \
             NEW_RESEND_FROM="'$NEW_RESEND_FROM'" \
-            'bash -s' <<'REMOTE'
+            NEW_APP_EMAIL_FROM="'$NEW_APP_EMAIL_FROM'" \
+            'bash -s' < <(printf '%s' "$secret_lines"; cat <<'REMOTE'
           set -euo pipefail
+          export secret_keys="GITHUB_APP_ID GITHUB_APP_SLUG GITHUB_APP_CLIENT_ID GITHUB_APP_CLIENT_SECRET GITHUB_APP_PRIVATE_KEY GITHUB_APP_WEBHOOK_SECRET SUPABASE_OAUTH_CLIENT_ID SUPABASE_OAUTH_CLIENT_SECRET"
+          for key in $secret_keys; do
+            encoded="SECRET_${key}"
+            export "NEW_${key}=$(printf '%s' "${!encoded}" | base64 -d)"
+          done
           file=/opt/webbuilder/runtime.env
           # Root-owned and mode 600, so the existence test needs sudo too.
           sudo test -s "$file" || { echo 'Missing runtime.env'; exit 1; }
@@ -131,8 +163,10 @@ jobs:
           trap 'rm -f "$tmp"' EXIT
           sudo cat "$file" | awk '
             BEGIN {
-              split("MONTHLY_BUDGET_USD MAX_CONCURRENT_RUNS MAX_LIVE_SANDBOXES FRONTEND_URL PUBLIC_API_URL ALLOWED_ORIGINS E2B_TEMPLATE DEFAULT_KIT RESEND_FROM", a, " ")
+              split("MONTHLY_BUDGET_USD MAX_CONCURRENT_RUNS MAX_LIVE_SANDBOXES FRONTEND_URL PUBLIC_API_URL ALLOWED_ORIGINS E2B_TEMPLATE DEFAULT_KIT RESEND_FROM APP_EMAIL_FROM", a, " ")
               for (i in a) want[a[i]] = ENVIRON["NEW_" a[i]]
+              split(ENVIRON["secret_keys"], s, " ")
+              for (i in s) if (ENVIRON["NEW_" s[i]] != "") want[s[i]] = ENVIRON["NEW_" s[i]]
             }
             {
               eq = index($0, "=")
@@ -179,13 +213,22 @@ jobs:
           fi
 
           # Report key names and whether they changed. Never print other lines.
-          for k in MONTHLY_BUDGET_USD MAX_CONCURRENT_RUNS MAX_LIVE_SANDBOXES FRONTEND_URL PUBLIC_API_URL ALLOWED_ORIGINS E2B_TEMPLATE DEFAULT_KIT RESEND_FROM; do
+          for k in MONTHLY_BUDGET_USD MAX_CONCURRENT_RUNS MAX_LIVE_SANDBOXES FRONTEND_URL PUBLIC_API_URL ALLOWED_ORIGINS E2B_TEMPLATE DEFAULT_KIT RESEND_FROM APP_EMAIL_FROM; do
             before=$(sudo grep -E "^${k}=" "$backup" | head -1 | cut -d= -f2- || true)
             after=$(sudo grep -E "^${k}=" "$file" | head -1 | cut -d= -f2- || true)
             printf '  %-32s %s -> %s\n' "$k" "${before:-<unset>}" "$after"
           done
+          # Secrets: whether each is set and whether this run changed it. Never the value.
+          for k in $secret_keys; do
+            before=$(sudo grep -E "^${k}=" "$backup" | head -1 | cut -d= -f2- || true)
+            after=$(sudo grep -E "^${k}=" "$file" | head -1 | cut -d= -f2- || true)
+            state=$([ -n "$after" ] && echo set || echo unset)
+            [ "$before" != "$after" ] && state="$state (changed)"
+            printf '  %-32s %s\n' "$k" "$state"
+          done
           echo "runtime.env line count: $(sudo wc -l "$file" | awk '{print $1}')"
           REMOTE
+          )
 
       - name: Rerun the backend deploy
         if: ${{ inputs.redeploy }}
