@@ -21,6 +21,8 @@ export const authService = {
         (await apiClient.post<{ message: string }>("/auth/verification/request", { email })).data,
     confirmVerification: async (token: string): Promise<LoginResponse> =>
         (await apiClient.post<LoginResponse>("/auth/verification/confirm", { token })).data,
+    redeemDemoLink: async (token: string): Promise<LoginResponse> =>
+        (await apiClient.post<LoginResponse>("/auth/demo", { token })).data,
     exchangeOAuth: async (token: string): Promise<LoginResponse> =>
         (await apiClient.post<LoginResponse>("/auth/oauth/exchange", { token })).data,
     linkProvider: async (provider: "google" | "github"): Promise<{ url: string }> =>

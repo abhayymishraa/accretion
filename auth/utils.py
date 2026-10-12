@@ -47,16 +47,18 @@ def _encode(claims: dict[str, Any], lifetime: timedelta, token_type: str) -> str
     return jwt.encode({**claims, "exp": datetime.now(UTC) + lifetime, "type": token_type}, SECRET_KEY, ALGORITHM)
 
 
-def issue_tokens(user: User) -> Token:
+def issue_tokens(user: User, demo_link: str | None = None) -> Token:
     """A token pair for a verified user. The access token carries what each request checks, so
-    authenticating one needs no database query; the refresh token re-reads the user."""
+    authenticating one needs no database query; the refresh token re-reads the user. A demo session's
+    refresh token also names the digest of the link it was opened with (auth/service.py refresh_token)."""
+    refresh = {"sub": str(user.id)} if demo_link is None else {"sub": str(user.id), "demo_link": demo_link}
     return Token(
         access_token=_encode(
             {"sub": str(user.id), "role": user.role, "approved": not user.waitlisted},
             timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES),
             "access",
         ),
-        refresh_token=_encode({"sub": str(user.id)}, timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS), "refresh"),
+        refresh_token=_encode(refresh, timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS), "refresh"),
     )
 
 

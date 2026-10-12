@@ -112,7 +112,7 @@ export function SidebarAccount({
                             <p className="m-0">Unlimited on your plan.</p>
                         ) : (
                             <dl className="m-0 grid grid-cols-[1fr_auto] gap-y-1.5 [&_dd]:m-0 [&_dd]:font-mono [&_dd]:tabular-nums">
-                                <dt>Monthly budget</dt>
+                                <dt>{budget.resets_at ? "Monthly budget" : "Demo budget"}</dt>
                                 <dd>{formatUsd(budget.limit_usd)}</dd>
                                 <dt>Used</dt>
                                 <dd>{formatUsd(budget.limit_usd - budget.remaining_usd)}</dd>
@@ -121,12 +121,16 @@ export function SidebarAccount({
                             </dl>
                         )}
                         <p className="m-0 mt-3 text-[12px] text-muted-foreground">
-                            Resets{" "}
-                            {new Date(budget.resets_at).toLocaleDateString(undefined, {
-                                month: "short",
-                                day: "numeric",
-                            })}
-                            . Covers model use only; previews do not count.
+                            {budget.resets_at
+                                ? `Resets ${new Date(budget.resets_at).toLocaleDateString(
+                                      undefined,
+                                      {
+                                          month: "short",
+                                          day: "numeric",
+                                      },
+                                  )}.`
+                                : "Does not reset."}{" "}
+                            Covers model use only; previews do not count.
                         </p>
                     </PopoverContent>
                 </Popover>

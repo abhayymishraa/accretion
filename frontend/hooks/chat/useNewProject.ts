@@ -14,7 +14,7 @@ import { starterBriefs } from "@/lib/projects/starterBriefs";
 import { authService } from "@/services/service.auth";
 import { projectService } from "@/services/service.projects";
 import { type UserData } from "@/types/auth.type";
-import { sendable } from "./useComposerMenu";
+import { asPicks, sendable } from "./useComposerMenu";
 import { useModelChoice } from "./useModelChoice";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
@@ -36,9 +36,26 @@ export function useNewProject() {
         if (initialDraft.current === null) {
             try {
                 initialDraft.current = "";
-                const explicitStarter = new URLSearchParams(window.location.search).get("starter");
+                const params = new URLSearchParams(window.location.search);
+                const explicitStarter = params.get("starter");
                 migrateKey(sessionStorage, PROJECT_DRAFT_KEY, LEGACY_PROJECT_DRAFT_KEY);
                 migrateKey(sessionStorage, STARTER_KEY, LEGACY_STARTER_KEY);
+                // A ?q= prompt becomes the draft: shown, never sent for the user, and kept through a
+                // detour to sign in. Removed from the address so a reload does not bring it back.
+                const query = params.get("q");
+                if (query?.trim()) {
+                    sessionStorage.setItem(
+                        PROJECT_DRAFT_KEY,
+                        asPicks(query).slice(0, MAX_PROJECT_DRAFT_LENGTH),
+                    );
+                    params.delete("q");
+                    const rest = params.toString();
+                    window.history.replaceState(
+                        null,
+                        "",
+                        rest ? `?${rest}` : window.location.pathname,
+                    );
+                }
                 const draft = sessionStorage.getItem(PROJECT_DRAFT_KEY);
                 const requested = explicitStarter || sessionStorage.getItem(STARTER_KEY);
                 const starter = starterBriefs.find((item) => item.id === requested);
@@ -59,6 +76,9 @@ export function useNewProject() {
             router.push("/signin");
             return;
         }
+        // Shown at once, not after the account loads: the composer stays disabled until then, and a
+        // prompt that arrives late pops into a box the user is already looking at.
+        setInput((current) => current || initialDraft.current || "");
 
         let disposed = false;
         authService
@@ -66,7 +86,6 @@ export function useNewProject() {
             .then((user) => {
                 if (disposed) return;
                 localStorage.setItem("user_data", JSON.stringify(user));
-                setInput((current) => current || initialDraft.current || "");
                 setUserData(user);
                 setIsAuthenticated(true);
             })

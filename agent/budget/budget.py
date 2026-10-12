@@ -1,6 +1,6 @@
 """Atomic cost admission. Integers are billionths of USD, never binary floats.
 
-One limit: each user's monthly model budget, MONTHLY_BUDGET_USD. Sandbox time is
+One limit: each user's monthly model budget, MONTHLY_BUDGET_USD; a demo account's never resets. Sandbox time is
 reserved and settled here too, for accounting, but never counts against it.
 
 Uncertain requests retain their reservation as a conservative charge. Entries
@@ -18,6 +18,7 @@ from sqlalchemy import (
     Integer,
     Numeric,
     String,
+    and_,
     cast,
     exists,
     extract,
@@ -33,7 +34,7 @@ from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from agent.budget.models import SpendEntry
 from db.base import AutocommitSessionLocal, bound
 from db.models import User
-from plans import month_window
+from plans import DEMO_PLAN, month_window
 
 from .config import budget_settings
 
@@ -66,23 +67,25 @@ def _limit():
 
 
 def _spent_error(end, left=0):
+    """`end` is None for a demo account: its budget never resets."""
+    budget = "this month's build budget" if end else "this demo's build budget"
     # With money left, the next step alone needs more than that; saying "used" would contradict the balance shown.
     spent = (
-        f"This step needs more than the ${left / NANOS:.2f} left in this month's build budget."
-        if left
-        else "You have used this month's build budget."
+        f"This step needs more than the ${left / NANOS:.2f} left in {budget}." if left else f"You have used {budget}."
     )
-    return BudgetSpentError(f"{spent} It resets on {end:%-d %B} UTC. Saved projects and previews remain available.")
+    reset = f" It resets on {end:%-d %B} UTC." if end else ""
+    return BudgetSpentError(f"{spent}{reset} Saved projects and previews remain available.")
 
 
 def month_spend(user_id, start, end):
     """Model spend only: sandbox entries are recorded but not charged to the user. A select, so a
-    caller can run it alone or as a column of a larger query."""
+    caller can run it alone or as a column of a larger query. A demo account's spend counts every
+    month: its budget never resets (reserve_model_spend applies the same rule)."""
+    lifetime = exists().where(User.id == user_id, User.plan == DEMO_PLAN)
     return select(func.coalesce(func.sum(SpendEntry.amount_nanos), 0)).where(
         SpendEntry.user_id == user_id,
         SpendEntry.kind == "model",
-        SpendEntry.starts_at < end,
-        SpendEntry.ends_at >= start,
+        or_(lifetime, and_(SpendEntry.starts_at < end, SpendEntry.ends_at >= start)),
     )
 
 
@@ -99,7 +102,7 @@ def allowance(user, used, month):
         "unlimited": remaining is None,
         "limit_usd": limit / NANOS,
         "remaining_usd": (limit if remaining is None else remaining) / NANOS,
-        "resets_at": month[1].isoformat(),
+        "resets_at": None if user.plan == DEMO_PLAN else month[1].isoformat(),
     }
 
 
@@ -112,7 +115,7 @@ def require_left(user, used, month):
     """Refuse a run when nothing is left of `month`'s budget: an early answer, not the guard. Each
     model call reserves its own bound in reserve(), under the user row lock."""
     if remaining_in(user, used) == 0:
-        raise _spent_error(month[1])
+        raise _spent_error(None if user.plan == DEMO_PLAN else month[1])
 
 
 def runtime_amount(end):

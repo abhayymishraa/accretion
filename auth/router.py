@@ -6,10 +6,15 @@ from fastapi import APIRouter, BackgroundTasks, Depends, Query, Request, status
 
 from auth import service, social
 from auth.dependencies import AdminUser, ClientIp, SignedInUser, get_token_user
+from auth.exceptions import DemoAccountLocked
 from auth.schemas import (
     AccountPage,
     AccountRow,
+    AccountRun,
     AuthOptions,
+    DemoAccount,
+    DemoAccountCreate,
+    DemoLink,
     EmailRequest,
     ProfileUpdate,
     ProviderLink,
@@ -24,6 +29,7 @@ from auth.schemas import (
     VerificationRequested,
 )
 from db.base import Autocommit, DbSession
+from plans import DEMO_PLAN
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -80,6 +86,9 @@ async def auth_options() -> AuthOptions:
 
 @router.post("/oauth/{provider}/link")
 async def link_provider(provider: str, user: SignedInUser, db: DbSession) -> ProviderLink:
+    # A linked provider would outlive the demo link: revoking the link must end every way in.
+    if user.plan == DEMO_PLAN:
+        raise DemoAccountLocked
     return await social.link_provider(provider, user.id, db)
 
 
@@ -91,6 +100,11 @@ async def start_oauth(provider: str, request: Request, ticket: str | None = None
 @router.get("/oauth/{provider}/callback")
 async def oauth_callback(provider: str, request: Request, background: BackgroundTasks, db: DbSession):
     return await social.oauth_callback(provider, request, background, db)
+
+
+@router.post("/demo", dependencies=[Autocommit])
+async def redeem_demo_link(data: TokenRequest, db: DbSession) -> Token:
+    return await service.redeem_demo_link(data, db)
 
 
 @router.post("/oauth/exchange")
@@ -116,3 +130,28 @@ async def list_users(
 @users_router.post("/{user_id}/approval")
 async def approve_user(user_id: int, _: AdminUser, background: BackgroundTasks, db: DbSession) -> AccountRow:
     return await service.approve_user(user_id=user_id, background=background, db=db)
+
+
+@users_router.get("/demo", dependencies=[Autocommit])
+async def list_demo_accounts(_: AdminUser, db: DbSession) -> list[DemoAccount]:
+    return await service.list_demo_accounts(db)
+
+
+@users_router.post("/demo", status_code=status.HTTP_201_CREATED, dependencies=[Autocommit])
+async def create_demo_account(data: DemoAccountCreate, _: AdminUser, db: DbSession) -> DemoLink:
+    return await service.create_demo_account(data, db)
+
+
+@users_router.post("/{user_id}/demo-link", dependencies=[Autocommit])
+async def replace_demo_link(user_id: int, _: AdminUser, db: DbSession) -> DemoLink:
+    return await service.replace_demo_link(user_id, db)
+
+
+@users_router.delete("/{user_id}/demo-link", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Autocommit])
+async def revoke_demo_link(user_id: int, _: AdminUser, db: DbSession) -> None:
+    await service.revoke_demo_link(user_id, db)
+
+
+@users_router.get("/{user_id}/runs", dependencies=[Autocommit])
+async def list_demo_runs(user_id: int, _: AdminUser, db: DbSession) -> list[AccountRun]:
+    return await service.list_demo_runs(user_id, db)

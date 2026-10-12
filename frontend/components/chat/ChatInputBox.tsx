@@ -5,7 +5,8 @@ import { useLightTheme } from "@/components/layout/ThemeProvider";
 import { Button } from "@/components/ui/button";
 import { CometSpinner } from "@/components/ui/comet-spinner";
 import { IconSwap } from "@/components/ui/IconSwap";
-import { useComposerMenu } from "@/hooks/chat/useComposerMenu";
+import { ICON_ROOM, useComposerMenu } from "@/hooks/chat/useComposerMenu";
+import { useAccountConnections } from "@/hooks/connections/useAccountConnections";
 import { useAccountSkills } from "@/hooks/skills/useAccountSkills";
 import { MAX_PROJECT_DRAFT_LENGTH } from "@/lib/projects/draft";
 import { starterBriefs } from "@/lib/projects/starterBriefs";
@@ -50,19 +51,24 @@ export function ChatInputBox({
     const controlsDisabled = isLoading || disabled;
     const submitLabel = isLoading ? "Starting your project" : "Start building";
     const { skills, ensureLoaded } = useAccountSkills();
+    const { connections, ensureLoaded: loadConnections } = useAccountConnections();
     const menu = useComposerMenu({
         textarea: field,
         value: input,
         onChange: onInputChange,
         files: [],
         skills,
+        services: connections,
         disabled: controlsDisabled,
     });
-    // Skills are fetched the first time "/" is used, not on page load.
-    const wantsSkills = menu.kind === "commands";
+    // Skills and services are fetched the first time "/" is used, or when the prompt arrives with a
+    // pick in it (a ?q= link), not on page load.
+    const wantsPicks = menu.kind === "commands" || input.includes(ICON_ROOM);
     useEffect(() => {
-        if (wantsSkills) ensureLoaded();
-    }, [wantsSkills, ensureLoaded]);
+        if (!wantsPicks) return;
+        ensureLoaded();
+        loadConnections();
+    }, [wantsPicks, ensureLoaded, loadConnections]);
     const light = useLightTheme();
 
     return (
@@ -101,7 +107,12 @@ export function ChatInputBox({
                             aria-hidden="true"
                             className={`${TEXT} whitespace-pre-wrap text-foreground`}
                         >
-                            <PromptMirror text={input} files={[]} skills={skills} />{" "}
+                            <PromptMirror
+                                text={input}
+                                files={[]}
+                                skills={skills}
+                                services={connections}
+                            />{" "}
                         </div>
                         <textarea
                             id="project-brief"

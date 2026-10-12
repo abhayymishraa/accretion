@@ -48,7 +48,11 @@ export default function ProfilePage() {
                             <div className="mt-9 grid gap-8 md:grid-cols-2 md:gap-12 [&_h2]:mb-1.5 [&_h2]:text-[17px] [&_h2]:font-medium [&_section>p]:text-sm [&_section>p]:leading-relaxed [&_section>p]:text-muted-foreground">
                                 {budget && (
                                     <section aria-labelledby="budget-title">
-                                        <h2 id="budget-title">Monthly build budget</h2>
+                                        <h2 id="budget-title">
+                                            {budget.resets_at
+                                                ? "Monthly build budget"
+                                                : "Demo build budget"}
+                                        </h2>
                                         <p className="mt-4 text-3xl! font-medium text-foreground!">
                                             {budget.unlimited ? (
                                                 "Unlimited"
@@ -69,7 +73,9 @@ export default function ProfilePage() {
                                         </p>
                                         {!budget.unlimited && (
                                             <p className="mt-4 text-sm text-muted-foreground">
-                                                Resets {formatReset(budget.resets_at)}
+                                                {budget.resets_at
+                                                    ? `Resets ${formatReset(budget.resets_at)}`
+                                                    : "Does not reset."}
                                             </p>
                                         )}
                                     </section>
