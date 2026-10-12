@@ -69,7 +69,7 @@ Every change reaches `main` through a pull request. Only a hotfix goes to `main`
 - A demo account has `plan = "demo"`: verified, approved, an `example.com` address, and a password nobody keeps.
 - Its model budget (`MONTHLY_BUDGET_USD`) is one allowance for life. `month_spend` and `reserve_model_spend` (alembic `9d2b6e4f8a13`) sum all its spend, and `resets_at` is null.
 - Its link is an `auth_tokens` row, purpose `demo_link`, expiry 100 years, never consumed: `/auth/demo` gives a session on every open. Only the digest is stored, so the admin sees the link once. A new link deletes the old row in the same statement; revoke deletes it.
-- Revoke ends every way in. Refresh refuses a demo account with no link (within the access token's 30 minutes), and a demo account cannot link Google or GitHub.
+- Revoke ends every way in. A demo session's refresh token names the digest of the link it was opened with, and refresh refuses it once that link is revoked or replaced (within the access token's 30 minutes). A demo account cannot link Google or GitHub.
 - The link is `/demo#token=…&q=…`. `q` (also read on `/chat?q=`) becomes the new project's draft. It is never sent for the user. Each `/name` in it becomes a pick (`asPicks`), so skills and services show as tags.
 
 ## Context compaction

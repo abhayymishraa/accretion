@@ -147,14 +147,17 @@ async def refresh_token(token_data: RefreshTokenRequest, db: AsyncSession) -> To
     if user_id is None:
         raise InvalidTokenPayload
 
-    # A demo account's sessions end with its link: revoked, they renew no more, within the access
-    # token's 30 minutes.
-    live_link = exists().where(AuthToken.user_id == User.id, AuthToken.purpose == _DEMO_LINK)
+    # A demo session ends with the link it was opened with: revoked or replaced, it renews no more,
+    # within the access token's 30 minutes.
+    demo_link = payload.get("demo_link")
+    live_link = exists().where(
+        AuthToken.user_id == User.id, AuthToken.purpose == _DEMO_LINK, AuthToken.digest == demo_link
+    )
     user = await db.scalar(select(User).where(User.id == int(user_id), or_(User.plan != DEMO_PLAN, live_link)))
     if user is None or (not user.email_verified):
         raise InvalidRequest
 
-    return issue_tokens(user)
+    return issue_tokens(user, demo_link)
 
 
 async def get_me(user_id: int, db: AsyncSession, changes: dict[str, str] | None = None) -> UserResponse:
@@ -363,15 +366,16 @@ async def revoke_demo_link(user_id: int, db: AsyncSession) -> None:
 
 
 async def redeem_demo_link(data: TokenRequest, db: AsyncSession) -> Token:
-    """A session for the demo account the link belongs to. The link is not consumed."""
+    """A session for the demo account the link belongs to, bound to that link. The link is not consumed."""
+    digest = token_digest(data.token)
     user = await db.scalar(
         select(User)
         .join(AuthToken, AuthToken.user_id == User.id)
-        .where(AuthToken.digest == token_digest(data.token), AuthToken.purpose == _DEMO_LINK, User.plan == DEMO_PLAN)
+        .where(AuthToken.digest == digest, AuthToken.purpose == _DEMO_LINK, User.plan == DEMO_PLAN)
     )
     if user is None:
         raise DemoLinkInvalid
-    return issue_tokens(user)
+    return issue_tokens(user, digest)
 
 
 async def list_demo_accounts(db: AsyncSession) -> list[DemoAccount]:

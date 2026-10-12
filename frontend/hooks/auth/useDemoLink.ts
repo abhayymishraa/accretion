@@ -32,20 +32,27 @@ export function useDemoLink() {
                 : Promise.reject(new Error("Demo link has no token"));
         }
         redemption.current
-            .then(async (session) => {
-                if (disposed) return;
-                saveSession(session);
-                const user = await authService.getCurrentUser();
-                if (disposed) return;
-                localStorage.setItem("user_data", JSON.stringify(user));
-                const q = prompt.current.trim();
-                router.replace(q ? `/chat?${new URLSearchParams({ q })}` : "/chat");
-            })
+            .then(
+                async (session) => {
+                    if (disposed) return;
+                    saveSession(session);
+                    const user = await authService.getCurrentUser();
+                    if (disposed) return;
+                    localStorage.setItem("user_data", JSON.stringify(user));
+                    const q = prompt.current.trim();
+                    router.replace(q ? `/chat?${new URLSearchParams({ q })}` : "/chat");
+                },
+                () => {
+                    if (!disposed)
+                        setError(
+                            "This demo link is not valid. Ask the person who sent it for a new one.",
+                        );
+                },
+            )
             .catch(() => {
-                if (!disposed)
-                    setError(
-                        "This demo link is not valid. Ask the person who sent it for a new one.",
-                    );
+                // The link worked; loading the account did not. A link is never used up, so it can be
+                // opened again.
+                if (!disposed) setError("Could not open your workspace. Open the link again.");
             });
         return () => {
             disposed = true;
