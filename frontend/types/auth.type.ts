@@ -1,11 +1,11 @@
 // API Response Types
 
-/** This month's build budget, in USD. Resets on the first of the month, UTC. */
+/** This month's build budget, in USD. Resets on the first of the month, UTC; a demo's never does (null). */
 export interface CostAllowance {
     unlimited: boolean;
     limit_usd: number;
     remaining_usd: number;
-    resets_at: string;
+    resets_at: string | null;
 }
 
 export interface UserData {
@@ -67,4 +67,28 @@ export interface RegisterRequest {
     email: string;
     password: string;
     name: string;
+}
+
+/** A demo account on the admin page. `spent_usd` is its model spend, all time. */
+export interface DemoAccount {
+    id: number;
+    name: string;
+    created_at: string;
+    link_active: boolean;
+    spent_usd: number;
+}
+
+/** A new demo link's raw token: shown once, only its digest is stored. */
+export interface DemoLink {
+    user_id: number;
+    token: string;
+}
+
+/** One build of a demo account, read-only for the admin. */
+export interface AccountRun {
+    id: string;
+    project_title: string | null;
+    prompt: string;
+    status: string;
+    created_at: string;
 }

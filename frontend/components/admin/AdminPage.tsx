@@ -1,5 +1,6 @@
 "use client";
 
+import { DemoAccounts } from "@/components/admin/DemoAccounts";
 import { Brand } from "@/components/layout/Brand";
 import { Button } from "@/components/ui/button";
 import { ErrorBox } from "@/components/ui/ErrorBox";
@@ -279,6 +280,8 @@ export default function AdminPage() {
                         </div>
                     </nav>
                 ) : null}
+
+                <DemoAccounts />
             </div>
         </main>
     );

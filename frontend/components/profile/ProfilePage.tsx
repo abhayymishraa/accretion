@@ -69,7 +69,9 @@ export default function ProfilePage() {
                                         </p>
                                         {!budget.unlimited && (
                                             <p className="mt-4 text-sm text-muted-foreground">
-                                                Resets {formatReset(budget.resets_at)}
+                                                {budget.resets_at
+                                                    ? `Resets ${formatReset(budget.resets_at)}`
+                                                    : "Does not reset."}
                                             </p>
                                         )}
                                     </section>
