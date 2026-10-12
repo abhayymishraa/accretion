@@ -4,20 +4,23 @@ The router validates and routes; every database read, token issue and
 email send happens here.
 """
 
+import secrets
 from datetime import UTC, datetime
 from typing import Literal
 
 from disposable_email_domains import blocklist
 from fastapi import BackgroundTasks
-from sqlalchemy import ColumnElement, DateTime, func, insert, literal, or_, select, true, update
+from sqlalchemy import ColumnElement, DateTime, delete, exists, func, insert, literal, or_, select, true, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
-from agent.budget.budget import allowance, month_spend
+from agent.budget.budget import NANOS, allowance, month_spend
+from agent.budget.models import SpendEntry
 from auth import emails
 from auth.exceptions import (
     ApplicantNotFound,
+    DemoLinkInvalid,
     DisposableEmail,
     EmailNotVerified,
     EmailNotVerifiedForSignIn,
@@ -37,7 +40,11 @@ from auth.schemas import (
     AccountCounts,
     AccountPage,
     AccountRow,
+    AccountRun,
     CostAllowance,
+    DemoAccount,
+    DemoAccountCreate,
+    DemoLink,
     EmailRequest,
     ProfileUpdate,
     RefreshTokenRequest,
@@ -68,8 +75,8 @@ from auth.verification import (
     token_insert,
 )
 from db.base import bound
-from db.models import User
-from plans import month_window
+from db.models import Chat, Run, User
+from plans import DEMO_PLAN, month_window
 
 
 async def register_user(
@@ -140,7 +147,10 @@ async def refresh_token(token_data: RefreshTokenRequest, db: AsyncSession) -> To
     if user_id is None:
         raise InvalidTokenPayload
 
-    user = await db.get(User, int(user_id))
+    # A demo account's sessions end with its link: revoked, they renew no more, within the access
+    # token's 30 minutes.
+    live_link = exists().where(AuthToken.user_id == User.id, AuthToken.purpose == _DEMO_LINK)
+    user = await db.scalar(select(User).where(User.id == int(user_id), or_(User.plan != DEMO_PLAN, live_link)))
     if user is None or (not user.email_verified):
         raise InvalidRequest
 
@@ -302,3 +312,102 @@ async def approve_user(user_id: int, background: BackgroundTasks, db: AsyncSessi
     background.add_task(send_approval, user.email, user.name, token)
     await db.commit()
     return AccountRow.model_validate(user)
+
+
+# A demo link signs anyone who opens it into its account, as often as they like, until the admin
+# revokes or replaces it. Only its digest is stored. ponytail: a far expiry, not a nullable column,
+# so the token table and its sweep stay as they are.
+_DEMO_LINK = "demo_link"
+_DEMO_LINK_MINUTES = 100 * 365 * 24 * 60
+
+
+async def create_demo_account(data: DemoAccountCreate, db: AsyncSession) -> DemoLink:
+    """A verified, approved account on the demo plan, and its link, in one statement. The address
+    is reserved (example.com) and the password a random value nobody keeps: the link is the only way in."""
+    name = data.name.strip()
+    if not name:
+        raise NameRequired
+    now = datetime.now(UTC)
+    values = bound(
+        User,
+        email=f"demo-{secrets.token_hex(8)}@example.com",
+        hashed_password=get_password_hash(secrets.token_urlsafe(32)),
+        name=name,
+        created_at=now,
+        approved_at=now,
+        email_verified=True,
+        plan=DEMO_PLAN,
+    )
+    account = insert(User).from_select(list(values), select(*values.values())).returning(User.id).cte("account")
+    statement, token = token_insert(account.c.id, _DEMO_LINK, _DEMO_LINK_MINUTES)
+    user_id = await db.scalar(statement.returning(AuthToken.user_id))
+    assert user_id is not None
+    return DemoLink(user_id=user_id, token=token)
+
+
+async def replace_demo_link(user_id: int, db: AsyncSession) -> DemoLink:
+    """A new link for a demo account, retiring its old one, in one statement."""
+    account = select(User.id).where(User.id == user_id, User.plan == DEMO_PLAN).cte("account")
+    old = (
+        delete(AuthToken).where(AuthToken.user_id.in_(select(account.c.id)), AuthToken.purpose == _DEMO_LINK).cte("old")
+    )
+    statement, token = token_insert(account.c.id, _DEMO_LINK, _DEMO_LINK_MINUTES)
+    if await db.scalar(statement.add_cte(old).returning(AuthToken.user_id)) is None:
+        raise ApplicantNotFound
+    return DemoLink(user_id=user_id, token=token)
+
+
+async def revoke_demo_link(user_id: int, db: AsyncSession) -> None:
+    """Idempotent: an account with no link stays without one."""
+    await db.execute(delete(AuthToken).where(AuthToken.user_id == user_id, AuthToken.purpose == _DEMO_LINK))
+
+
+async def redeem_demo_link(data: TokenRequest, db: AsyncSession) -> Token:
+    """A session for the demo account the link belongs to. The link is not consumed."""
+    user = await db.scalar(
+        select(User)
+        .join(AuthToken, AuthToken.user_id == User.id)
+        .where(AuthToken.digest == token_digest(data.token), AuthToken.purpose == _DEMO_LINK, User.plan == DEMO_PLAN)
+    )
+    if user is None:
+        raise DemoLinkInvalid
+    return issue_tokens(user)
+
+
+async def list_demo_accounts(db: AsyncSession) -> list[DemoAccount]:
+    """Every demo account, newest first. ponytail: one unpaged list; page it when there are hundreds."""
+    link = exists().where(AuthToken.user_id == User.id, AuthToken.purpose == _DEMO_LINK)
+    spent = select(func.coalesce(func.sum(SpendEntry.amount_nanos), 0)).where(
+        SpendEntry.user_id == User.id, SpendEntry.kind == "model"
+    )
+    rows = await db.execute(
+        select(User.id, User.name, User.created_at, link.label("link_active"), spent.scalar_subquery().label("spent"))
+        .where(User.plan == DEMO_PLAN)
+        .order_by(User.created_at.desc())
+    )
+    return [
+        DemoAccount(
+            id=row.id,
+            name=row.name,
+            created_at=row.created_at,
+            link_active=row.link_active,
+            spent_usd=row.spent / NANOS,
+        )
+        for row in rows
+    ]
+
+
+async def list_demo_runs(user_id: int, db: AsyncSession) -> list[AccountRun]:
+    """A demo account's latest builds, read-only, for the admin."""
+    rows = await db.execute(
+        select(Run, Chat.title)
+        .join(Chat, Chat.id == Run.chat_id)
+        .join(User, User.id == Chat.user_id)
+        .where(Chat.user_id == user_id, User.plan == DEMO_PLAN)
+        .order_by(Run.created_at.desc())
+        .limit(100)
+    )
+    return [
+        AccountRun(id=run.id, project_title=title, prompt=run.prompt, status=run.status, created_at=run.created_at)
+        for run, title in rows
+    ]

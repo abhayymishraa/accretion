@@ -33,12 +33,12 @@ class Token(CustomModel):
 
 
 class CostAllowance(CustomModel):
-    """This month's model budget. Resets on the first of the month, UTC."""
+    """This month's model budget. Resets on the first of the month, UTC; a demo account's never does."""
 
     unlimited: bool
     limit_usd: float
     remaining_usd: float
-    resets_at: UtcDatetime
+    resets_at: UtcDatetime | None
 
 
 class UserResponse(CustomModel):
@@ -114,3 +114,34 @@ class ProviderLink(CustomModel):
 
 class TokenRequest(BaseModel):
     token: str = Field(min_length=32, max_length=128)
+
+
+class DemoAccountCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+
+
+class DemoAccount(CustomModel):
+    """A demo account as the admin page lists it. `spent_usd` is its model spend, all time."""
+
+    id: int
+    name: str
+    created_at: UtcDatetime
+    link_active: bool
+    spent_usd: float
+
+
+class DemoLink(CustomModel):
+    """The raw link token and its account. The token is shown once: only its digest is stored."""
+
+    user_id: int
+    token: str
+
+
+class AccountRun(CustomModel):
+    """One build of an account, for the admin's read-only view."""
+
+    id: str
+    project_title: str | None
+    prompt: str
+    status: str
+    created_at: UtcDatetime

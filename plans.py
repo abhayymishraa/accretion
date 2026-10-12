@@ -7,6 +7,8 @@ recorded but does not count against it.
 from datetime import timedelta
 
 DEFAULT_PLAN = "free"
+# An admin-minted demo account: its budget is one allowance for life, not one a month.
+DEMO_PLAN = "demo"
 
 
 def month_window(now):

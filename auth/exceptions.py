@@ -99,3 +99,11 @@ class VerificationThrottled(TooManyRequests):
 
 class ProviderNotConfigured(ServiceUnavailable):
     DETAIL = "This sign-in provider is not configured yet."
+
+
+class DemoLinkInvalid(NotFound):
+    DETAIL = "This demo link is not valid. Ask for a new one."
+
+
+class DemoAccountLocked(PermissionDenied):
+    DETAIL = "A demo account cannot add a sign-in method."
