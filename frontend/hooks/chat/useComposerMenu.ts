@@ -77,6 +77,15 @@ const PICK_ROOMS = new RegExp(`(^|\\s)${ICON_ROOM}`, "g");
 /** The prompt as it is sent: trimmed, without the room the composer drew picked skills in. */
 export const sendable = (text: string) => text.replace(PICK_ROOMS, "$1").trim();
 
+// A "/" that starts a word and a name: what the backend reads as a skill or service pick.
+const TYPED_PICKS = /(^|\s)\/(?=[a-z0-9])/g;
+/**
+ * A prompt from outside the composer (a ?q= link) with each "/name" made a pick, so it shows as a
+ * tag once the skills and services load. ponytail: a "/word" that names neither keeps the room, a
+ * wider space on screen only: sendable removes it.
+ */
+export const asPicks = (text: string) => text.replace(TYPED_PICKS, `$1${ICON_ROOM}/`);
+
 type PromptPart = string | { path: string } | { skill: string };
 
 /**
