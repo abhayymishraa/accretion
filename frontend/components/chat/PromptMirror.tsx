@@ -52,27 +52,27 @@ export function PromptMirror({
                     )
                 ) : "skill" in part ? (
                     picked(index) ? (
-                        <mark key={index} className="relative bg-transparent">
-                            {/* The room, "/" and name keep their widths, hidden; the pill is
-                                drawn over them, sized to its own smaller, bolder text, so its
-                                padding is even on both sides. */}
-                            <span className="invisible">
-                                {ICON_ROOM}/{part.skill}
-                            </span>
-                            <span className="absolute inset-y-0 left-0 flex items-center gap-[0.22em] rounded-[3px] bg-primary/15 px-1.5 whitespace-nowrap text-[color-mix(in_oklab,var(--primary)_78%,var(--foreground))]">
-                                {serviceIcons.has(part.skill) ? (
-                                    <ServiceIcon
-                                        id={part.skill}
-                                        icon={serviceIcons.get(part.skill)}
-                                        className="size-[0.85em]"
-                                    />
-                                ) : (
-                                    <ScrollText aria-hidden="true" className="size-[0.85em]" />
-                                )}
-                                <span className="text-[0.92em] font-medium text-foreground">
-                                    {part.skill}
+                        <mark key={index} className={`${SKILL_MARK} box-decoration-clone`}>
+                            {/* Visual only, like a file mention: every character keeps the
+                                textarea's width, so a name that wraps (after a hyphen) wraps
+                                here too and the pill follows it onto the next line. The icon
+                                sits over the room and the hidden "/". */}
+                            <span className="relative">
+                                {ICON_ROOM}
+                                <span className="text-transparent">/</span>
+                                <span className="absolute inset-y-0 left-[0.2em] flex items-center">
+                                    {serviceIcons.has(part.skill) ? (
+                                        <ServiceIcon
+                                            id={part.skill}
+                                            icon={serviceIcons.get(part.skill)}
+                                            className="size-[0.85em]"
+                                        />
+                                    ) : (
+                                        <ScrollText aria-hidden="true" className="size-[0.85em]" />
+                                    )}
                                 </span>
                             </span>
+                            <span className="text-foreground">{part.skill}</span>
                         </mark>
                     ) : (
                         <mark key={index} className={SKILL_MARK}>
