@@ -1,0 +1,38 @@
+"""Request and response bodies for the Vercel routes. No response carries a token or a variable's value."""
+
+from datetime import datetime
+
+from pydantic import Field
+
+from models import CustomModel
+
+
+class AccountOut(CustomModel):
+    configured: bool
+    connected: bool
+
+
+class ConnectStart(CustomModel):
+    url: str
+
+
+class ConnectFinish(CustomModel):
+    code: str = Field(min_length=1, max_length=2048)
+    state: str = Field(min_length=1, max_length=256)
+
+
+class PublishOut(CustomModel):
+    # "none" (never published), "uploading", "building", "live", "database" or "failed".
+    status: str
+    url: str | None = None
+    published_at: datetime | None = None
+    # False when the app changed after the live copy was published.
+    current: bool = False
+    message: str | None = None
+    # Vercel's page for this app: where the user adds a database, and reads the build log.
+    dashboard_url: str | None = None
+    logs_url: str | None = None
+    # The end of a failed build's log, values hidden: shown to the user, and handed to the builder to fix.
+    log: list[str] = Field(default_factory=list)
+    # "postgres" or "mongo": which database the app needs on Vercel.
+    database: str
