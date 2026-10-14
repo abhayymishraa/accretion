@@ -13,4 +13,7 @@ app.use("/api/notes", notes);
 
 // Migrations run from the host (`npm run migrate`), never at startup, so a change that deletes
 // data waits for the user's approval.
-app.listen(4000, "0.0.0.0", () => console.log("api listening on 4000"));
+// Vercel runs the exported app as a function and does not support app.listen.
+if (!process.env.VERCEL) app.listen(4000, "0.0.0.0", () => console.log("api listening on 4000"));
+
+export default app;
