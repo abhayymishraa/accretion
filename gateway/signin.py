@@ -26,6 +26,7 @@ from joserfc import jwt
 from joserfc.errors import JoseError
 from joserfc.jwk import OKPKey
 from redis import RedisError
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent.run import bus
@@ -46,6 +47,7 @@ from gateway.exceptions import (
     SignInUnavailable,
 )
 from gateway.schemas import EmailSignIn, SignInSession
+from vercel_connect.models import ProjectPublish
 
 _GOOGLE_AUTHORIZE = "https://accounts.google.com/o/oauth2/v2/auth"
 _GOOGLE_TOKEN = "https://oauth2.googleapis.com/token"
@@ -83,12 +85,13 @@ def _origin(url: str) -> str:
     return f"{parts.scheme}://{parts.netloc}".lower()
 
 
-def allowed_redirect(chat: Chat, url: str) -> bool:
-    """Sign-in returns only to the app's own origin: https, or http on this computer. Deploy adds the app's
-    production domains here."""
+def allowed_redirect(chat: Chat, url: str, published: str | None) -> bool:
+    """Sign-in returns only to the app's own origins, its preview and its published address: https, or http on
+    this computer."""
     target = urlsplit(url)
     local = target.scheme == "http" and target.hostname in _LOCAL_HOSTS
-    return (target.scheme == "https" or local) and chat.app_url is not None and _origin(url) == _origin(chat.app_url)
+    origins = {_origin(address) for address in (chat.app_url, published) if address}
+    return (target.scheme == "https" or local) and _origin(url) in origins
 
 
 def _issue(app_id: str, provider: str, subject: str, email: str, name: str | None, picture: str | None) -> str:
@@ -115,10 +118,18 @@ def _back(redirect_uri: str, **fragment: str) -> RedirectResponse:
 
 
 async def _app(db: AsyncSession, app_id: str, redirect_uri: str) -> Chat:
-    chat = await db.get(Chat, app_id)
-    if chat is None:
+    # The app and its published address in one query.
+    found = (
+        await db.execute(
+            select(Chat, ProjectPublish.url)
+            .outerjoin(ProjectPublish, ProjectPublish.chat_id == Chat.id)
+            .where(Chat.id == app_id)
+        )
+    ).first()
+    if found is None:
         raise AppNotFound
-    if not allowed_redirect(chat, redirect_uri):
+    chat, published = found.tuple()
+    if not allowed_redirect(chat, redirect_uri, published):
         raise RedirectNotAllowed
     return chat
 
