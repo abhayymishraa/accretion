@@ -10,10 +10,12 @@ export function CallbackScreen({
     error,
     service,
     back,
+    backLabel = `Back to ${service}`,
 }: {
     error: string;
     service: string;
     back: string;
+    backLabel?: string;
 }) {
     return (
         <main
@@ -41,7 +43,7 @@ export function CallbackScreen({
                             href={back}
                             className={`${buttonVariants({ variant: "secondary" })} mt-5`}
                         >
-                            Back to {service}
+                            {backLabel}
                         </Link>
                     </>
                 ) : (
