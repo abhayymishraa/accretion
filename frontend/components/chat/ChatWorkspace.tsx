@@ -69,6 +69,7 @@ export default function ChatWorkspace({ chatId }: { chatId: string }) {
         containerRef,
         handleSendMessage,
         handleCancel,
+        askBuilder,
     } = useChatWorkspace(chatId);
     // Panel toggle: the preview takes the whole width while the conversation is folded away.
     const [chatHidden, setChatHidden] = useState(false);
@@ -292,6 +293,7 @@ export default function ChatWorkspace({ chatId }: { chatId: string }) {
                                     chatHidden={chatHidden}
                                     onToggleChat={() => setChatHidden(!chatHidden)}
                                     projectSkills={projectSkills}
+                                    onAskBuilder={askBuilder}
                                 />
                             </>
                         )}

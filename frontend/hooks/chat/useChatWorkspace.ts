@@ -259,6 +259,11 @@ export function useChatWorkspace(chatId: string) {
         if (action === "approve") setMode("auto");
         history.refreshHistory();
     };
+    // A failed publish hands its reason to the builder: it lands in the composer, sent only by the user.
+    const askBuilder = (text: string) => {
+        setInput(text);
+        setMobilePane("chat");
+    };
 
     return {
         router,
@@ -304,6 +309,7 @@ export function useChatWorkspace(chatId: string) {
         containerRef,
         handleSendMessage,
         handleCancel,
+        askBuilder,
         models: modelChoice.models,
         modelChoice: modelChoice.choice,
         setModelChoice: modelChoice.setChoice,
