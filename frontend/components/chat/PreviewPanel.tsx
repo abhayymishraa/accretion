@@ -36,6 +36,7 @@ interface PreviewPanelProps {
     chatHidden: boolean;
     onToggleChat: () => void;
     projectSkills: ProjectSkills;
+    onAskBuilder?: (text: string) => void;
 }
 // Loaded only when switched on: img-fx brings three.js with it.
 const PreviewReveal = dynamic(() => import("@/components/effects/PreviewReveal"), { ssr: false });
@@ -65,6 +66,7 @@ export function PreviewPanel({
     chatHidden,
     onToggleChat,
     projectSkills,
+    onAskBuilder,
 }: PreviewPanelProps) {
     const [mobile, setMobile] = useState(false);
     const [route, setRoute] = useState("/");
@@ -129,6 +131,7 @@ export function PreviewPanel({
                 onToggleChat={onToggleChat}
                 projectId={projectId}
                 revisionId={revisionId}
+                onAskBuilder={onAskBuilder}
             />
             {activeTab === "preview" && (
                 <PreviewAddressBar
