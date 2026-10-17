@@ -281,6 +281,9 @@ the work, `bundle.py` the files Vercel builds, `frontend/components/publish/` th
 - Migrations run in Vercel's build (`buildCommand` in `bundle.vercel_config`) against the direct address
   (`DATABASE_URL_UNPOOLED`), so neither our API nor the sandbox ever connects to a production database. The API reads an
   address only to copy it under the kit's name, and never stores it. Only kit layouts tested on Vercel are listed there.
+- Each kit ships that config as its own `vercel.json` (keep the two equal), so the builder sees it, may extend it, and a
+  GitHub copy deploys too. Publish uses the project's file; a project without one gets the kit's, and a file that is not
+  a JSON object fails with words for the builder. Vercel checks the rest at build, and its log reaches the builder.
 - Express apps must `export default app` and call `app.listen` only outside Vercel; a project made before the kits did is
   patched at publish from the kit's exact line, and any other refuses with words for the builder.
 - `run` ends every publish as live, database or failed, never running: a `finally` marks what nothing caught. A row
