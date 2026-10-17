@@ -10,12 +10,13 @@ export function CallbackScreen({
     error,
     service,
     back,
-    backLabel = `Back to ${service}`,
+    to = service,
 }: {
     error: string;
     service: string;
     back: string;
-    backLabel?: string;
+    // Where `back` leads, in words: the service's page unless the caller says otherwise.
+    to?: string;
 }) {
     return (
         <main
@@ -43,7 +44,7 @@ export function CallbackScreen({
                             href={back}
                             className={`${buttonVariants({ variant: "secondary" })} mt-5`}
                         >
-                            {backLabel}
+                            Back to {to}
                         </Link>
                     </>
                 ) : (
@@ -56,7 +57,7 @@ export function CallbackScreen({
                         />
                         <h1 className="mt-3 text-[18px] font-medium">Connecting {service}</h1>
                         <p className="mt-1.5 text-[13.5px] leading-[1.5] text-muted-foreground">
-                            One moment. You go back to {service} when this is done.
+                            One moment. You go back to {to} when this is done.
                         </p>
                     </>
                 )}

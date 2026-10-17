@@ -17,7 +17,7 @@ import { ThinkingOrb } from "thinking-orbs";
 import { useChatWorkspace } from "@/hooks/chat/useChatWorkspace";
 import { mentionTargets } from "@/hooks/chat/useComposerMenu";
 import { useProjectSkills } from "@/hooks/skills/useProjectSkills";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 
 // A "/name" in an earlier request: the history needs the project's skills to show it as a pill.
 const PICKED_SKILL = /(^|\s)\/[a-z0-9]/;
@@ -70,9 +70,9 @@ export default function ChatWorkspace({ chatId }: { chatId: string }) {
         handleSendMessage,
         handleCancel,
         askBuilder,
+        chatHidden,
+        setChatHidden,
     } = useChatWorkspace(chatId);
-    // Panel toggle: the preview takes the whole width while the conversation is folded away.
-    const [chatHidden, setChatHidden] = useState(false);
     const projectSkills = useProjectSkills(chatId);
     const { ensureLoaded } = projectSkills;
     const usesSkill = messages.some(

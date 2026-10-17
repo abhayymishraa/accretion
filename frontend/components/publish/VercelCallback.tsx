@@ -11,7 +11,7 @@ export function VercelCallback() {
             error={error}
             service="Vercel"
             back={back}
-            backLabel={back === "/projects" ? "Back to projects" : "Back to your app"}
+            to={back === "/projects" ? "projects" : "your app"}
         />
     );
 }
