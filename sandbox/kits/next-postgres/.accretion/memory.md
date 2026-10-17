@@ -23,6 +23,8 @@ The dev server is already running with hot reload; never start another.
 - Tailwind v4: `app/globals.css` starts with `@import "tailwindcss"`. There is no `tailwind.config.js`; customise with `@theme` in CSS. Do not add v3 config or `@tailwind` directives.
 - Dark styles (`dark:`) apply under the `dark` class on `<html>`, not the device setting (`@custom-variant dark` in `app/globals.css`; keep it). For a theme switch install `next-themes` and wrap the app in `<ThemeProvider attribute="class" defaultTheme="system" enableSystem>`, with `suppressHydrationWarning` on `<html>`.
 - `next.config.ts` sets `allowedDevOrigins` for the E2B preview hostnames. Don't remove it: the preview breaks without it. Keep `agentRules: false` too.
+- Publishing runs the app on Vercel, the API as serverless functions: no WebSockets, no background jobs that outlive a request, and no files written to keep. Keep data in the database.
+- `vercel.json` publishes the app to Vercel. Keep its `buildCommand`: it runs the migrations before the build. Change it only for something Vercel must do (headers, redirects, cron); check Vercel's docs first with Context7 when it is connected.
 
 ## How to
 - Add a page: create `app/<name>/page.tsx` exporting a default component.

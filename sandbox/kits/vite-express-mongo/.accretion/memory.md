@@ -28,6 +28,9 @@ db/                  database dumps (managed by the platform)
 - `server.allowedHosts` in `vite.config.ts` lets the preview load through E2B hostnames. Don't remove it.
 - Backend imports use the `.ts` extension (`import { notes } from "../db.ts"`).
 - Add a library only when needed: `cd frontend && npm install <pkg>` or `cd backend && npm install <pkg>`.
+- Publishing runs the app on Vercel, the API as serverless functions: no WebSockets, no background jobs that outlive a request, and no files written to keep. Keep data in the database.
+- `vercel.json` publishes the app to Vercel. Keep its `services`, `rewrites` and each `buildCommand`: they run the migrations and route `/api`. Change it only for something Vercel must do (headers, redirects, cron); check Vercel's docs first with Context7 when it is connected.
+- `backend/src/index.ts` ends with `export default app` and calls `app.listen` only when `process.env.VERCEL` is unset: Vercel runs the exported app. Keep both.
 
 ## How to
 - **Add a page:** create a component in `frontend/src/`, render it from `App.tsx`. There is no router; if you need several URLs, install `react-router` and set routes up in `App.tsx`.

@@ -54,6 +54,8 @@ export function useChatWorkspace(chatId: string) {
         openedFile,
         openFile,
     } = useWorkspaceLayout();
+    // Panel toggle: the preview takes the whole width while the conversation is folded away.
+    const [chatHidden, setChatHidden] = useState(false);
     // The session client and socket own authentication; this is display data only. It is
     // read as an external store so the server and the first client render agree.
     const storedUser = useSyncExternalStore(
@@ -259,6 +261,12 @@ export function useChatWorkspace(chatId: string) {
         if (action === "approve") setMode("auto");
         history.refreshHistory();
     };
+    // A failed publish hands its reason to the builder: it lands in the composer, in view, sent only by the user.
+    const askBuilder = (text: string) => {
+        setInput(text);
+        setMobilePane("chat");
+        setChatHidden(false);
+    };
 
     return {
         router,
@@ -304,6 +312,9 @@ export function useChatWorkspace(chatId: string) {
         containerRef,
         handleSendMessage,
         handleCancel,
+        askBuilder,
+        chatHidden,
+        setChatHidden,
         models: modelChoice.models,
         modelChoice: modelChoice.choice,
         setModelChoice: modelChoice.setChoice,
