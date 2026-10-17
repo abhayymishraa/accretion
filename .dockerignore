@@ -87,3 +87,5 @@
 !github_sync/*.py
 !supabase_connect/
 !supabase_connect/*.py
+!vercel_connect/
+!vercel_connect/*.py
