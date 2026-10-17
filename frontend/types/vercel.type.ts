@@ -3,7 +3,7 @@ export interface VercelAccount {
     connected: boolean;
 }
 
-export type PublishStatus = "none" | "uploading" | "building" | "live" | "database" | "failed";
+type PublishStatus = "none" | "uploading" | "building" | "live" | "database" | "failed";
 
 export interface Publish {
     status: PublishStatus;

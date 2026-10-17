@@ -42,7 +42,6 @@ def upgrade() -> None:
         sa.Column("project_name", sa.String(100), nullable=True),
         sa.Column("url", sa.String(255), nullable=True),
         sa.Column("revision_id", sa.String(36), nullable=True),
-        sa.Column("deployment_id", sa.String(64), nullable=True),
         sa.Column("status", sa.String(16), nullable=False),
         sa.Column("detail", postgresql.JSONB(), server_default="{}", nullable=False),
         sa.Column("published_at", sa.DateTime(timezone=True), nullable=True),

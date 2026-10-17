@@ -205,7 +205,6 @@ async def _publish(chat_id: str, user_id: int) -> None:
         "live",
         url=url,
         revision_id=revision.id,
-        deployment_id=deployment,
         published_at=datetime.now(UTC),
     )
 
@@ -301,7 +300,7 @@ async def _deploy(
         },
     )
     deployment = str(created["id"])
-    await _save(chat_id, "building", deployment_id=deployment, detail={"logs_url": created.get("inspectorUrl")})
+    await _save(chat_id, "building", detail={"logs_url": created.get("inspectorUrl")})
     return deployment
 
 

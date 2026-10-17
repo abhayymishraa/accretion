@@ -33,7 +33,6 @@ class ProjectPublish(Base):
     url: Mapped[str | None] = mapped_column(String(255), nullable=True)
     # The saved revision the live address serves.
     revision_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
-    deployment_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     # "uploading", "building", "live", "database" (the user adds one on Vercel), or "failed".
     status: Mapped[str] = mapped_column(String(16))
     # Plain words for the status line, Vercel's log link, and the variable names this app put on the project.
