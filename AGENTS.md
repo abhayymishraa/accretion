@@ -287,8 +287,9 @@ the work, `bundle.py` the files Vercel builds, `frontend/components/publish/` th
 - Express apps must `export default app` and call `app.listen` only outside Vercel; a project made before the kits did is
   patched at publish from the kit's exact line, and any other refuses with words for the builder.
 - `run` ends every publish as live, database or failed, never running: a `finally` marks what nothing caught. A row
-  still running after `_STALE` reads as failed and can start again. A failed build keeps the log's end, values hidden,
-  for "Ask the builder to fix it".
+  still running after `_STALE` reads as failed and can start again; a run stops itself at `_RUN_LIMIT`, before that,
+  so a new run never races an old one. A failed build keeps the log's end, values and address logins hidden, for "Ask
+  the builder to fix it".
 - The sign-in gateway accepts the published origin beside the preview's (`gateway/signin.py` `allowed_redirect`).
 - With the React Compiler on, a SWR `refreshInterval` function keeps its identity and SWR never re-arms polling after an
   idle answer. Poll with a number held in state and set from `onSuccess`, as `usePublish` does.

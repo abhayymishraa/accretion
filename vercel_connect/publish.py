@@ -35,7 +35,7 @@ from vercel_connect.exceptions import (
     VercelRefused,
     VercelUnavailable,
 )
-from vercel_connect.models import ProjectPublish, VercelAccount
+from vercel_connect.models import ProjectPublish, Status, VercelAccount
 from vercel_connect.schemas import PublishOut
 from vercel_connect.service import require_configured
 
@@ -44,6 +44,8 @@ logger = logging.getLogger("webbuilder.vercel")
 _RUNNING = ("uploading", "building")
 # A publish still running after this was cut off by a restart: it reads as failed and can start again.
 _STALE = timedelta(minutes=30)
+# A run ends before its row can read as stale, so a publish that starts over never has a live run behind it.
+_RUN_LIMIT = _STALE - timedelta(minutes=5)
 # Vercel builds most apps within two minutes; twenty is the ceiling for a cold dependency install.
 _POLL_SECONDS = 5
 _POLL_LIMIT = 240
@@ -133,7 +135,7 @@ async def start(db: AsyncSession, user_id: int, chat: Chat) -> PublishOut:
     return view(chat, row)
 
 
-async def _save(chat_id: str, status: str, message: str | None = None, **values: Any) -> None:
+async def _save(chat_id: str, status: Status, message: str | None = None, **values: Any) -> None:
     """One statement; `detail` keys given in `values` are merged into the row's detail."""
     detail = values.pop("detail", {}) | {"message": message or _MESSAGES.get(status)}
     async with AutocommitSessionLocal() as db:
@@ -153,7 +155,11 @@ async def run(chat_id: str, user_id: int) -> None:
     """The publish itself, after the reply. Whatever stops it, the row ends as failed or live, never running."""
     finished = False
     try:
-        await _publish(chat_id, user_id)
+        async with asyncio.timeout(_RUN_LIMIT.total_seconds()):
+            await _publish(chat_id, user_id)
+        finished = True
+    except TimeoutError:
+        await _save(chat_id, "failed", "Publishing took too long. Try again.")
         finished = True
     except Reconnect:
         await _save(chat_id, "failed", "Connect Vercel again, then publish.")
@@ -305,7 +311,8 @@ async def _deploy(
 
 
 async def _log(vercel: client.Session, deployment: str, secrets: set[str]) -> list[str]:
-    """The end of the build log, with the app's variable values hidden, for the user and the builder."""
+    """The end of the build log, with the app's variable values hidden, for the user and the builder. `redact`
+    also hides the login in any address: the database's other addresses on the project are not in `secrets`."""
     try:
         listed = await vercel.call(
             "GET", f"/v3/deployments/{deployment}/events", params={"builds": 1, "direction": "backward", "limit": 200}
@@ -314,7 +321,9 @@ async def _log(vercel: client.Session, deployment: str, secrets: set[str]) -> li
         return []
     lines = [str(event.get("text") or event.get("payload", {}).get("text") or "") for event in reversed(listed or [])]
     forms = events.secret_forms(secrets)
-    return [events.hide_secrets(_ANSI.sub("", line), forms) for line in lines if line.strip()][-_LOG_LINES:]
+    return [events.redact(events.hide_secrets(_ANSI.sub("", line), forms)) for line in lines if line.strip()][
+        -_LOG_LINES:
+    ]
 
 
 async def _wait(vercel: client.Session, deployment: str, secrets: set[str]) -> str:

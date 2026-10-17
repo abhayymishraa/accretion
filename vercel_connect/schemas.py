@@ -1,10 +1,12 @@
 """Request and response bodies for the Vercel routes. No response carries a token or a variable's value."""
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import Field
 
 from models import CustomModel
+from vercel_connect.models import Status
 
 
 class AccountOut(CustomModel):
@@ -22,8 +24,8 @@ class ConnectFinish(CustomModel):
 
 
 class PublishOut(CustomModel):
-    # "none" (never published), "uploading", "building", "live", "database" or "failed".
-    status: str
+    # "none": never published.
+    status: Status | Literal["none"]
     url: str | None = None
     published_at: datetime | None = None
     # False when the app changed after the live copy was published.
@@ -34,5 +36,5 @@ class PublishOut(CustomModel):
     logs_url: str | None = None
     # The end of a failed build's log, values hidden: shown to the user, and handed to the builder to fix.
     log: list[str] = Field(default_factory=list)
-    # "postgres" or "mongo": which database the app needs on Vercel.
-    database: str
+    # Which database the app needs on Vercel.
+    database: Literal["postgres", "mongo"]
