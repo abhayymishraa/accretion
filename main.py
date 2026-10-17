@@ -29,6 +29,7 @@ from request_timing import request_timing
 from runs.router import router as runs_router
 from skills.router import router as skills_router
 from supabase_connect.router import router as supabase_router
+from vercel_connect.router import router as vercel_router
 
 
 @asynccontextmanager
@@ -74,6 +75,7 @@ for domain_router in (
     connections_router,
     github_router,
     supabase_router,
+    vercel_router,
     gateway_router,
 ):
     app.include_router(domain_router)

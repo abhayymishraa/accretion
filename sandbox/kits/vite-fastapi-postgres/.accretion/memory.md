@@ -16,6 +16,8 @@
 - Every backend route lives under `/api`.
 - Tables go in `app/models.py`, request/response shapes in `app/schemas.py`. Validate input with pydantic `Field` constraints; FastAPI returns 422 on bad input.
 - Get a DB session with the `Db` dependency in `main.py`.
+- Publishing runs the app on Vercel, the API as serverless functions: no WebSockets, no background jobs that outlive a request, and no files written to keep. Keep data in the database.
+- `vercel.json` publishes the app to Vercel. Keep its `services`, `rewrites` and each `buildCommand`: they run the migrations and route `/api`. Change it only for something Vercel must do (headers, redirects, cron); check Vercel's docs first with Context7 when it is connected.
 
 ## How to
 - Add a page: create a component in `frontend/src/`, render it from `App.tsx`. No router is installed; switch views with state, or add `react-router` if the app truly needs URLs.

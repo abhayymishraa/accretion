@@ -261,6 +261,39 @@ them, `agent/sandbox/project.py` writes them into the sandbox, `agent/run/runner
   still read it and print it in a form the filter does not know. This stops accidents, not a determined attack.
   No egress allowlist and no proxy injection: decided, for demo builders.
 
+## Publish
+
+Apps publish to the owner's own Vercel account. `vercel_connect/` owns it: `service.py` the connection, `publish.py`
+the work, `bundle.py` the files Vercel builds, `frontend/components/publish/` the sheet.
+
+- The connection is a Vercel Integration (`VERCEL_CLIENT_ID`, `VERCEL_CLIENT_SECRET`, Redirect URL
+  `{FRONTEND_URL}/vercel/callback`). Install starts at `vercel.com/integrations/<slug>/new?state=…`; the state is in Redis,
+  bound to the user, single use, and the signed-in callback page posts the code, like GitHub's install. The token does
+  not expire; it is sealed with `fernet(b"accretion vercel tokens v1")` and reaches only Vercel's API.
+- The token can create and delete projects, set and read variables, upload files and deploy. It cannot create
+  Marketplace databases (403) or change deployment protection. So the user adds Neon (Postgres) or MongoDB Atlas on the
+  project's Storage page once, and a Supabase-linked app uses Supabase. The project's own `*.vercel.app` address is public
+  under Vercel's default protection.
+- A publish: create the project once, set the variables (the kit's generated keys, `project.app_env`, the user's keys,
+  and the database address in the name the kit reads: Atlas's `MONGODB_URI` becomes `MONGO_URL`), upload the latest
+  saved revision, deploy to production, poll until ready. The names it set are kept on the row, and the next publish
+  deletes those it no longer sets.
+- Migrations run in Vercel's build (`buildCommand` in `bundle.vercel_config`) against the direct address
+  (`DATABASE_URL_UNPOOLED`), so neither our API nor the sandbox ever connects to a production database. The API reads an
+  address only to copy it under the kit's name, and never stores it. Only kit layouts tested on Vercel are listed there.
+- Each kit ships that config as its own `vercel.json` (keep the two equal), so the builder sees it, may extend it, and a
+  GitHub copy deploys too. Publish uses the project's file; a project without one gets the kit's, and a file that is not
+  a JSON object fails with words for the builder. Vercel checks the rest at build, and its log reaches the builder.
+- Express apps must `export default app` and call `app.listen` only outside Vercel; a project made before the kits did is
+  patched at publish from the kit's exact line, and any other refuses with words for the builder.
+- `run` ends every publish as live, database or failed, never running: a `finally` marks what nothing caught. A row
+  still running after `_STALE` reads as failed and can start again; a run stops itself at `_RUN_LIMIT`, before that,
+  so a new run never races an old one. A failed build keeps the log's end, values and address logins hidden, for "Ask
+  the builder to fix it".
+- The sign-in gateway accepts the published origin beside the preview's (`gateway/signin.py` `allowed_redirect`).
+- With the React Compiler on, a SWR `refreshInterval` function keeps its identity and SWR never re-arms polling after an
+  idle answer. Poll with a number held in state and set from `onSuccess`, as `usePublish` does.
+
 ## Python structure
 
 Domain-first, one package per concern. Adapted from
