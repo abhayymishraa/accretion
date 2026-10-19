@@ -1319,7 +1319,8 @@ class Service:
                 current = await latest_revision(live.chat_id)
                 live.workflow = {
                     **live.workflow,
-                    **redact(result["decision"]),
+                    # WorkflowDecision bounds every field: secrets redacted, nothing cut, or the plan loses its steps.
+                    **redact(result["decision"], max_length=None),
                     "revision_id": current.id if current else None,
                     "approved": False,
                 }
