@@ -35,11 +35,15 @@ export function ImportList({ github }: { github: ReturnType<typeof useGithubAcco
                     ))}
                 </div>
             ) : !repos.length ? (
-                <p className="rounded-[12px] border border-border bg-surface-1 px-4 py-6 text-center text-[13px] text-muted-foreground">
+                <p
+                    data-loaded-in=""
+                    className="rounded-[12px] border border-border bg-surface-1 px-4 py-6 text-center text-[13px] text-muted-foreground"
+                >
                     No repositories yet. Choose some on GitHub, then come back.
                 </p>
             ) : (
-                <>
+                // Fades in over the skeleton it replaces (globals.css [data-loaded-in]).
+                <div data-loaded-in="">
                     <div className="mb-2 flex">
                         <SkillSearch
                             value={query}
@@ -98,7 +102,7 @@ export function ImportList({ github }: { github: ReturnType<typeof useGithubAcco
                             </li>
                         )}
                     </ul>
-                </>
+                </div>
             )}
         </section>
     );
