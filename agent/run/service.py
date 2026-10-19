@@ -666,6 +666,9 @@ class Service:
         if diffs is not None:
             # The user's own code, shown whole: secrets redacted, nothing cut.
             event["details"]["diffs"] = redact(diffs, max_length=None, max_items=None)
+        if "workflow" in payload:
+            # The decision card shows the plan whole, live as in history.
+            event["workflow"] = redact(payload["workflow"], max_length=None)
         return event
 
     async def emit(self, live, kind, **payload):
