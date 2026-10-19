@@ -65,7 +65,11 @@ export function RepoMore({
                     ) : !branches ? (
                         <Skeleton className="h-20 rounded-[10px]" />
                     ) : (
-                        <ul className="grid gap-px overflow-hidden rounded-[10px] border border-border bg-border">
+                        <ul
+                            // Mounts only once "More" opens; fades in over the skeleton (globals.css [data-loaded-in]).
+                            data-loaded-in=""
+                            className="grid gap-px overflow-hidden rounded-[10px] border border-border bg-border"
+                        >
                             {branches.map((branch) => (
                                 <li
                                     key={branch.name}
