@@ -128,7 +128,7 @@ export function ProfileIdentityCard({ user, busy, onSave }: Props) {
                             </div>
                         </form>
                     ) : (
-                        <>
+                        <div className={SWAP}>
                             <h2 className="max-w-[12ch] wrap-anywhere text-[38px] leading-[1.06] font-medium tracking-[-0.04em] sm:text-[46px]">
                                 {user.name}
                             </h2>
@@ -155,7 +155,7 @@ export function ProfileIdentityCard({ user, busy, onSave }: Props) {
                                 <Pencil size={14} aria-hidden="true" />
                                 Edit profile
                             </Button>
-                        </>
+                        </div>
                     )}
                 </div>
                 <div
