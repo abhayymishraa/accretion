@@ -6,6 +6,10 @@ import type { UserData } from "@/types/auth.type";
 import { Check, Pencil, ShieldAlert, ShieldCheck } from "lucide-react";
 import { useRef, useState, type FormEvent } from "react";
 
+// The view and the edit form settle in when they swap, like the plan card's actions; reduced motion keeps the fade.
+const SWAP =
+    "starting:translate-y-1 starting:opacity-0 motion-reduce:starting:translate-y-0 [transition:opacity_180ms_var(--ease-out),translate_180ms_var(--ease-out)]";
+
 type Props = {
     user: UserData;
     busy: boolean;
@@ -52,7 +56,7 @@ export function ProfileIdentityCard({ user, busy, onSave }: Props) {
                         <form
                             onSubmit={save}
                             aria-busy={busy}
-                            className="space-y-5"
+                            className={`space-y-5 ${SWAP}`}
                             onKeyDown={(event) => {
                                 if (event.key === "Escape" && !busy) close();
                             }}
