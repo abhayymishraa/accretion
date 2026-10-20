@@ -61,7 +61,7 @@ class WorkflowDecision(BaseModel):
         description="Suggested clarification answers, each 1–300 characters. Empty list unless kind is clarify.",
     )
     # The plan file's markdown, shown whole on the approval card; only a plan from plan mode carries it.
-    plan: str = Field(default="", max_length=12_000)
+    plan: str = ""
     # Keys a question asks the user for: the card shows a field for each, saved as a project secret.
     secrets: list[str] = Field(default_factory=list, max_length=10)
 
