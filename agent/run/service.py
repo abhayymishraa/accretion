@@ -666,6 +666,9 @@ class Service:
         if diffs is not None:
             # The user's own code, shown whole: secrets redacted, nothing cut.
             event["details"]["diffs"] = redact(diffs, max_length=None, max_items=None)
+        if "workflow" in payload:
+            # The decision card shows the plan whole, live as in history.
+            event["workflow"] = redact(payload["workflow"], max_length=None)
         return event
 
     async def emit(self, live, kind, **payload):
@@ -1319,7 +1322,8 @@ class Service:
                 current = await latest_revision(live.chat_id)
                 live.workflow = {
                     **live.workflow,
-                    **redact(result["decision"]),
+                    # WorkflowDecision bounds every field: secrets redacted, nothing cut, or the plan loses its steps.
+                    **redact(result["decision"], max_length=None),
                     "revision_id": current.id if current else None,
                     "approved": False,
                 }
