@@ -117,13 +117,14 @@ export function AddKeyForm({ saved, managed, onSave }: AddKeyFormProps) {
                     {busy ? "Saving…" : "Save"}
                 </Button>
             </div>
+            {/* The note fades in when it appears (globals.css [data-loaded-in]). */}
             <div aria-live="polite" className="text-xs leading-[1.45]">
                 {note ? (
-                    <p role="alert" className="text-destructive">
+                    <p data-loaded-in="" role="alert" className="text-destructive">
                         {note}
                     </p>
                 ) : risky ? (
-                    <p className="text-amber-800 dark:text-amber-300">
+                    <p data-loaded-in="" className="text-amber-800 dark:text-amber-300">
                         Public: {name.match(PUBLIC)?.[0]} keys are built into the web page, where
                         anyone can read them.{" "}
                         <button
@@ -135,7 +136,9 @@ export function AddKeyForm({ saved, managed, onSave }: AddKeyFormProps) {
                         </button>
                     </p>
                 ) : typed && name !== typed ? (
-                    <p className="text-muted-foreground">Saved as {name}</p>
+                    <p data-loaded-in="" className="text-muted-foreground">
+                        Saved as {name}
+                    </p>
                 ) : null}
             </div>
         </form>
