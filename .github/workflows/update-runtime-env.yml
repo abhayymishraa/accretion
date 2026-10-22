@@ -2,7 +2,8 @@ name: Update runtime env
 
 # Manual only. Patches an allowlisted set of the monthly budget, public origins and kit templates in
 # the Oracle runtime file, then reruns the backend deploy so the next release
-# picks them up. App service keys come from repository secrets (GH_APP_*, SUPABASE_OAUTH_*): each one set
+# picks them up. App service and model provider keys come from repository secrets (GH_APP_*, SUPABASE_OAUTH_*,
+# ANTHROPIC_API_KEY): each one set
 # is written, each one unset leaves the file's value alone. GitHub reserves the GITHUB_ prefix for secrets.
 on:
   workflow_dispatch:
@@ -77,6 +78,7 @@ jobs:
           RAW_SUPABASE_OAUTH_CLIENT_SECRET: ${{ secrets.SUPABASE_OAUTH_CLIENT_SECRET }}
           RAW_VERCEL_CLIENT_ID: ${{ secrets.VERCEL_CLIENT_ID }}
           RAW_VERCEL_CLIENT_SECRET: ${{ secrets.VERCEL_CLIENT_SECRET }}
+          RAW_ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           set -euo pipefail
           : "${DEPLOY_HOST:?Missing DEPLOY_HOST}"
@@ -108,7 +110,7 @@ jobs:
           # Secrets travel on stdin ahead of the remote script, never on a command line, base64-encoded so no
           # character in them can break the script. The private key goes as one line with "\n" escaped, which
           # the API unescapes. An unset secret travels empty.
-          secret_keys="GITHUB_APP_ID GITHUB_APP_SLUG GITHUB_APP_CLIENT_ID GITHUB_APP_CLIENT_SECRET GITHUB_APP_PRIVATE_KEY GITHUB_APP_WEBHOOK_SECRET SUPABASE_OAUTH_CLIENT_ID SUPABASE_OAUTH_CLIENT_SECRET VERCEL_CLIENT_ID VERCEL_CLIENT_SECRET"
+          secret_keys="GITHUB_APP_ID GITHUB_APP_SLUG GITHUB_APP_CLIENT_ID GITHUB_APP_CLIENT_SECRET GITHUB_APP_PRIVATE_KEY GITHUB_APP_WEBHOOK_SECRET SUPABASE_OAUTH_CLIENT_ID SUPABASE_OAUTH_CLIENT_SECRET VERCEL_CLIENT_ID VERCEL_CLIENT_SECRET ANTHROPIC_API_KEY"
           secret_lines=""
           for key in $secret_keys; do
             raw="RAW_${key}"
@@ -142,7 +144,7 @@ jobs:
             NEW_APP_EMAIL_FROM="'$NEW_APP_EMAIL_FROM'" \
             'bash -s' < <(printf '%s' "$secret_lines"; cat <<'REMOTE'
           set -euo pipefail
-          export secret_keys="GITHUB_APP_ID GITHUB_APP_SLUG GITHUB_APP_CLIENT_ID GITHUB_APP_CLIENT_SECRET GITHUB_APP_PRIVATE_KEY GITHUB_APP_WEBHOOK_SECRET SUPABASE_OAUTH_CLIENT_ID SUPABASE_OAUTH_CLIENT_SECRET VERCEL_CLIENT_ID VERCEL_CLIENT_SECRET"
+          export secret_keys="GITHUB_APP_ID GITHUB_APP_SLUG GITHUB_APP_CLIENT_ID GITHUB_APP_CLIENT_SECRET GITHUB_APP_PRIVATE_KEY GITHUB_APP_WEBHOOK_SECRET SUPABASE_OAUTH_CLIENT_ID SUPABASE_OAUTH_CLIENT_SECRET VERCEL_CLIENT_ID VERCEL_CLIENT_SECRET ANTHROPIC_API_KEY"
           for key in $secret_keys; do
             encoded="SECRET_${key}"
             export "NEW_${key}=$(printf '%s' "${!encoded}" | base64 -d)"
