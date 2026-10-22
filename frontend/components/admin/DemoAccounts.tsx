@@ -135,11 +135,7 @@ export function DemoAccounts() {
                 </div>
             ) : null}
 
-            {demo.error ? (
-                <div className="mt-4">
-                    <ErrorBox message={demo.error} />
-                </div>
-            ) : null}
+            <ErrorBox message={demo.error} className="mt-4" />
 
             <ul aria-label="Demo accounts" className="mt-6 grid gap-3">
                 {demo.accounts?.length === 0 ? (

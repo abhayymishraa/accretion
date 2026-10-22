@@ -4,13 +4,13 @@ import * as React from "react";
 
 // Compact on a mouse, thumb-sized on touch: coarse pointers get the 44px target.
 const control =
-    "h-9 pointer-coarse:h-11 gap-2 rounded-[10px] border text-[13px] font-medium leading-none whitespace-nowrap no-underline [transition:background-color_140ms_ease,border-color_140ms_ease,opacity_140ms_ease,transform_140ms_var(--ease-out)] disabled:opacity-40 [&:not(:disabled):active]:scale-[0.985] motion-reduce:[&:not(:disabled):active]:scale-100 focus-visible:active:scale-100";
+    "h-9 pointer-coarse:h-11 gap-2 rounded-[10px] border text-[13px] font-medium leading-none whitespace-nowrap no-underline [transition:background-color_140ms_ease,border-color_140ms_ease,opacity_140ms_ease,transform_140ms_var(--ease-out),scale_140ms_var(--ease-out)] disabled:opacity-40 [&:not(:disabled):active]:scale-[0.985] motion-reduce:[&:not(:disabled):active]:scale-100 focus-visible:active:scale-100";
 
 // Outline pill for marketing surfaces (landing, auth). Deliberately separate
 // from `control`: those are app chrome at h-9/rounded-[10px], these are taller
 // and fully rounded. Size, padding and text scale stay with the call site.
 const outlinePill =
-    "gap-2 rounded-full border border-foreground/25 bg-transparent font-medium text-foreground no-underline transition-[transform,background-color,border-color] duration-[160ms] ease-[var(--ease-out)] active:scale-[0.97] motion-reduce:active:scale-100 pointer-fine:hover:border-foreground/45 pointer-fine:hover:bg-foreground/5";
+    "gap-2 rounded-full border border-foreground/25 bg-transparent font-medium text-foreground no-underline transition-[transform,scale,background-color,border-color] duration-[160ms] ease-[var(--ease-out)] active:scale-[0.97] motion-reduce:active:scale-100 pointer-fine:hover:border-foreground/45 pointer-fine:hover:bg-foreground/5";
 
 // Small chrome controls dip on press, like `control` above, kept subtle for how often they are hit.
 const press =
@@ -29,6 +29,8 @@ export const buttonVariants = cva(
                 utility: `${ghost} h-8 pointer-coarse:h-11 min-w-8 px-2 text-[12px]`,
                 outlinePill,
                 tab: `h-8 pointer-coarse:h-11 gap-1.5 rounded-[7px] border-0 bg-transparent px-3 text-[12.5px] text-muted-foreground whitespace-nowrap [transition:background-color_130ms_ease,color_130ms_ease,scale_100ms_var(--ease-out)] ${press} aria-pressed:bg-surface-2 aria-pressed:text-foreground pointer-fine:hover:text-foreground`,
+                // A page's "Back" link: a 44px target that dips on press, since touch has no hover.
+                back: `-ml-2 h-11 gap-1.5 rounded-[8px] px-2 text-[14px] leading-5 font-medium text-foreground no-underline [transition:color_130ms_ease,scale_100ms_var(--ease-out)] ${press} pointer-fine:hover:text-foreground/80`,
             },
         },
         defaultVariants: { variant: "default" },

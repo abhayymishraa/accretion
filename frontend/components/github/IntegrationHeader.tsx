@@ -1,6 +1,7 @@
 "use client";
 
 import styles from "@/components/mcp/mcp.module.css";
+import { buttonVariants } from "@/components/ui/button";
 import { ChevronLeft } from "lucide-react";
 import Link from "next/link";
 import type { ReactNode } from "react";
@@ -17,10 +18,7 @@ export function IntegrationHeader({
 }) {
     return (
         <>
-            <Link
-                href="/projects"
-                className="-ml-2 mb-2 inline-flex h-11 items-center gap-1.5 rounded-[8px] px-2 text-[14px] leading-5 font-medium text-foreground no-underline focus-visible:outline-2 focus-visible:outline-ring pointer-fine:hover:text-foreground/80"
-            >
+            <Link href="/projects" className={`${buttonVariants({ variant: "back" })} mb-2`}>
                 <ChevronLeft size={16} aria-hidden="true" />
                 Projects
             </Link>
