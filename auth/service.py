@@ -340,6 +340,7 @@ async def create_demo_account(data: DemoAccountCreate, db: AsyncSession) -> Demo
         approved_at=now,
         email_verified=True,
         plan=DEMO_PLAN,
+        default_model_choice=data.model_choice,
     )
     account = insert(User).from_select(list(values), select(*values.values())).returning(User.id).cte("account")
     statement, token = token_insert(account.c.id, _DEMO_LINK, _DEMO_LINK_MINUTES)
@@ -385,7 +386,14 @@ async def list_demo_accounts(db: AsyncSession) -> list[DemoAccount]:
         SpendEntry.user_id == User.id, SpendEntry.kind == "model"
     )
     rows = await db.execute(
-        select(User.id, User.name, User.created_at, link.label("link_active"), spent.scalar_subquery().label("spent"))
+        select(
+            User.id,
+            User.name,
+            User.created_at,
+            User.default_model_choice,
+            link.label("link_active"),
+            spent.scalar_subquery().label("spent"),
+        )
         .where(User.plan == DEMO_PLAN)
         .order_by(User.created_at.desc())
     )
@@ -396,6 +404,7 @@ async def list_demo_accounts(db: AsyncSession) -> list[DemoAccount]:
             created_at=row.created_at,
             link_active=row.link_active,
             spent_usd=row.spent / NANOS,
+            default_model_choice=row.default_model_choice,
         )
         for row in rows
     ]

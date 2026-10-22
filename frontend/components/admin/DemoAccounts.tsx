@@ -1,10 +1,12 @@
 "use client";
 
 import { DemoRuns } from "@/components/admin/DemoRuns";
+import { ModelPicker } from "@/components/chat/ModelPicker";
 import { Button } from "@/components/ui/button";
 import { ErrorBox } from "@/components/ui/ErrorBox";
 import { Input } from "@/components/ui/input";
 import { useDemoAccounts } from "@/hooks/admin/useDemoAccounts";
+import { useModelChoice } from "@/hooks/chat/useModelChoice";
 import { useReducedMotion } from "motion/react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -19,6 +21,10 @@ const FOLD_MS = 200;
  */
 export function DemoAccounts() {
     const demo = useDemoAccounts();
+    // The new account's starting model in the composer; the person can still change it.
+    const model = useModelChoice("auto");
+    const modelName = (id: string) =>
+        id === "auto" ? "Auto" : (model.models.find((m) => m.id === id)?.name ?? id);
     const [name, setName] = useState("");
     const [prompt, setPrompt] = useState("");
     const [open, setOpen] = useState<number | null>(null);
@@ -66,7 +72,7 @@ export function DemoAccounts() {
                 className="mt-6 grid gap-3 rounded-xl border border-border bg-card p-4 sm:p-6"
                 onSubmit={async (event) => {
                     event.preventDefault();
-                    if (await demo.create(name, prompt)) setName("");
+                    if (await demo.create(name, prompt, model.choice)) setName("");
                 }}
             >
                 <Input
@@ -85,6 +91,11 @@ export function DemoAccounts() {
                     value={prompt}
                     onChange={(event) => setPrompt(event.target.value)}
                     className="w-full resize-y rounded-[10px] border border-input bg-surface-2 px-3 py-2 text-[16px] sm:text-[14px]"
+                />
+                <ModelPicker
+                    models={model.models}
+                    value={model.choice}
+                    onChange={model.setChoice}
                 />
                 <Button type="submit" disabled={demo.pending !== null || !name.trim()}>
                     {demo.pending === "new" ? "Creating…" : "Create demo account and link"}
@@ -146,7 +157,8 @@ export function DemoAccounts() {
                                     <p className="truncate font-medium">{account.name}</p>
                                     <p className="text-[12.5px] text-muted-foreground">
                                         ${account.spent_usd.toFixed(2)} used ·{" "}
-                                        {account.link_active ? "Link active" : "No link"}
+                                        {account.link_active ? "Link active" : "No link"} ·{" "}
+                                        {modelName(account.default_model_choice)}
                                     </p>
                                 </div>
                                 <div className="flex flex-wrap gap-2">

@@ -76,6 +76,7 @@ export interface DemoAccount {
     created_at: string;
     link_active: boolean;
     spent_usd: number;
+    default_model_choice: string;
 }
 
 /** A new demo link's raw token: shown once, only its digest is stored. */

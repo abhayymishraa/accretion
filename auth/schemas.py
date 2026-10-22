@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from pydantic import BaseModel, EmailStr, Field
 
 from models import CustomModel, UtcDatetime
+from runs import schemas as run_schemas
 
 
 @dataclass(frozen=True)
@@ -118,6 +119,8 @@ class TokenRequest(BaseModel):
 
 class DemoAccountCreate(BaseModel):
     name: str = Field(min_length=1, max_length=100)
+    # The composer's starting model; the person can still change it.
+    model_choice: run_schemas.ModelChoice = "auto"
 
 
 class DemoAccount(CustomModel):
@@ -128,6 +131,7 @@ class DemoAccount(CustomModel):
     created_at: UtcDatetime
     link_active: bool
     spent_usd: float
+    default_model_choice: str
 
 
 class DemoLink(CustomModel):
