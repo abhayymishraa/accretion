@@ -8,6 +8,7 @@ from sqlalchemy import select
 from db.base import AutocommitSessionLocal
 from db.models import Chat, Message
 
+from ..routing.failures import is_transient, switch_now
 from ..sandbox.secrets import NAME, RESERVED
 from .runner import VerificationError
 from .structured import ask_structured
@@ -29,20 +30,21 @@ When unsure, choose change: a builder that answers a request with a question fai
 answer a question itself.
 
 Examples:
-"can you make the header blue?" -> {"reasoning": "A request phrased as a question.", "kind": "change"}
-"yes" after an offer to switch the backend -> {"reasoning": "Agrees to the proposed change.", "kind": "change"}
-"did you use fastify for the backend?" -> {"reasoning": "Asks what the app uses; no change.", "kind": "question"}
-"what about a dark mode?" -> {"reasoning": "Weighs an idea; asks for nothing yet.", "kind": "question"}
-"login kaam nahi kar raha" -> {"reasoning": "Reports a broken feature to fix.", "kind": "change"}
-"the header feels off" -> {"reasoning": "Unclear; may want it fixed, so change.", "kind": "change"}
+"can you make the header blue?" -> {"explanation": "A request phrased as a question.", "kind": "change"}
+"yes" after an offer to switch the backend -> {"explanation": "Agrees to the proposed change.", "kind": "change"}
+"did you use fastify for the backend?" -> {"explanation": "Asks what the app uses; no change.", "kind": "question"}
+"what about a dark mode?" -> {"explanation": "Weighs an idea; asks for nothing yet.", "kind": "question"}
+"login kaam nahi kar raha" -> {"explanation": "Reports a broken feature to fix.", "kind": "change"}
+"the header feels off" -> {"explanation": "Unclear; may want it fixed, so change.", "kind": "change"}
 
-Use only the label_request function."""
+Answer only in the given format: the explanation, then the label."""
 
 
 class RouteDecision(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    # Reasoning first: the label is written after it, so it follows from it.
-    reasoning: str = Field(description="One short sentence on why, referring to the rules above.")
+    # Explanation first: the label is written after it, so it follows from it. Not named "reasoning": Claude refuses
+    # a field that asks for its reasoning.
+    explanation: str = Field(description="One short sentence on why, referring to the rules above.")
     kind: Literal["change", "question"]
 
 
@@ -141,8 +143,11 @@ async def select_workflow(live, model):
             cache_scope=live.chat_id,
             what="routing",
         )
-    except VerificationError:
-        # A failed label must not fail the request: build, as when unsure.
+    except Exception as exc:
+        # A failed label must not fail the request: build, as when unsure. A model that cannot answer (down, or its
+        # key refused) reaches the build's own fallback to another model.
+        if not (isinstance(exc, VerificationError) or is_transient(exc) or switch_now(exc)):
+            raise
         return change
     if label.kind == "question":
         # The recent messages go to the answer; the run never stores them (service.py clears the workflow).

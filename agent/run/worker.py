@@ -23,7 +23,8 @@ from sqlalchemy import select, update
 from sqlalchemy.exc import SQLAlchemyError
 
 from db.base import AsyncSessionLocal, AutocommitSessionLocal
-from db.models import Chat, Run
+from db.models import Chat, Run, User
+from plans import DEMO_PLAN
 
 from . import bus
 from .config import run_settings
@@ -120,7 +121,7 @@ class Workers:
 
     async def claim(self, run_id: str) -> "LiveRun | None":
         """Take a queued run. None when another worker won it or it was cancelled first."""
-        # One statement, committed by itself: the claim and its chat (UPDATE ... FROM chats), so the
+        # One statement, committed by itself: the claim, its chat (UPDATE ... FROM chats) and the owner's plan, so the
         # chat is read while the claimed row is locked and cannot be deleted under it.
         async with AutocommitSessionLocal() as db:
             row = (
@@ -128,13 +129,13 @@ class Workers:
                     update(Run)
                     .where(Run.id == run_id, Run.status == "queued", Chat.id == Run.chat_id)
                     .values(status="running", claimed_by=self.name, lease_expires_at=_lease_end())
-                    .returning(Run, Chat)
+                    .returning(Run, Chat, select(User.plan).where(User.id == Chat.user_id).scalar_subquery())
                 )
             ).first()
         if row is None:
             return None
-        run, chat = row
-        live = self.service.load_live(run, chat)
+        run, chat, plan = row
+        live = self.service.load_live(run, chat, demo=plan == DEMO_PLAN)
         # Cancelled while still queued, after the canceller's own claim lost to this one.
         live.cancelling = run.cancel_requested
         return live

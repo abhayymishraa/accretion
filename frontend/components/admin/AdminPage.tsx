@@ -85,11 +85,7 @@ export default function AdminPage() {
                     </h1>
                 </div>
 
-                {admin.error ? (
-                    <div className="mb-6">
-                        <ErrorBox message={admin.error} />
-                    </div>
-                ) : null}
+                <ErrorBox message={admin.error} className="mb-6" />
 
                 {data ? (
                     <div className="mb-8 grid grid-cols-2 gap-3 sm:grid-cols-[1.4fr_1fr_1fr]">

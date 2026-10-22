@@ -54,6 +54,7 @@ class ModelEntry(BaseModel):
     context_window: int = Field(gt=0)
     attachment: bool
     auto: bool
+    adaptive_thinking: bool = False
     cost: Rates
     long_context: LongContext | None = None
     card: Card

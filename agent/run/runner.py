@@ -24,9 +24,9 @@ from ..context.transcript import append as append_transcript
 from ..context.transcript import load as load_transcript
 from ..context.transcript import replace as replace_transcript
 from ..events import hide_secrets, secret_forms
-from ..routing.failures import cool_down, is_context_overflow, is_transient, out_of_credits
+from ..routing.failures import cool_down, is_context_overflow, is_transient, switch_now
 from ..routing.history import for_model
-from ..routing.providers import bind_tools, cache_options, chat_model, entry_for, output_truncated, same_tier
+from ..routing.providers import bind_tools, cache_options, chat_model, entry_for, output_truncated, replacement_for
 from ..sandbox import migrations
 from ..sandbox.check_data import CheckData
 from ..sandbox.commands import CommandStateError
@@ -231,6 +231,21 @@ def failed_checks(checks: dict[str, Any]) -> str:
     files = ", ".join(migration.get("files", []))
     summary = f"The database migration failed ({migration['migrations']}: {files})."
     return f"{summary} Fix only this:\n{migration.get('output', '')}"
+
+
+def switch_model(failed: str, *, account: bool, may_switch: bool, metrics: dict[str, Any]) -> str:
+    """After a provider failure: bench the model, then name the Auto model to go on with, or stop with words for the
+    user. A user's own pick never switches; Auto and a demo account's model do."""
+    cool_down(failed, account=account)
+    replacement = replacement_for(failed) if may_switch else None
+    if replacement is None:
+        raise RunLimitError(
+            "The model provider is unavailable right now"
+            + ("; retry in a few minutes" if may_switch else ". Try Auto for this step")
+        )
+    metrics.setdefault("model_switches", []).append({"from": failed, "to": replacement})
+    metrics["model"] = replacement
+    return replacement
 
 
 async def run_editor(
@@ -603,29 +618,20 @@ async def run_editor(
 
     async def call_model():
         """Spec 6: back off and retry a transient provider error up to 4 times (none when the
-        account is out of credit), then move to the next model at the same cost level (Auto only)
-        and cool the failed one down."""
+        account cannot serve the model: no credit, or a key that cannot reach it), then switch_model."""
         nonlocal model, bound, window, window_limit, ceiling, messages, formatted_tools, tool_schema
         for attempt in range(5):
             try:
                 return await invoke_with_usage(bound, messages, **cache_options(model, cache_key))
             except Exception as exc:
-                if not is_transient(exc):
+                account = switch_now(exc)
+                if not (account or is_transient(exc)):
                     raise
-                if attempt == 4 or out_of_credits(exc):
+                if attempt == 4 or account:
                     break
                 await asyncio.sleep(2**attempt)
-        failed = entry_for(model).id
-        cool_down(failed)
-        replacement = None if user_model else same_tier(failed)
-        if replacement is None:
-            raise RunLimitError(
-                "The model provider is unavailable right now"
-                + (". Try Auto for this step" if user_model else "; retry in a few minutes")
-            )
+        replacement = switch_model(entry_for(model).id, account=account, may_switch=not user_model, metrics=metrics)
         await emit("stage", message="Switching to another model")
-        metrics.setdefault("model_switches", []).append({"from": failed, "to": replacement})
-        metrics["model"] = replacement
         model = chat_model(replacement)
         formatted_tools = tool_list(model)
         bound = bind_tools(model, formatted_tools)
@@ -786,7 +792,10 @@ async def run_editor(
                 if report["tokens_after"] >= estimated_input:
                     raise
                 continue
-            messages = without_preview_images(messages)
+            # Claude binds its thinking to the history before it, so a screenshot stays until the run ends rather than
+            # make it drop later thinking. The saved transcript never keeps one.
+            if entry_for(model).provider != "anthropic":
+                messages = without_preview_images(messages)
             record_usage(metrics, response, phase="editor", estimated_input=estimated_input)
             if output_truncated(response.response_metadata):
                 # Discarded, never appended: a cut-off reply's calls are incomplete. Twice per run the

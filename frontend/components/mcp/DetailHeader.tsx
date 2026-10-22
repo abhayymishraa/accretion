@@ -128,30 +128,34 @@ export function DetailHeader({
                 {action && <div className="max-sm:w-full">{action}</div>}
             </div>
             {server && (
-                <div className="mt-8 flex min-h-16 items-center justify-between gap-4 rounded-[12px] border border-border bg-surface-1 py-3 pr-3 pl-4">
-                    <div className="min-w-0">
-                        <p className="text-[14px] leading-5 font-medium">
-                            {enabled ? "On in all your projects" : "Off in all your projects"}
-                        </p>
-                        <p className="text-[12px] leading-4 text-foreground/70">
-                            {enabled
-                                ? `Every build can use ${server.title}'s ticked tools.`
-                                : `No build uses ${server.title} until you switch it on.`}
-                        </p>
+                <div data-loaded-in="">
+                    <div className="mt-8 flex min-h-16 items-center justify-between gap-4 rounded-[12px] border border-border bg-surface-1 py-3 pr-3 pl-4">
+                        <div className="min-w-0">
+                            <p className="text-[14px] leading-5 font-medium">
+                                {enabled ? "On in all your projects" : "Off in all your projects"}
+                            </p>
+                            <p className="text-[12px] leading-4 text-foreground/70">
+                                {enabled
+                                    ? `Every build can use ${server.title}'s ticked tools.`
+                                    : `No build uses ${server.title} until you switch it on.`}
+                            </p>
+                        </div>
+                        <SkillSwitch
+                            checked={enabled}
+                            label={`Use ${server.title} in all your projects`}
+                            onChange={async (next) => {
+                                setPending(next);
+                                await connections.setEnabled(server.id, next);
+                                setPending(null);
+                            }}
+                        />
                     </div>
-                    <SkillSwitch
-                        checked={enabled}
-                        label={`Use ${server.title} in all your projects`}
-                        onChange={async (next) => {
-                            setPending(next);
-                            await connections.setEnabled(server.id, next);
-                            setPending(null);
-                        }}
+                    <ServerSettings
+                        server={server}
+                        custom={!entry.catalog}
+                        connections={connections}
                     />
                 </div>
-            )}
-            {server && (
-                <ServerSettings server={server} custom={!entry.catalog} connections={connections} />
             )}
             {error && (
                 <p role="alert" className={`${styles.ask} mt-3 text-[13px] text-destructive`}>
@@ -161,7 +165,7 @@ export function DetailHeader({
             {server &&
                 keying &&
                 (server.auth === "none" || (!server.connected && server.auth === "header")) && (
-                    <div className="mt-5">
+                    <div data-loaded-in="" className="mt-5">
                         <KeyForm
                             server={server}
                             saveKey={connections.saveKey}

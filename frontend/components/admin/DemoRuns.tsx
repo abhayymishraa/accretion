@@ -14,7 +14,7 @@ export function DemoRuns({ userId }: { userId: number }) {
         );
     if (!runs.length) return <p className="text-[13px] text-muted-foreground">No builds yet.</p>;
     return (
-        <ol aria-label="Builds" className="grid gap-2">
+        <ol data-loaded-in="" aria-label="Builds" className="grid gap-2">
             {runs.map((run) => (
                 <li key={run.id} className="rounded-lg border border-border bg-surface-2 p-3">
                     <p className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-[12px] text-muted-foreground">

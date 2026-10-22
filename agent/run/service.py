@@ -60,6 +60,7 @@ from ..budget.model_budget import spend_scope
 from ..context.context import ContextError, ProjectContext
 from ..context.transcript import stored_chars
 from ..events import MAX_RUN_EVENTS, redact
+from ..routing import failures as routing_failures
 from ..routing import jev
 from ..routing import providers as routing_providers
 from ..routing import router as routing_router
@@ -105,7 +106,7 @@ from .exceptions import (
     UserNotFound,
 )
 from .images import MAX_COVER_BYTES, cover_image
-from .runner import PLAN_FILE, RunLimitError, SandboxSetupError, VerificationError, run_editor
+from .runner import PLAN_FILE, RunLimitError, SandboxSetupError, VerificationError, run_editor, switch_model
 from .title import name_project
 from .worker import OPEN_STATUSES, Workers
 from .workflow import public_workflow, select_workflow
@@ -277,6 +278,8 @@ class LiveRun:
     # model call: a plan only reads files until it saves.
     services: asyncio.Task[None] | None = None
     model_choice: str = "auto"
+    # A minted demo account: its model falls back to Auto unseen, so the client never meets a provider error.
+    demo: bool = False
     # Spec 5 steering: messages the user sends while this run works, drained before each model call.
     inbox: list[str] = field(default_factory=list)
     # Read-only tools run in parallel (spec 5), so their events arrive together: each takes its
@@ -624,7 +627,7 @@ class Service:
             "status": "queued",
         }
 
-    def load_live(self, run: Run, chat: Chat) -> LiveRun:
+    def load_live(self, run: Run, chat: Chat, *, demo: bool = False) -> LiveRun:
         """The in-memory run a worker drives, rebuilt from its row."""
         return LiveRun(
             run.id,
@@ -635,6 +638,7 @@ class Service:
             message_id=run.message_id,
             workflow=dict(run.workflow),
             model_choice=run.model_choice,
+            demo=demo,
             # Untitled means title.py has not named it yet; a failed naming retries next run.
             unnamed=chat.title is None,
         )
@@ -1197,14 +1201,19 @@ class Service:
 
     async def model_for(self, live):
         """One model for every call in this run (spec 5). A continuation keeps its parent's."""
+        usable = {entry.id for entry in routing_providers.usable_models()}
         sticky = live.metrics.get("model")
         if sticky:
-            if sticky not in {entry.id for entry in routing_providers.usable_models()}:
+            if sticky in usable and not (live.demo and routing_failures.cooling(sticky)):
+                return routing_providers.chat_model(sticky)
+            if not live.demo:
                 # Its key was removed, or screenshots were turned on for a text-only model.
                 raise RunLimitError(
                     "The model this conversation uses is no longer available. Choose another model or Auto"
                 )
-            return routing_providers.chat_model(sticky)
+        # A demo account's model that cannot run (its key removed, or benched after failing) runs as Auto.
+        if live.demo and (live.model_choice not in usable or routing_failures.cooling(live.model_choice)):
+            live.model_choice = "auto"
 
         async def budget_and_size():
             # The user, this month's spend and the transcript's size in one query.
@@ -1264,7 +1273,21 @@ class Service:
             if live.workflow["kind"] == "answer":
                 # A question reads the saved files, never the sandbox: nothing to wake, park or lease.
                 await self.emit(live, "stage", message="Reading your app")
-                reason = await answer_question(model, live.chat_id, live.prompt, live.workflow["recent"], live.metrics)
+                asked = (live.chat_id, live.prompt, live.workflow["recent"], live.metrics)
+                try:
+                    reason = await answer_question(model, *asked)
+                except Exception as exc:
+                    # A short answer switches at once, without the build's retries; the policy is the build's.
+                    account = routing_failures.switch_now(exc)
+                    if not (account or routing_failures.is_transient(exc)):
+                        raise
+                    replacement = switch_model(
+                        routing_providers.entry_for(model).id,
+                        account=account,
+                        may_switch=live.model_choice == "auto" or live.demo,
+                        metrics=live.metrics,
+                    )
+                    reason = await answer_question(routing_providers.chat_model(replacement), *asked)
                 # No proposal card: the answer is the reply.
                 live.workflow, status = {}, "answered"
                 return
@@ -1298,7 +1321,8 @@ class Service:
                 lambda dirty=False: self.checkpoint(live, dirty),
                 live.metrics,
                 model=model,
-                user_model=live.model_choice != "auto",
+                # A user's own pick reports its failure; a demo account's falls back like Auto.
+                user_model=live.model_choice != "auto" and not live.demo,
                 inbox=live.inbox,
                 request_context={
                     "continuation": live.workflow.get("context"),
@@ -1371,7 +1395,9 @@ class Service:
             # the next message continues from it. Rendering this as a broken run is what
             # made users think the product itself had failed.
             status = "stopped"
-            reason = f"{str(exc).rstrip('.')}. Your work so far is saved. Send another message to continue from here."
+            # A question made no work to save.
+            saved = "" if live.workflow.get("kind") == "answer" else " Your work so far is saved."
+            reason = f"{str(exc).rstrip('.')}.{saved} Send another message to continue from here."
             live.metrics["error_type"] = type(exc).__name__
         except BudgetSpentError as exc:
             # Same stopping point as a run limit, but continuing waits for the monthly reset.

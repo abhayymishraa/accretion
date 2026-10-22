@@ -16,8 +16,8 @@ export const usersService = {
         (await apiClient.post<AccountRow>(`/users/${userId}/approval`)).data,
     listDemo: async (): Promise<DemoAccount[]> =>
         (await apiClient.get<DemoAccount[]>("/users/demo")).data,
-    createDemo: async (name: string): Promise<DemoLink> =>
-        (await apiClient.post<DemoLink>("/users/demo", { name })).data,
+    createDemo: async (name: string, modelChoice: string): Promise<DemoLink> =>
+        (await apiClient.post<DemoLink>("/users/demo", { name, model_choice: modelChoice })).data,
     replaceDemoLink: async (userId: number): Promise<DemoLink> =>
         (await apiClient.post<DemoLink>(`/users/${userId}/demo-link`)).data,
     revokeDemoLink: async (userId: number): Promise<void> => {

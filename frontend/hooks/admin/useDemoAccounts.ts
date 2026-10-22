@@ -46,8 +46,8 @@ export function useDemoAccounts() {
         error: error instanceof Error ? error.message : "",
         pending,
         link: link?.url ?? null,
-        create: (name: string, prompt: string) =>
-            run("new", () => usersService.createDemo(name), prompt),
+        create: (name: string, prompt: string, modelChoice: string) =>
+            run("new", () => usersService.createDemo(name, modelChoice), prompt),
         replace: (userId: number, prompt: string) =>
             run(userId, () => usersService.replaceDemoLink(userId), prompt),
         revoke: (userId: number) => run(userId, () => usersService.revokeDemoLink(userId)),

@@ -59,7 +59,8 @@ export function WorkspaceSidebar({
                 >
                     <use href="/brand/accretion-mark.svg#mark" />
                 </svg>
-                <span className="font-brand text-[17px] font-semibold tracking-[-0.6px] group-data-[collapsed=true]/sidebar:hidden">
+                {/* Fades while the rail narrows, then leaves the layout; display waits for the fade (allow-discrete). */}
+                <span className="font-brand text-[17px] font-semibold tracking-[-0.6px] [transition:opacity_120ms_var(--ease-out),display_120ms_allow-discrete] starting:opacity-0 group-data-[collapsed=true]/sidebar:hidden group-data-[collapsed=true]/sidebar:opacity-0 motion-reduce:[transition:none]">
                     accretion
                 </span>
             </Button>

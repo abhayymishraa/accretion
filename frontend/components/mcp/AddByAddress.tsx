@@ -35,7 +35,7 @@ export default function AddByAddress() {
             <div className={styles.reveal}>
                 <Link
                     href="/connectors"
-                    className="-ml-2 mb-6 inline-flex h-11 items-center gap-1.5 rounded-[8px] px-2 text-[14px] leading-5 font-medium text-foreground no-underline focus-visible:outline-2 focus-visible:outline-ring pointer-fine:hover:text-foreground/80"
+                    className={cn(buttonVariants({ variant: "back" }), "mb-6")}
                 >
                     <ChevronLeft size={16} aria-hidden="true" />
                     Connectors

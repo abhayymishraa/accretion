@@ -28,7 +28,7 @@ export function MessageBubble({
     if (message.role === "user")
         return (
             // The copy action sits under the bubble and stays visible: touch has no hover to reveal it.
-            <div className="flex flex-col items-end gap-0.5">
+            <div data-loaded-in="" className="flex flex-col items-end gap-0.5">
                 {/* Fits short prompts, wraps long ones at a readable measure. */}
                 <div className="w-fit max-w-[min(80%,56ch)] rounded-[16px_16px_6px_16px] bg-primary text-primary-foreground px-4 py-3 wrap-anywhere whitespace-pre-wrap">
                     <p className="text-[14.5px] leading-[1.7] wrap-anywhere whitespace-pre-wrap max-[481px]:text-[14px]">
