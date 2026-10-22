@@ -107,6 +107,13 @@ def chat_model(model_id: str) -> BaseChatModel:
             # Anthropic's automatic caching: one top-level marker, and the API moves the cache point to the last
             # cacheable block as the conversation grows. Anthropic caches only where asked; the others on their own.
             model_kwargs={"cache_control": {"type": "ephemeral"}},
+            # A thinking block is bound to the history it was written after. A history that changed since (a build
+            # after its plan, screenshots dropped after a reply, a compaction) makes the API drop the block, not
+            # refuse the request.
+            thinking={"type": "adaptive", "block_binding": {"prefix_mismatch_behavior": "drop_block"}}
+            if entry.adaptive_thinking
+            else None,
+            betas=["thinking-binding-controls-2026-08-01"] if entry.adaptive_thinking else None,
         )
         # The clients are cached properties: set them so the async one carries the spend hooks and the sync one
         # (token counting) refuses, as for Gemini.
@@ -221,9 +228,10 @@ async def invoke_auto(messages: list[BaseMessage], max_tokens: int, attempt_seco
             async with asyncio.timeout(attempt_seconds):
                 response = await invoke_with_usage(limit_output(chat_model(entry.id), max_tokens), messages)
         except Exception as exc:
-            if not (isinstance(exc, TimeoutError) or failures.is_transient(exc)):
+            account = failures.switch_now(exc)
+            if not (account or isinstance(exc, TimeoutError) or failures.is_transient(exc)):
                 raise
-            failures.cool_down(entry.id)
+            failures.cool_down(entry.id, account=account)
             continue
         assert isinstance(response, AIMessage)
         if response.text.strip():
@@ -231,7 +239,9 @@ async def invoke_auto(messages: list[BaseMessage], max_tokens: int, attempt_seco
     raise NoModelAvailable
 
 
-def same_tier(model_id: str) -> str | None:
-    """Spec 6: the next Auto model at the same cost level that is usable and not cooling down."""
+def replacement_for(model_id: str) -> str | None:
+    """Spec 6: the next Auto model at the same cost level that is usable and not cooling down, else the cheapest
+    other one, so a run that may switch is never left without a model while any Auto model works."""
+    others = [e for e in auto_models() if e.id != model_id]
     word = MODELS[model_id].card.cost
-    return next((e.id for e in auto_models() if e.id != model_id and e.card.cost == word), None)
+    return next((e.id for e in others if e.card.cost == word), others[0].id if others else None)

@@ -80,6 +80,10 @@ def record_usage(metrics, response, *, phase, estimated_input=None):
     raw = response.response_metadata.get("provider_usage") or {}
     details = raw.get("input_tokens_details") or {}
     normalized = usage.get("input_token_details") or {}
+    if "ephemeral_5m_input_tokens" in normalized:
+        # LangChain files Anthropic's cache writes under their lifetime and leaves cache_creation at 0.
+        written_by_ttl = normalized["ephemeral_5m_input_tokens"] + normalized.get("ephemeral_1h_input_tokens", 0)
+        normalized = {**normalized, "cache_creation": written_by_ttl}
 
     def count(value):
         return value if type(value) is int and value >= 0 else None
