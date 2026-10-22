@@ -27,4 +27,5 @@ docs
 .vercel
 var/
 skills-lock.json
+.worktrees/
  
