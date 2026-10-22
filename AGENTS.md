@@ -264,7 +264,7 @@ them, `agent/sandbox/project.py` writes them into the sandbox, `agent/run/runner
 ## Publish
 
 Apps publish to the owner's own Vercel account. `vercel_connect/` owns it: `service.py` the connection, `publish.py`
-the work, `bundle.py` the files Vercel builds, `frontend/components/publish/` the sheet.
+the work, `bundle.py` the files Vercel builds, `frontend/components/publish/` the Publish tab.
 
 - The connection is a Vercel Integration (`VERCEL_CLIENT_ID`, `VERCEL_CLIENT_SECRET`, Redirect URL
   `{FRONTEND_URL}/vercel/callback`). Install starts at `vercel.com/integrations/<slug>/new?state=…`; the state is in Redis,
@@ -292,7 +292,8 @@ the work, `bundle.py` the files Vercel builds, `frontend/components/publish/` th
   the builder to fix it".
 - The sign-in gateway accepts the published origin beside the preview's (`gateway/signin.py` `allowed_redirect`).
 - With the React Compiler on, a SWR `refreshInterval` function keeps its identity and SWR never re-arms polling after an
-  idle answer. Poll with a number held in state and set from `onSuccess`, as `usePublish` does.
+  idle answer. Poll with a number held in state, set from the data as it renders, as `usePublishStatus` does. Not from
+  `onSuccess`: SWR calls it only in the hook that sent the request, and the tab and its panel share one.
 
 ## Python structure
 

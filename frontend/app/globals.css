@@ -400,6 +400,12 @@
         animation: content-in 180ms var(--ease-out) both;
     }
 
+    /* The Publish tab's route, moving from the empty state into the status card on the first publish. */
+    ::view-transition-group(publish-route) {
+        animation-duration: 250ms;
+        animation-timing-function: var(--ease-out);
+    }
+
     /* An in-place confirm (the App keys row's Delete?): it grows from the control that opened it. */
     [data-row-confirm] {
         transform-origin: right center;

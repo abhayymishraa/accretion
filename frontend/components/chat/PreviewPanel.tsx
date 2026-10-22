@@ -5,6 +5,7 @@ import type { OpenedFile, WorkspaceTab } from "@/hooks/chat/useWorkspaceLayout";
 import type { ProjectSkills } from "@/hooks/skills/useProjectSkills";
 import { AppServicesPanel } from "@/components/appservices/AppServicesPanel";
 import { ProjectRepoPanel } from "@/components/github/ProjectRepoPanel";
+import { PublishPanel } from "@/components/publish/PublishPanel";
 import { ProjectConnections } from "@/components/mcp/ProjectConnections";
 import { ProjectSecretsPanel } from "@/components/secrets/ProjectSecretsPanel";
 import { ProjectSkillsPanel } from "@/components/skills/ProjectSkillsPanel";
@@ -36,7 +37,8 @@ interface PreviewPanelProps {
     chatHidden: boolean;
     onToggleChat: () => void;
     projectSkills: ProjectSkills;
-    onAskBuilder?: (text: string) => void;
+    // Puts a request in the composer, for the builder to fix a publish that failed.
+    onAskBuilder: (text: string) => void;
 }
 // Loaded only when switched on: img-fx brings three.js with it.
 const PreviewReveal = dynamic(() => import("@/components/effects/PreviewReveal"), { ssr: false });
@@ -131,7 +133,6 @@ export function PreviewPanel({
                 onToggleChat={onToggleChat}
                 projectId={projectId}
                 revisionId={revisionId}
-                onAskBuilder={onAskBuilder}
             />
             {activeTab === "preview" && (
                 <PreviewAddressBar
@@ -213,6 +214,13 @@ export function PreviewPanel({
                         </div>
                     )}
                 </div>
+            )}
+            {activeTab === "publish" && (
+                <PublishPanel
+                    projectId={projectId}
+                    revisionId={revisionId}
+                    onAskBuilder={onAskBuilder}
+                />
             )}
             {activeTab === "files" && (
                 <div className="flex-1 min-h-0 overflow-hidden">
