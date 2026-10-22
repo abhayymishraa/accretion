@@ -1,13 +1,32 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type PointerEvent } from "react";
+import { returnProject, takeReturn } from "@/hooks/publish/usePublish";
+import {
+    useCallback,
+    useEffect,
+    useRef,
+    useState,
+    useSyncExternalStore,
+    type PointerEvent,
+} from "react";
 
 // A new object per click, so the viewer selects the file again even when the path repeats.
 export type OpenedFile = { path: string };
 export type WorkspaceTab =
-    "preview" | "files" | "skills" | "connectors" | "secrets" | "github" | "database" | "services";
+    | "preview"
+    | "publish"
+    | "files"
+    | "skills"
+    | "connectors"
+    | "secrets"
+    | "github"
+    | "database"
+    | "services";
 
-export function useWorkspaceLayout() {
+// The return key is written before the page leaves for Vercel and read once on the way back: nothing to watch.
+const unwatched = () => () => {};
+
+export function useWorkspaceLayout(projectId: string) {
     const containerRef = useRef<HTMLElement>(null);
     const [previewWidth, setPreviewWidth] = useState(50);
     const [showPreview, setShowPreview] = useState(true);
@@ -15,6 +34,19 @@ export function useWorkspaceLayout() {
     const [previewTab, setPreviewTab] = useState<WorkspaceTab>("preview");
     const [openedFile, setOpenedFile] = useState<OpenedFile | null>(null);
     const [desktopPreview, setDesktopPreview] = useState<boolean | null>(null);
+    // Back from connecting Vercel: the Publish tab opens, once. Read after hydration, since the server has no
+    // sessionStorage; an initial state would render a different tab on the server and the client.
+    const returned = useSyncExternalStore(unwatched, returnProject, () => null) === projectId;
+    const [landed, setLanded] = useState(false);
+    if (returned && !landed) {
+        setLanded(true);
+        setShowPreview(true);
+        setPreviewTab("publish");
+        setMobilePane("preview");
+    }
+    useEffect(() => {
+        if (returned) takeReturn(projectId);
+    }, [returned, projectId]);
     const workspaceVisible =
         showPreview && desktopPreview !== null && (desktopPreview || mobilePane === "preview");
     useEffect(() => {

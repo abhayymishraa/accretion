@@ -1,6 +1,6 @@
 "use client";
 
-import { PublishSheet } from "@/components/publish/PublishSheet";
+import { PublishTab } from "@/components/publish/PublishTab";
 import { Button } from "@/components/ui/button";
 import {
     DropdownMenu,
@@ -30,7 +30,7 @@ import {
 import { useState } from "react";
 import { toast } from "sonner";
 
-type ExtraTab = Exclude<WorkspaceTab, "preview">;
+type ExtraTab = Exclude<WorkspaceTab, "preview" | "publish">;
 
 // What "+" can open, in menu order.
 const EXTRA_TABS: { tab: ExtraTab; label: string; icon: LucideIcon }[] = [
@@ -43,7 +43,7 @@ const EXTRA_TABS: { tab: ExtraTab; label: string; icon: LucideIcon }[] = [
     { tab: "services", label: "App services", icon: Sparkles },
 ];
 
-/** The workspace panel's tab row: Preview stays; the rest open from "+", extras under •••. */
+/** The workspace tab row: Preview and Publish stay; the rest open from "+", extras under •••. */
 export function PreviewToolbar({
     activeTab,
     onTabChange,
@@ -51,7 +51,6 @@ export function PreviewToolbar({
     onToggleChat,
     projectId,
     revisionId,
-    onAskBuilder,
 }: {
     activeTab: WorkspaceTab;
     onTabChange: (tab: WorkspaceTab) => void;
@@ -59,13 +58,12 @@ export function PreviewToolbar({
     onToggleChat: () => void;
     projectId: string;
     revisionId?: string | null;
-    // Puts a request in the composer, for the builder to fix a publish that failed.
-    onAskBuilder?: (text: string) => void;
 }) {
     // A tab opened from elsewhere (a file in the run timeline, "Manage skills" in the composer)
     // switches to it without "+"; it stays in the row until closed.
     const [opened, setOpened] = useState<ExtraTab[]>([]);
-    if (activeTab !== "preview" && !opened.includes(activeTab)) setOpened([...opened, activeTab]);
+    if (activeTab !== "preview" && activeTab !== "publish" && !opened.includes(activeTab))
+        setOpened([...opened, activeTab]);
     const close = (tab: ExtraTab) => {
         setOpened(opened.filter((other) => other !== tab));
         if (activeTab === tab) onTabChange("preview");
@@ -96,6 +94,12 @@ export function PreviewToolbar({
                     <Globe size={14} />
                     Preview
                 </Button>
+                <PublishTab
+                    projectId={projectId}
+                    revisionId={revisionId}
+                    active={activeTab === "publish"}
+                    onSelect={() => onTabChange("publish")}
+                />
                 {EXTRA_TABS.filter(({ tab }) => opened.includes(tab)).map(
                     ({ tab, label, icon: Icon }) => (
                         <span
@@ -140,11 +144,6 @@ export function PreviewToolbar({
                 </DropdownMenuContent>
             </DropdownMenu>
             <div className="ml-auto flex items-center gap-1">
-                <PublishSheet
-                    projectId={projectId}
-                    disabled={!revisionId}
-                    onAskBuilder={onAskBuilder}
-                />
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                         <Button variant="icon" aria-label="Project actions">

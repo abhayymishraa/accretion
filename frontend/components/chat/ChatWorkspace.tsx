@@ -7,6 +7,7 @@ import { ErrorBox } from "@/components/ui/ErrorBox";
 import { ChatIdHeader } from "@/components/chat/ChatIdHeader";
 import { ChatInput } from "@/components/chat/ChatInput";
 import { MessageBubble } from "@/components/chat/MessageBubble";
+import { MobilePaneSwitch } from "@/components/chat/MobilePaneSwitch";
 import { OpenFileContext } from "@/components/chat/OpenFileContext";
 import { PreviewPanel } from "@/components/chat/PreviewPanel";
 import { ProjectBar } from "@/components/chat/ProjectBar";
@@ -98,29 +99,16 @@ export default function ChatWorkspace({ chatId }: { chatId: string }) {
                     onNewChat={() => router.push("/chat")}
                     onBack={() => router.push("/projects")}
                 />
-                <div
-                    className="hidden max-md:flex max-md:gap-1 max-md:border-b max-md:border-b-border max-md:px-3 max-md:py-1.5 max-md:[&>button]:flex-1"
-                    role="group"
-                    aria-label="Workspace view"
-                >
-                    <Button
-                        variant="tab"
-                        aria-pressed={mobilePane === "chat"}
-                        onClick={() => setMobilePane("chat")}
-                    >
-                        Chat
-                    </Button>
-                    <Button
-                        variant="tab"
-                        aria-pressed={mobilePane === "preview"}
-                        onClick={() => {
-                            setShowPreview(true);
-                            setMobilePane("preview");
-                        }}
-                    >
-                        Workspace
-                    </Button>
-                </div>
+                <MobilePaneSwitch
+                    pane={mobilePane}
+                    onChat={() => setMobilePane("chat")}
+                    onWorkspace={() => {
+                        setShowPreview(true);
+                        setMobilePane("preview");
+                    }}
+                    projectId={chatId}
+                    revisionId={revisionId}
+                />
                 <div className="flex min-h-0 flex-1 max-[1101px]:[&>.ember-workspace-sidebar]:hidden">
                     <WorkspaceSidebar userData={userData} onSignOut={signOut} />
                     <main

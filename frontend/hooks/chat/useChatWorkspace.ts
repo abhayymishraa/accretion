@@ -19,6 +19,7 @@ import {
 } from "react";
 
 import { useProjectFiles } from "@/hooks/files/useProjectFiles";
+import { usePublishedToast } from "@/hooks/publish/usePublish";
 import { useChatHistory } from "./useChatHistory";
 import { sendable } from "./useComposerMenu";
 import { useChatConnection } from "./useChatConnection";
@@ -53,7 +54,7 @@ export function useChatWorkspace(chatId: string) {
         containerRef,
         openedFile,
         openFile,
-    } = useWorkspaceLayout();
+    } = useWorkspaceLayout(chatId);
     // Panel toggle: the preview takes the whole width while the conversation is folded away.
     const [chatHidden, setChatHidden] = useState(false);
     // The session client and socket own authentication; this is display data only. It is
@@ -109,6 +110,7 @@ export function useChatWorkspace(chatId: string) {
         enabled: workspaceVisible && previewTab === "preview",
         onPreviewOpen: setAppUrl,
     });
+    usePublishedToast(chatId, revisionId, workspaceVisible && previewTab === "publish");
 
     const followLatest = useRef(true);
     const conversationRef = useRef<HTMLDivElement>(null);

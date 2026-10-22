@@ -6,7 +6,7 @@ import { vercelService } from "@/services/service.vercel";
 import { useState } from "react";
 
 /** Finishes a Vercel connection sent back here, then returns to the project it started from, where the
- * Publish sheet opens again. */
+ * Publish tab opens. */
 export function useVercelCallback() {
     // Stored in this tab before it left for Vercel; the project page clears it.
     const [projectId] = useState(returnProject);
