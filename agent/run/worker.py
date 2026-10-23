@@ -279,7 +279,7 @@ class Workers:
                         elif command["type"] == "steer":
                             # ponytail: a steer lost with Redis is still in the chat, not in this
                             # run's inbox. Add a durable inbox read if Redis loss is ever seen.
-                            live.inbox.append(command["text"])
+                            live.inbox.append({"id": command.get("id", ""), "text": command["text"]})
             except RedisError as exc:
                 logger.warning("Run command listener lost Redis error_type=%s retry_in=%ss", type(exc).__name__, delay)
                 await asyncio.sleep(delay)
