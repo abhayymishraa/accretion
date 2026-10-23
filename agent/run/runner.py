@@ -827,6 +827,9 @@ async def run_editor(
                 raise VerificationError(
                     "request_decision and write_plan must each be called alone. No calls in this batch were executed."
                 )
+            if not calls and inbox and turn + 1 < max_turns:
+                # The user wrote during this call: answer them next turn instead of finishing without it.
+                continue
             if not calls and not response.text.strip() and "empty" not in nudged:
                 # An empty reply gets one nudge before it is treated as done.
                 nudged.add("empty")
@@ -878,6 +881,12 @@ async def run_editor(
                     checks=checks,
                 )
                 await checkpoint()
+                if checks["ok"] and inbox and turn + 1 < max_turns:
+                    # The user wrote during the checks: read it before finishing. On the last turn the build
+                    # finishes instead of failing on the turn limit.
+                    # shortcut: a steer that lands after this check, before the finish is stored, is not read; it
+                    # stays in the chat. Close it by refusing the finish while a newer steer message exists.
+                    continue
                 if checks["ok"]:
                     await remember()
                     return await finished(response.text or "Application updated.")
@@ -945,6 +954,8 @@ async def run_editor(
                         status="success" if result.get("ok") else "error",
                     )
                 )
+                # shortcut: a steer that arrives while the model asks or writes its plan is not read by this run;
+                # it stays in the chat for the user to repeat. Carry the inbox into the continuation if users hit it.
                 if call["name"] in PAUSING and result.get("ok"):
                     # The paused run resumes from this checkpoint, so it must hold the user's data only. A plan is
                     # saved with it: approving checks the project has not changed since.
