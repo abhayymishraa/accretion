@@ -48,16 +48,22 @@ export function SkillFormSheet({ open, target, formKey, onClose, save }: SkillFo
                         )}
                     </div>
                 ) : (
-                    <SkillForm
-                        key={`${target}-${formKey}`}
-                        initial={skill}
-                        onCancel={onClose}
-                        onSubmit={async (draft) => {
-                            const failure = await save(draft, editingId ?? undefined);
-                            if (!failure) onClose();
-                            return failure;
-                        }}
-                    />
+                    // An edited skill replaces its skeleton, so it fades in; a new one arrives with the sheet.
+                    <div
+                        data-loaded-in={editingId ? "" : undefined}
+                        className="flex flex-1 flex-col"
+                    >
+                        <SkillForm
+                            key={`${target}-${formKey}`}
+                            initial={skill}
+                            onCancel={onClose}
+                            onSubmit={async (draft) => {
+                                const failure = await save(draft, editingId ?? undefined);
+                                if (!failure) onClose();
+                                return failure;
+                            }}
+                        />
+                    </div>
                 )}
             </SheetContent>
         </Sheet>

@@ -28,6 +28,7 @@ export type ToolLine = {
 export type TimelineBlock =
     | { kind: "section"; key: string; lines: ToolLine[] }
     | { kind: "note"; key: string; item: ActivityItem }
+    | { kind: "steer"; key: string; item: ActivityItem }
     | { kind: "screenshots"; key: string; runId: string; ids: string[] };
 
 // Stage messages the runner emits before each tool (agent/run/runner.py run_call). The row says it already.
@@ -151,7 +152,11 @@ export function timelineBlocks(entries: TimelineEntry[]): TimelineBlock[] {
     for (const entry of entries) {
         if (entry.kind === "stage") {
             if (entry.item.kind === "stage" && TOOL_STAGES.has(entry.item.message ?? "")) continue;
-            blocks.push({ kind: "note", key: entry.item.id, item: entry.item });
+            blocks.push({
+                kind: entry.item.kind === "steer" ? "steer" : "note",
+                key: entry.item.id,
+                item: entry.item,
+            });
             continue;
         }
         if (entry.kind !== "tool") continue;

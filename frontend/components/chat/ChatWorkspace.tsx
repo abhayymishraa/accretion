@@ -17,6 +17,7 @@ import { ThinkingOrb } from "thinking-orbs";
 
 import { useChatWorkspace } from "@/hooks/chat/useChatWorkspace";
 import { mentionTargets } from "@/hooks/chat/useComposerMenu";
+import { withSteers } from "@/lib/chat/messages";
 import { useProjectSkills } from "@/hooks/skills/useProjectSkills";
 import { useEffect } from "react";
 
@@ -179,10 +180,11 @@ export default function ChatWorkspace({ chatId }: { chatId: string }) {
                                             </p>
                                         </div>
                                     )}
-                                    {messages.map((message) => (
+                                    {withSteers(messages).map(({ message, steers }) => (
                                         <MessageBubble
                                             key={message.id}
                                             message={message}
+                                            steers={steers}
                                             pills={pills}
                                             connected={connected}
                                             onWorkflowChanged={decided}

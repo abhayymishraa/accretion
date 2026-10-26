@@ -249,7 +249,7 @@ export function BuiltinSkills({
             ) : shown.length === 0 ? (
                 <NoMatch query={query} />
             ) : (
-                <ul className="divide-y divide-border border border-border">
+                <ul data-loaded-in="" className="divide-y divide-border border border-border">
                     {shown.map((skill, index) => {
                         const previous = shown[index - 1];
                         const newCategory = skill.category !== previous?.category;

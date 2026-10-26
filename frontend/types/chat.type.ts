@@ -37,13 +37,15 @@ export interface ToolCall {
 }
 export interface ActivityItem {
     id: string;
-    kind: "stage" | "verification" | "approach";
+    kind: "stage" | "verification" | "approach" | "steer";
     created_at: string;
     message?: string;
     ok?: boolean;
     checks?: unknown;
     compacted?: boolean;
     steps?: string[];
+    // A steer: the chat message the builder read at this point of the run.
+    message_id?: string;
 }
 export interface Message {
     id: string;
@@ -84,6 +86,7 @@ export interface RunEvent {
     checks?: unknown;
     compacted?: boolean;
     workflow?: WorkflowProposal | null;
+    message_id?: string;
 }
 export interface RunEventHandlers {
     terminalRuns: Set<string>;

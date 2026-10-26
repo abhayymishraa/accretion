@@ -606,15 +606,20 @@ async def run_editor(
         messages.extend(HumanMessage(content=note) for note in notes)
         notes.clear()
 
-    def drain_inbox():
-        """Steering: messages the user sent mid-run join the next model call."""
+    async def drain_inbox():
+        """Steering: messages the user sent mid-run join the next model call. Each one's event places it in
+        the run's timeline where the model read it."""
         if inbox:
+            steers = inbox[:]
+            inbox.clear()
             messages.append(
                 HumanMessage(
-                    content="The user sent this while you were working. Take it into account now:\n" + "\n".join(inbox)
+                    content="The user sent this while you were working. Take it into account now:\n"
+                    + "\n".join(steer["text"] for steer in steers)
                 )
             )
-            inbox.clear()
+            for steer in steers:
+                await emit("steer", message=steer["text"], message_id=steer["id"])
 
     async def call_model():
         """Spec 6: back off and retry a transient provider error up to 4 times (none when the
@@ -739,7 +744,7 @@ async def run_editor(
             if repairs:
                 await emit("stage", message="Repairing verification errors")
             await checkpoint()
-            drain_inbox()
+            await drain_inbox()
             estimated_input, estimator = estimate_input_tokens(model, messages, tool_schema)
             # The provider's own count of the last editing call, not our estimate: the estimate reads
             # about twice the real size (Gemini's signed replay data), which cleared history too early.
@@ -822,6 +827,9 @@ async def run_editor(
                 raise VerificationError(
                     "request_decision and write_plan must each be called alone. No calls in this batch were executed."
                 )
+            if not calls and inbox and turn + 1 < max_turns:
+                # The user wrote during this call: answer them next turn instead of finishing without it.
+                continue
             if not calls and not response.text.strip() and "empty" not in nudged:
                 # An empty reply gets one nudge before it is treated as done.
                 nudged.add("empty")
@@ -873,6 +881,12 @@ async def run_editor(
                     checks=checks,
                 )
                 await checkpoint()
+                if checks["ok"] and inbox and turn + 1 < max_turns:
+                    # The user wrote during the checks: read it before finishing. On the last turn the build
+                    # finishes instead of failing on the turn limit.
+                    # shortcut: a steer that lands after this check, before the finish is stored, is not read; it
+                    # stays in the chat. Close it by refusing the finish while a newer steer message exists.
+                    continue
                 if checks["ok"]:
                     await remember()
                     return await finished(response.text or "Application updated.")
@@ -940,6 +954,8 @@ async def run_editor(
                         status="success" if result.get("ok") else "error",
                     )
                 )
+                # shortcut: a steer that arrives while the model asks or writes its plan is not read by this run;
+                # it stays in the chat for the user to repeat. Carry the inbox into the continuation if users hit it.
                 if call["name"] in PAUSING and result.get("ok"):
                     # The paused run resumes from this checkpoint, so it must hold the user's data only. A plan is
                     # saved with it: approving checks the project has not changed since.

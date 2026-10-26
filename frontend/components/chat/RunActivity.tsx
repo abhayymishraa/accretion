@@ -11,6 +11,7 @@ import { Elapsed } from "./RunStatus";
 import { RelativeTime, RunMenu } from "./RunMenu";
 import { EditedFiles } from "./ToolList";
 import { RunTimeline } from "./RunTimeline";
+import { UserBubble, type Pills } from "./UserBubble";
 import { useRunDetails } from "@/hooks/chat/useRunDetails";
 import { isOpenRun } from "@/lib/chat/messages";
 import { timelineEntries } from "@/lib/chat/run-timeline";
@@ -31,10 +32,14 @@ const QUIET = [
 /** `children` is the reply: it sits between the trace and the edited-files card. */
 export function RunActivity({
     message,
+    steers,
+    pills,
     connected,
     children,
 }: {
     message: Message;
+    steers: Message[];
+    pills: Pills;
     connected: boolean;
     children?: ReactNode;
 }) {
@@ -47,7 +52,16 @@ export function RunActivity({
     const failed = Boolean(message.run_status && !QUIET.includes(message.run_status));
     const steps = details.activity;
     const calls = details.calls;
-    const blocks = useMemo(() => timelineBlocks(timelineEntries(steps, calls)), [steps, calls]);
+    const blocks = useMemo(() => {
+        // A steer event's text is cut at 4,000 characters (agent/events.py redact); its chat message is whole.
+        const whole = new Map(steers.map((steer) => [steer.id, steer.content]));
+        const placed = steps.map((item) =>
+            item.message_id && whole.has(item.message_id)
+                ? { ...item, message: whole.get(item.message_id) }
+                : item,
+        );
+        return timelineBlocks(timelineEntries(placed, calls));
+    }, [steps, calls, steers]);
     // Folded, the card comes from history's edit summary instead of the full steps.
     const edits = details.loaded ? null : message.edits;
     const files = useMemo(() => editedFiles(edits ?? calls), [edits, calls]);
@@ -55,11 +69,16 @@ export function RunActivity({
         .flatMap((block) =>
             block.kind === "note"
                 ? [block.item.message || "Verification"]
-                : block.kind === "section"
-                  ? block.lines.map((line) => `${line.kind} ${line.text}`)
-                  : [`${block.ids.length} screenshot${block.ids.length === 1 ? "" : "s"}`],
+                : block.kind === "steer"
+                  ? [`You: ${block.item.message ?? ""}`]
+                  : block.kind === "section"
+                    ? block.lines.map((line) => `${line.kind} ${line.text}`)
+                    : [`${block.ids.length} screenshot${block.ids.length === 1 ? "" : "s"}`],
         )
         .join("\n");
+    // Open, the timeline places each steer the builder read; the rest show after it. Folded, all show here.
+    const read = new Set(steps.map((item) => item.message_id).filter(Boolean));
+    const unplaced = open ? steers.filter((steer) => !read.has(steer.id)) : steers;
     const latest = steps.filter((item) => item.kind === "stage").at(-1)?.message;
     const took = workedFor(message.created_at, message.finished_at);
     const plan = message.workflow?.kind === "plan";
@@ -143,7 +162,19 @@ export function RunActivity({
                             </Button>
                         </ErrorBox>
                     </div>
-                    <RunTimeline blocks={blocks} running={running} />
+                    <RunTimeline blocks={blocks} running={running} pills={pills} />
+                </div>
+            )}
+            {unplaced.length > 0 && (
+                <div className="grid gap-2 py-2">
+                    {unplaced.map((steer) => (
+                        <UserBubble
+                            key={steer.id}
+                            content={steer.content}
+                            pills={pills}
+                            pending={running}
+                        />
+                    ))}
                 </div>
             )}
             {children}

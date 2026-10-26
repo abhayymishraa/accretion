@@ -281,7 +281,7 @@ class LiveRun:
     # A minted demo account: its model falls back to Auto unseen, so the client never meets a provider error.
     demo: bool = False
     # Spec 5 steering: messages the user sends while this run works, drained before each model call.
-    inbox: list[str] = field(default_factory=list)
+    inbox: list[dict[str, str]] = field(default_factory=list)
     # Read-only tools run in parallel (spec 5), so their events arrive together: each takes its
     # sequence number under this lock, or two get the same number.
     emit_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
@@ -1552,7 +1552,10 @@ class Service:
             .where(Run.id == run_id)
             .cte("target")
         )
-        message = bound(Message, id=str(uuid.uuid4()), role="user", content=text, created_at=datetime.now(UTC))
+        message_id = str(uuid.uuid4())
+        message = bound(
+            Message, id=message_id, role="user", content=text, event_type="steer", created_at=datetime.now(UTC)
+        )
         stored = (
             insert(Message)
             .from_select(
@@ -1569,7 +1572,7 @@ class Service:
         owner, chat_id = row if row else (None, None)
         if chat_id is None:
             return owner, False
-        await bus.publish(bus.COMMANDS, {"type": "steer", "run_id": run_id, "text": text})
+        await bus.publish(bus.COMMANDS, {"type": "steer", "run_id": run_id, "id": message_id, "text": text})
         await self.notify(chat_id, {"e": "resync"})
         return owner, True
 

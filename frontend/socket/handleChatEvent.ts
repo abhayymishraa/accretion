@@ -8,7 +8,7 @@ export function applyRunEvent(messages: Message[], event: RunEvent): Message[] {
     // proposals are decision cards outside the trace.
     const plan = event.e === "approach" && event.workflow?.kind === "execute";
     const activityId =
-        event.e === "stage" || event.e === "verification" || plan
+        event.e === "stage" || event.e === "verification" || event.e === "steer" || plan
             ? event.event_id || `${event.e}:${event.created_at}:${event.message}`
             : undefined;
     if (activityId !== undefined && existing?.activity?.some((item) => item.id === activityId)) {
@@ -69,6 +69,14 @@ export function applyRunEvent(messages: Message[], event: RunEvent): Message[] {
             ok: event.ok,
             checks: event.checks,
             compacted: event.compacted,
+        });
+    } else if (event.e === "steer") {
+        activity.push({
+            id: activityId!,
+            kind: "steer",
+            created_at: event.created_at,
+            message: event.message,
+            message_id: event.message_id,
         });
     } else if (plan) {
         activity.push({

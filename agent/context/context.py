@@ -163,7 +163,8 @@ class ProjectContext:
             Message.chat_id == self.chat_id,
             Message.role.in_(["user", "assistant"]),
             tuple_(Message.created_at, Message.id) < (current.created_at, current.id),
-            (Message.event_type.is_(None) | (Message.event_type == "run_summary")),
+            # A steer is a user message sent mid-run: it stays in the history the builder reads and searches.
+            (Message.event_type.is_(None) | Message.event_type.in_(("run_summary", "steer"))),
         )
 
     async def search(self, query):

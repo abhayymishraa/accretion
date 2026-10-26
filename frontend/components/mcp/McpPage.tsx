@@ -107,7 +107,7 @@ export default function McpPage() {
             ) : entries === null ? (
                 <GridSkeleton />
             ) : (
-                <ul className={GRID} aria-label="Services">
+                <ul data-loaded-in="" className={GRID} aria-label="Services">
                     <AddCard />
                     {entries.map((entry, index) => (
                         <Card key={entry.key} entry={entry} index={index + 1} />
