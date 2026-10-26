@@ -198,6 +198,7 @@ export function ProjectCollection({
                 </div>
             ) : (
                 <div
+                    data-loaded-in=""
                     aria-label="Your projects"
                     className={
                         compact
