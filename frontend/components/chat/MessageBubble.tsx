@@ -39,7 +39,13 @@ export function MessageBubble({
                         canRespond={canRespond}
                     />
                 )}
-            {text && <MessageContent content={text} />}
+            {text && (
+                // The reply lands at the end of a build: it eases in like the edited-files card below it.
+                <MessageContent
+                    content={text}
+                    className="[transition:opacity_180ms_var(--ease-out),translate_180ms_var(--ease-out)] starting:translate-y-1 starting:opacity-0 motion-reduce:starting:translate-y-0"
+                />
+            )}
         </>
     );
     const hasRun = Boolean(

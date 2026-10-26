@@ -194,7 +194,7 @@ export function RunTimeline({
                 ) : block.kind === "steer" ? (
                     // Where the builder read it: the steps after it are its answer.
                     <div key={block.key} className="py-2">
-                        <UserBubble content={block.item.message ?? ""} pills={pills} />
+                        <UserBubble content={block.item.message ?? ""} pills={pills} read />
                     </div>
                 ) : block.kind === "screenshots" ? (
                     <RunScreenshots key={block.key} runId={block.runId} ids={block.ids} />
