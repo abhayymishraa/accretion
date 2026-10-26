@@ -16,7 +16,7 @@ function Screenshot({ runId, screenshotId }: { runId: string; screenshotId: stri
             aria-expanded={open}
             aria-label={open ? "Shrink screenshot" : "Show the whole screenshot"}
             onClick={() => setOpen(!open)}
-            className={`block max-w-full cursor-zoom-in overflow-hidden rounded-[10px] border border-border bg-surface-2 text-left focus-visible:outline-2 focus-visible:outline-ring data-[open=true]:cursor-zoom-out ${open ? "" : "max-h-72"}`}
+            className={`block max-w-full cursor-zoom-in overflow-hidden rounded-[10px] border border-border bg-surface-2 text-left focus-visible:outline-2 focus-visible:outline-ring data-[open=true]:cursor-zoom-out [transition:max-height_260ms_var(--ease-out)] motion-reduce:transition-none ${open ? "max-h-[max-content]" : "max-h-72"}`}
             data-open={open}
         >
             {url ? (
