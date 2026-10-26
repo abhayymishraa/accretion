@@ -11,12 +11,15 @@ const CARD_KINDS: WorkflowProposal["kind"][] = ["clarify", "plan", "answer"];
 
 export function MessageBubble({
     message,
+    steers = [],
     pills,
     connected = true,
     onWorkflowChanged,
     canRespond = false,
 }: {
     message: Message;
+    // Messages the user sent while this run worked: they show inside it.
+    steers?: Message[];
     pills: Pills;
     connected?: boolean;
     onWorkflowChanged?: (action: DecisionAction) => void;
@@ -48,7 +51,7 @@ export function MessageBubble({
             aria-label="Accretion response"
         >
             {hasRun ? (
-                <RunActivity message={message} connected={connected}>
+                <RunActivity message={message} steers={steers} pills={pills} connected={connected}>
                     {reply}
                 </RunActivity>
             ) : (

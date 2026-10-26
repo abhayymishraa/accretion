@@ -24,6 +24,7 @@ import {
 import { presentTool } from "@/lib/tool-presentation";
 import { RunScreenshots } from "./RunScreenshots";
 import { TimelineNote } from "./TimelineNotes";
+import { UserBubble, type Pills } from "./UserBubble";
 import { Counts, DiffCard, FileLink, ROW, RowChevron, ShellBlock, TOGGLE } from "./ToolBlocks";
 import { ToolAbout } from "./ToolAbout";
 import { ToolResult } from "./ToolResult";
@@ -171,7 +172,15 @@ function TimelineSection({ lines, live }: { lines: ToolLine[]; live: boolean }) 
     );
 }
 
-export function RunTimeline({ blocks, running }: { blocks: TimelineBlock[]; running: boolean }) {
+export function RunTimeline({
+    blocks,
+    running,
+    pills,
+}: {
+    blocks: TimelineBlock[];
+    running: boolean;
+    pills: Pills;
+}) {
     return (
         <div className="grid min-w-0 gap-0.5">
             {blocks.map((block, index) =>
@@ -182,6 +191,11 @@ export function RunTimeline({ blocks, running }: { blocks: TimelineBlock[]; runn
                         // The section being written stays open while the run is live.
                         live={running && index === blocks.length - 1}
                     />
+                ) : block.kind === "steer" ? (
+                    // Where the builder read it: the steps after it are its answer.
+                    <div key={block.key} className="py-2">
+                        <UserBubble content={block.item.message ?? ""} pills={pills} />
+                    </div>
                 ) : block.kind === "screenshots" ? (
                     <RunScreenshots key={block.key} runId={block.runId} ids={block.ids} />
                 ) : (
