@@ -103,7 +103,8 @@ export default function GithubPage() {
                     />
                 }
             />
-            {body}
+            {/* The account's state replaces its skeleton with the house fade. */}
+            {account ? <div data-loaded-in="">{body}</div> : body}
         </McpShell>
     );
 }

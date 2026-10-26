@@ -156,7 +156,12 @@ export function ProjectConnections({ projectId }: { projectId: string }) {
                         const items = shown.filter((item) => test(stateOf(item)));
                         if (!items.length) return null;
                         return (
-                            <section key={title} aria-label={title} className="pt-4">
+                            <section
+                                key={title}
+                                data-loaded-in=""
+                                aria-label={title}
+                                className="pt-4"
+                            >
                                 <h3 className={`${LABEL} flex items-center gap-2 pb-2`}>
                                     {title}
                                     <span data-numeric="" className="tabular-nums">
