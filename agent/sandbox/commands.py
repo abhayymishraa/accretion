@@ -15,6 +15,16 @@ MAX_STREAM_OUTPUT = 256_000
 _FULL_OUTPUT_DIR = "/tmp/tool-output"
 
 
+def head_and_tail(text: str, limit: int, notice: str) -> str:
+    """`text` within `limit` characters, its middle replaced by `notice`: the start says what ran, the end how it
+    ended."""
+    if len(text) <= limit:
+        return text
+    room = max(0, limit - len(notice))
+    head = room - room // 2
+    return text[:head] + notice + text[len(text) - (room - head) :]
+
+
 async def _bounded_output(sandbox, text: str, stream: str, max_output: int) -> str:
     if len(text) <= max_output:
         return text

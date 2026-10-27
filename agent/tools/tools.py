@@ -10,7 +10,7 @@ from typing import Annotated, Any
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
-from ..sandbox.commands import MAX_OUTPUT
+from ..sandbox.commands import MAX_OUTPUT, head_and_tail
 from ..sandbox.workspace import MAX_FILE_BYTES, FileEdit, Workspace
 from .public_tools import file_diffs
 
@@ -18,10 +18,28 @@ from .public_tools import file_diffs
 PLAN_FILE = ".accretion/plan.md"
 # A title or part heading a model starts a plan part with: the host writes those itself.
 _LEADING_HEADING = re.compile(r"\A\s*#{1,2} [^\n]*\n")
+# Lines an edit result shows on each side of an edit, so the model can see where it landed without reading the file
+# again, and the characters a snippet keeps, its head and tail, when the edit is long.
+_SNIPPET_CONTEXT = 4
+_SNIPPET_CHARS = 16_000
+_SNIPPET_CLIPPED = (
+    "<response clipped><NOTE>Due to the max output limit, only part of this file has been shown to you. You should"
+    " retry this tool after you have searched inside the file with `grep -n` in order to find the line numbers of"
+    " what you are looking for.</NOTE>"
+)
 # What a question's reads of the saved app may return.
 MAX_FILE_CHARS = 20_000
 MAX_FILES_PER_READ = 6
 MAX_LISTED = 400
+
+
+def edit_snippet(text: str, start: int, new_string: str) -> str:
+    """The lines of `text` where an edit put `new_string` at offset `start`, with four lines either side."""
+    lines = text.split("\n")
+    first = text.count("\n", 0, start)
+    last = first + new_string.rstrip("\n").count("\n")
+    snippet = "\n".join(lines[max(0, first - _SNIPPET_CONTEXT) : last + _SNIPPET_CONTEXT + 1])
+    return head_and_tail(snippet, _SNIPPET_CHARS, _SNIPPET_CLIPPED)
 
 
 class FileChange(BaseModel):
@@ -74,14 +92,16 @@ def definitions(workspace: Workspace, read_database: Callable[[str], Awaitable[d
             "Replace exact text in existing files, several edits and files per call, applied in order."
             " Prefer this to write_files for changes to part of a file. Each old_string must match"
             " exactly once, whitespace included; add surrounding lines to make it unique, or set"
-            " replace_all. Nothing is written unless every edit applies."
+            " replace_all. Nothing is written unless every edit applies. The result shows each edit with four"
+            " lines either side, so there is no need to read the file again to check it."
         )
     )
     async def edit_files(edits: Annotated[list[FileEdit], Field(min_length=1, max_length=20)]) -> dict[str, Any]:
-        originals, updated = await workspace.edit(edits)
+        originals, updated, landed = await workspace.edit(edits)
         # `_diffs` is for the chat; the runner removes it before the result reaches the model.
         diffs = await asyncio.to_thread(file_diffs, originals, updated)
-        return {"ok": True, "changed_files": list(updated), "edits": len(edits), "_diffs": diffs}
+        snippets = [edit_snippet(text, start, e.new_string) for (text, start), e in zip(landed, edits, strict=True)]
+        return {"ok": True, "changed_files": list(updated), "edits": len(edits), "snippets": snippets, "_diffs": diffs}
 
     @tool(
         description=(
