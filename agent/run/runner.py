@@ -13,9 +13,7 @@ from typing import Any, Literal
 import httpx
 from e2b import SandboxException
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
-from langchain_core.tools import tool
 from langchain_core.utils.function_calling import convert_to_openai_tool
-from pydantic import Field
 
 from ..budget.usage import invoke_with_usage, prompt_cache_key, record_usage
 from ..context.compaction import MASK_TRIGGER_TOKENS, backoff_growth, compact, context_limit, hard_limit, mask_stale
@@ -35,7 +33,7 @@ from ..sandbox.workspace import FileWriteError, Workspace, list_files
 from ..tools.mcp_tools import McpTools
 from ..tools.public_tools import encode_public, public_tool_details
 from ..tools.skills import MAX_SKILL_BYTES, SKILL_NAME, RuntimeSkills, parse_skill
-from ..tools.tools import definitions
+from ..tools.tools import definitions, history_search
 from .agent import llm
 from .config import run_settings
 from .images import shrink_for_model
@@ -46,8 +44,6 @@ logger = logging.getLogger("webbuilder.runs")
 _PROJECT_SKILL = re.compile(r"\.agents/skills/([^/]+)/SKILL\.md")
 # What a final reply written for a developer contains: code spans, API paths, a method with a path, file names.
 _TECHNICAL = re.compile(r"`|/api/|\b(?:GET|POST|PUT|PATCH|DELETE) /|\b[\w-]+\.(?:tsx?|jsx?|py|css|json|sql)\b")
-# A title or part heading a model starts a plan part with: the host writes those itself.
-_LEADING_HEADING = re.compile(r"\A\s*#{1,2} [^\n]*\n")
 _BROWSER_STEP = re.compile(r"agent-browser\s+(\w+)")
 # Browser steps that can submit or change data (typing into a field alone saves nothing), and those that load
 # the page afresh from the server.
@@ -78,8 +74,7 @@ REPEAT_LIMIT = 4
 ERROR_REPEAT_LIMIT = 3
 # Safe to run together: they only read (spec 5).
 READ_ONLY = frozenset({"read_files", "read_skill", "search_project_history", "tool_search"})
-# The plan the user approves, and the project's notes; both live in the project, so every revision keeps them.
-PLAN_FILE = ".accretion/plan.md"
+# The project's notes; they live in the project, so every revision keeps them.
 MEMORY_FILE = ".accretion/memory.md"
 # Calls that end the run with a card for the user: each must be the only call in its reply.
 PAUSING = frozenset({"request_decision", "write_plan"})
@@ -275,58 +270,7 @@ async def run_editor(
         # llm is imported at module level on purpose: building it validates
         # DEFAULT_MODEL and its key, so a bad setting fails at boot.
         model = llm
-    tools = {t.name: t for t in definitions(workspace)}
-    # Imported here, not at the top: workflow imports structured, which imports this module.
-    from .workflow import WorkflowDecision
-
-    @tool
-    async def request_decision(
-        summary: str,
-        question: str,
-        options: list[str] = Field(default=[]),
-        secrets: list[str] = Field(default=[]),
-    ) -> dict[str, Any]:
-        """Ask the user one question, only for a newly discovered choice that changes the result or a key the app
-        needs. Never combine with other calls. Supply the question and up to three suggested answers, each within
-        300 characters. To get keys the app needs from the user, name them in secrets: the user types each value
-        into a field on the card that only the app receives. Never ask for a key's value in the question or the
-        options.
-        """
-        decision = WorkflowDecision(
-            kind="clarify", summary=summary, question=question, options=options, secrets=secrets
-        )
-        return {"ok": True, "decision": decision.model_dump()}
-
-    tools[request_decision.name] = request_decision
-
-    @tool
-    async def query_database(sql: str) -> dict[str, Any]:
-        """Run one read-only SQL query on the app's Supabase database and get the rows back, to check its tables,
-        columns, policies and data. It cannot change anything: schema changes go in migration files, which the host
-        applies. Only works once the user has connected Supabase."""
-        # Present in every build, so connecting Supabase never changes the tool list, the start of the cached prefix.
-        return await read_database(sql)
-
-    tools[query_database.name] = query_database
-    if planning:
-        # Plan mode reads, and changes one file, the plan, through write_plan: no commands and no connected
-        # services, since either can change files.
-        tools = {name: tools[name] for name in ("read_files", "request_decision")}
-
-        @tool
-        async def write_plan(title: str, summary: str, for_user: str, for_builder: str) -> dict[str, Any]:
-            """Save the plan for the user to approve, replacing any earlier one, and stop. title names the app or the
-            change; summary is one or two plain sentences on what will be built; for_user and for_builder are the two
-            parts the plan rules describe, in markdown, without headings. Never combine with other calls."""
-            # The host writes the headings, so every plan splits the same way whatever earlier plans looked like.
-            user, builder = (_LEADING_HEADING.sub("", part).strip() for part in (for_user, for_builder))
-            # The chat card folds the builder's part, found by its heading.
-            plan = f"# {title.strip()}\n\n## What you'll get\n{user}\n\n## How it will be built\n{builder}\n"
-            decision = WorkflowDecision(kind="plan", summary=summary, plan=plan)
-            await workspace.write({PLAN_FILE: decision.plan})
-            return {"ok": True, "changed_files": [PLAN_FILE], "decision": decision.model_dump()}
-
-        tools[write_plan.name] = write_plan
+    tools = {t.name: t for t in definitions(workspace, read_database, planning=planning)}
     paths = await list_files(sandbox)
     skills.add_project(await project_skills(workspace, paths))
     skill_prompt = skills.prompt()
@@ -339,7 +283,7 @@ async def run_editor(
     for mcp_tool in () if planning else (mcp.search_tool(), mcp.call_tool()):
         tools[mcp_tool.name] = mcp_tool
     if memory is not None:
-        history_tool = memory.tool()
+        history_tool = history_search(memory.search)
         tools[history_tool.name] = history_tool
     # Runaway backstops, not work limits. Stuck detection plus a cost ceiling stop a run; a turn count low
     # enough to interrupt healthy work is the wrong instrument. Spend is bounded by the user's monthly budget,

@@ -86,6 +86,7 @@ from ..tools.mcp import DEFAULT_SERVERS, Server
 from ..tools.mcp_tools import McpTools
 from ..tools.public_tools import EDIT_TOOLS, edit_summary
 from ..tools.skills import PICKED, RuntimeSkills
+from ..tools.tools import PLAN_FILE
 from . import bus
 from .answer import answer_question
 from .config import run_settings
@@ -106,7 +107,7 @@ from .exceptions import (
     UserNotFound,
 )
 from .images import MAX_COVER_BYTES, cover_image
-from .runner import PLAN_FILE, RunLimitError, SandboxSetupError, VerificationError, run_editor, switch_model
+from .runner import RunLimitError, SandboxSetupError, VerificationError, run_editor, switch_model
 from .title import name_project
 from .worker import OPEN_STATUSES, Workers
 from .workflow import public_workflow, select_workflow
