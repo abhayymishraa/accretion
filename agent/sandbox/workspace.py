@@ -9,8 +9,8 @@ from pathlib import PurePosixPath
 from typing import Any
 
 import httpx
-from e2b import SandboxException
-from pydantic import BaseModel
+from e2b import FileNotFoundException, SandboxException
+from pydantic import BaseModel, Field
 
 from . import command_policy
 from .commands import MAX_OUTPUT, run_command
@@ -69,10 +69,10 @@ def project_path(path: str) -> str:
 
 
 class FileEdit(BaseModel):
-    path: str
-    old_string: str
-    new_string: str
-    replace_all: bool = False
+    path: str = Field(description="Path relative to the project root.")
+    old_string: str = Field(description="Exact text to replace, unique in the file unless replace_all is set.")
+    new_string: str = Field(description="The replacement text.")
+    replace_all: bool = Field(default=False, description="Replace every match of old_string.")
 
 
 class Workspace:
@@ -90,9 +90,15 @@ class Workspace:
     async def read(self, path: str) -> str:
         path = project_path(path)
         if path not in self.cache:
-            info = await self.sandbox.files.get_info(f"{ROOT}/{path}", request_timeout=10)
+            try:
+                info = await self.sandbox.files.get_info(f"{ROOT}/{path}", request_timeout=10)
+            except FileNotFoundException:
+                raise ValueError(f"{path} does not exist; the request lists every project path") from None
             if info.size > MAX_FILE_BYTES:
-                raise ValueError("File exceeds the source-size limit")
+                raise ValueError(
+                    f"{path} is over {MAX_FILE_BYTES:,} bytes; read part of it with execute_command,"
+                    f" such as sed -n '1,200p' {path}"
+                )
             reader = await self.sandbox.files.read(
                 f"{ROOT}/{path}",
                 format="stream",
@@ -105,7 +111,10 @@ class Workspace:
                 async for chunk in reader:
                     # Metadata can race a file change; enforce the bound on decoded transfer bytes too.
                     if len(data) + len(chunk) > MAX_FILE_BYTES:
-                        raise ValueError("File exceeds the source-size limit")
+                        raise ValueError(
+                            f"{path} is over {MAX_FILE_BYTES:,} bytes; read part of it with execute_command,"
+                            f" such as sed -n '1,200p' {path}"
+                        )
                     data.extend(chunk)
             content = data.decode("utf-8")
             self.cache[path] = content
@@ -133,7 +142,7 @@ class Workspace:
         if len(set(paths)) != len(paths):
             raise ValueError("A batch must not write the same path twice")
         if sum(len(content.encode()) for _, content in files) > 500_000:
-            raise ValueError("Batch is too large")
+            raise ValueError("The files in one write_files call total over 500,000 bytes; split them across calls")
         changes = {path: content for path, (_, content) in zip(paths, files, strict=True)}
         before = dict(zip(paths, await asyncio.gather(*(self.previous(path) for path in paths)), strict=True))
         _refuse_hidden(before, changes)
@@ -267,7 +276,10 @@ class Workspace:
                 )
             updated[path] = content.replace(item.old_string, item.new_string, -1 if item.replace_all else 1)
             if len(updated[path].encode()) > MAX_FILE_BYTES:
-                raise ValueError(f"Edit {number} ({path}): file exceeds the source-size limit")
+                raise ValueError(
+                    f"Edit {number} ({path}): the file would be over {MAX_FILE_BYTES:,} bytes; split it into smaller"
+                    " files"
+                )
         _refuse_hidden(originals, updated)
         await self.write(updated)
         return originals, updated

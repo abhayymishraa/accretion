@@ -11,9 +11,10 @@ from collections.abc import Awaitable, Callable
 from typing import Any, Literal
 
 import httpx
-from e2b import SandboxException
+from e2b import SandboxException, TimeoutException
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from langchain_core.utils.function_calling import convert_to_openai_tool
+from pydantic import ValidationError
 
 from ..budget.usage import invoke_with_usage, prompt_cache_key, record_usage
 from ..context.compaction import MASK_TRIGGER_TOKENS, backoff_growth, compact, context_limit, hard_limit, mask_stale
@@ -634,7 +635,19 @@ async def run_editor(
                     elif step in _LOADS and data_check == "used":
                         data_check = "done"
         except Exception as exc:
-            result = {"ok": False, "error": str(exc)[:2000]}
+            if isinstance(exc, ValidationError):
+                # The errors as JSON with what the model sent, without Pydantic's documentation links.
+                errors = exc.errors(include_url=False, include_context=False)
+                error = (
+                    f"{len(errors)} validation error{'s' if len(errors) != 1 else ''}:\n```json\n"
+                    f"{json.dumps(errors, indent=2, default=str)}\n```\n\nFix the errors and try again."
+                )
+            elif isinstance(exc, TimeoutException):
+                # E2B's text advises calling set_timeout, which the model cannot do.
+                error = "The project's sandbox did not answer in time. Retry once; if it fails again, stop."
+            else:
+                error = str(exc)
+            result = {"ok": False, "error": error[:2000]}
             if isinstance(exc, (CommandStateError, FileWriteError)):
                 fatal_error = exc
                 result.update(error_type=type(exc).__name__, status="unknown")
