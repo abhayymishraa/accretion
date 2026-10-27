@@ -238,6 +238,27 @@ Users connect remote MCP servers; builds use the tools they approved. `agent/too
 - Project switch: `chats.disabled_mcp_servers`, like `disabled_skills`. Account switch: `mcp_servers.enabled`, which keeps the credentials. Deleting a server drops its name from every project list in the same statement.
 - `connections/catalog.py` lists servers whose sign-in was checked by hand. It is curated, not read live from the MCP Registry (in preview, and it asks hosts to mirror it).
 
+## Tool schemas and results
+
+`agent/tools/tools.py` defines the tools and how their results read; `agent/routing/providers.py` (`tool_schemas`)
+puts them on each model's wire.
+
+- Strict tool schemas are on for Anthropic and OpenRouter, checked with a live call on every model listed for them.
+  Gemini has no strict mode; OpenAI's waits for a live check. A connected service's tool is never strict: its schema
+  is not ours to vouch for.
+- LangChain drops `strict` from an OpenAI-shaped tool on the Anthropic wire, so Anthropic gets its own shape, and
+  `anthropic.transform_schema` moves what strict mode refuses (`maxItems`, `maxLength`) into the field description.
+  The tool's Pydantic validation still enforces every limit.
+- Anthropic allows at most 20 strict tools, 24 optional fields and 16 union fields (`anyOf`, `X | None`) per request;
+  over one, every call fails. `tool_schemas` counts them first and sends the tools without strict, with a warning.
+  A tool whose schema strict mode cannot express (an untyped field) goes without strict on its own. A new tool
+  keeps its fields typed and required, and avoids `| None`.
+- The main model makes one call per turn, so a tool takes a list (several files, several edits) and does the batch.
+- `read_files` and `execute_command` results reach the model as text under one JSON status line (`as_text`):
+  JSON escaping cost about 14% more tokens and garbled the text copied into `old_string`. Compaction reads that
+  status line and cuts files by the length in each `<file … chars=N>` block (`read_files_of`). A new result shape
+  needs its compaction rule in the same change.
+
 ## Project secrets
 
 Users save their own keys (Stripe, OpenAI) for an app. `agent/sandbox/secrets.py` stores them, `projects/` serves

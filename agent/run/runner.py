@@ -13,7 +13,6 @@ from typing import Any, Literal
 import httpx
 from e2b import SandboxException, TimeoutException
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
-from langchain_core.utils.function_calling import convert_to_openai_tool
 from pydantic import ValidationError
 
 from ..budget.usage import invoke_with_usage, prompt_cache_key, record_usage
@@ -25,7 +24,15 @@ from ..context.transcript import replace as replace_transcript
 from ..events import hide_secrets, secret_forms
 from ..routing.failures import cool_down, is_context_overflow, is_transient, switch_now
 from ..routing.history import for_model
-from ..routing.providers import bind_tools, cache_options, chat_model, entry_for, output_truncated, replacement_for
+from ..routing.providers import (
+    bind_tools,
+    cache_options,
+    chat_model,
+    entry_for,
+    output_truncated,
+    replacement_for,
+    tool_schemas,
+)
 from ..sandbox import migrations
 from ..sandbox.check_data import CheckData
 from ..sandbox.commands import CommandStateError
@@ -388,17 +395,17 @@ async def run_editor(
     mcp.preload(prompt, raw_prior, defers=entry_for(model).defers_tools)
     # The previous run may have used another model; its signed replay data is not ours.
     prior = for_model(raw_prior, entry_for(model).id)
-    builtin_tools = [convert_to_openai_tool(t) for name, t in tools.items() if name != "call_mcp_tool"]
+    builtin = [t for name, t in tools.items() if name != "call_mcp_tool"]
 
     def tool_list(chosen):
         """The tool list for a model never changes during a run, so the cached prefix holds. A model that defers
         tools gets every approved one, the unloaded ones deferred; another gets the fixed call_mcp_tool.
         Plan mode has no connected services."""
         if planning:
-            return builtin_tools
+            return tool_schemas(chosen, builtin)
         if entry_for(chosen).defers_tools:
-            return [*builtin_tools, *mcp.with_deferred()]
-        return [*builtin_tools, convert_to_openai_tool(tools["call_mcp_tool"])]
+            return [*tool_schemas(chosen, builtin), *mcp.with_deferred()]
+        return tool_schemas(chosen, [*builtin, tools["call_mcp_tool"]])
 
     def schema_of(listed):
         # A deferred definition reaches the context only when a tool_reference loads it.
