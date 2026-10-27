@@ -656,11 +656,14 @@ async def run_editor(
                         data_check = "done"
         except Exception as exc:
             if isinstance(exc, ValidationError):
-                # The errors as JSON with what the model sent, without Pydantic's documentation links.
+                # The errors as JSON with what the model sent, without Pydantic's documentation links. Each input is
+                # cut, and the instruction comes first, so one large file cannot push the rest past the cap below.
                 errors = exc.errors(include_url=False, include_context=False)
+                for item in errors:
+                    item["input"] = str(item.get("input"))[:200]
                 error = (
-                    f"{len(errors)} validation error{'s' if len(errors) != 1 else ''}:\n```json\n"
-                    f"{json.dumps(errors, indent=2, default=str)}\n```\n\nFix the errors and try again."
+                    f"Fix the errors and try again. {len(errors)} validation error{'s' if len(errors) != 1 else ''}:"
+                    f"\n```json\n{json.dumps(errors, indent=2, default=str)}\n```"
                 )
             elif isinstance(exc, TimeoutException):
                 # E2B's text advises calling set_timeout, which the model cannot do.

@@ -24,9 +24,8 @@ _LEADING_HEADING = re.compile(r"\A\s*#{1,2} [^\n]*\n")
 _SNIPPET_CONTEXT = 4
 _SNIPPET_CHARS = 16_000
 _SNIPPET_CLIPPED = (
-    "<response clipped><NOTE>Due to the max output limit, only part of this file has been shown to you. You should"
-    " retry this tool after you have searched inside the file with `grep -n` in order to find the line numbers of"
-    " what you are looking for.</NOTE>"
+    "<response clipped><NOTE>The edit was applied; only part of the edited lines is shown. Do not repeat the edit."
+    " Read the file with read_files to see the rest.</NOTE>"
 )
 # What a question's reads of the saved app may return.
 MAX_FILE_CHARS = 20_000
