@@ -11,11 +11,9 @@ from collections.abc import Awaitable, Callable
 from typing import Any, Literal
 
 import httpx
-from e2b import SandboxException
+from e2b import SandboxException, TimeoutException
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
-from langchain_core.tools import tool
-from langchain_core.utils.function_calling import convert_to_openai_tool
-from pydantic import Field
+from pydantic import ValidationError
 
 from ..budget.usage import invoke_with_usage, prompt_cache_key, record_usage
 from ..context.compaction import MASK_TRIGGER_TOKENS, backoff_growth, compact, context_limit, hard_limit, mask_stale
@@ -26,7 +24,15 @@ from ..context.transcript import replace as replace_transcript
 from ..events import hide_secrets, secret_forms
 from ..routing.failures import cool_down, is_context_overflow, is_transient, switch_now
 from ..routing.history import for_model
-from ..routing.providers import bind_tools, cache_options, chat_model, entry_for, output_truncated, replacement_for
+from ..routing.providers import (
+    bind_tools,
+    cache_options,
+    chat_model,
+    entry_for,
+    output_truncated,
+    replacement_for,
+    tool_schemas,
+)
 from ..sandbox import migrations
 from ..sandbox.check_data import CheckData
 from ..sandbox.commands import CommandStateError
@@ -35,7 +41,7 @@ from ..sandbox.workspace import FileWriteError, Workspace, list_files
 from ..tools.mcp_tools import McpTools
 from ..tools.public_tools import encode_public, public_tool_details
 from ..tools.skills import MAX_SKILL_BYTES, SKILL_NAME, RuntimeSkills, parse_skill
-from ..tools.tools import definitions
+from ..tools.tools import as_text, definitions, history_search
 from .agent import llm
 from .config import run_settings
 from .images import shrink_for_model
@@ -46,8 +52,6 @@ logger = logging.getLogger("webbuilder.runs")
 _PROJECT_SKILL = re.compile(r"\.agents/skills/([^/]+)/SKILL\.md")
 # What a final reply written for a developer contains: code spans, API paths, a method with a path, file names.
 _TECHNICAL = re.compile(r"`|/api/|\b(?:GET|POST|PUT|PATCH|DELETE) /|\b[\w-]+\.(?:tsx?|jsx?|py|css|json|sql)\b")
-# A title or part heading a model starts a plan part with: the host writes those itself.
-_LEADING_HEADING = re.compile(r"\A\s*#{1,2} [^\n]*\n")
 _BROWSER_STEP = re.compile(r"agent-browser\s+(\w+)")
 # Browser steps that can submit or change data (typing into a field alone saves nothing), and those that load
 # the page afresh from the server.
@@ -78,11 +82,23 @@ REPEAT_LIMIT = 4
 ERROR_REPEAT_LIMIT = 3
 # Safe to run together: they only read (spec 5).
 READ_ONLY = frozenset({"read_files", "read_skill", "search_project_history", "tool_search"})
-# The plan the user approves, and the project's notes; both live in the project, so every revision keeps them.
-PLAN_FILE = ".accretion/plan.md"
+# The project's notes; they live in the project, so every revision keeps them.
 MEMORY_FILE = ".accretion/memory.md"
 # Calls that end the run with a card for the user: each must be the only call in its reply.
 PAUSING = frozenset({"request_decision", "write_plan"})
+# How a command's process ran: the chat shows these, the model gains nothing from them.
+_PROCESS_FIELDS = frozenset({"status", "pid", "reconnected"})
+
+
+def for_the_model(name: str, result: dict[str, Any]) -> dict[str, Any]:
+    """A command's result without its process fields; output_may_be_incomplete only when it is true."""
+    if name != "execute_command":
+        return result
+    return {
+        key: value
+        for key, value in result.items()
+        if key not in _PROCESS_FIELDS and not (key == "output_may_be_incomplete" and not value)
+    }
 
 
 class RunLimitError(Exception):
@@ -275,58 +291,7 @@ async def run_editor(
         # llm is imported at module level on purpose: building it validates
         # DEFAULT_MODEL and its key, so a bad setting fails at boot.
         model = llm
-    tools = {t.name: t for t in definitions(workspace)}
-    # Imported here, not at the top: workflow imports structured, which imports this module.
-    from .workflow import WorkflowDecision
-
-    @tool
-    async def request_decision(
-        summary: str,
-        question: str,
-        options: list[str] = Field(default=[]),
-        secrets: list[str] = Field(default=[]),
-    ) -> dict[str, Any]:
-        """Ask the user one question, only for a newly discovered choice that changes the result or a key the app
-        needs. Never combine with other calls. Supply the question and up to three suggested answers, each within
-        300 characters. To get keys the app needs from the user, name them in secrets: the user types each value
-        into a field on the card that only the app receives. Never ask for a key's value in the question or the
-        options.
-        """
-        decision = WorkflowDecision(
-            kind="clarify", summary=summary, question=question, options=options, secrets=secrets
-        )
-        return {"ok": True, "decision": decision.model_dump()}
-
-    tools[request_decision.name] = request_decision
-
-    @tool
-    async def query_database(sql: str) -> dict[str, Any]:
-        """Run one read-only SQL query on the app's Supabase database and get the rows back, to check its tables,
-        columns, policies and data. It cannot change anything: schema changes go in migration files, which the host
-        applies. Only works once the user has connected Supabase."""
-        # Present in every build, so connecting Supabase never changes the tool list, the start of the cached prefix.
-        return await read_database(sql)
-
-    tools[query_database.name] = query_database
-    if planning:
-        # Plan mode reads, and changes one file, the plan, through write_plan: no commands and no connected
-        # services, since either can change files.
-        tools = {name: tools[name] for name in ("read_files", "request_decision")}
-
-        @tool
-        async def write_plan(title: str, summary: str, for_user: str, for_builder: str) -> dict[str, Any]:
-            """Save the plan for the user to approve, replacing any earlier one, and stop. title names the app or the
-            change; summary is one or two plain sentences on what will be built; for_user and for_builder are the two
-            parts the plan rules describe, in markdown, without headings. Never combine with other calls."""
-            # The host writes the headings, so every plan splits the same way whatever earlier plans looked like.
-            user, builder = (_LEADING_HEADING.sub("", part).strip() for part in (for_user, for_builder))
-            # The chat card folds the builder's part, found by its heading.
-            plan = f"# {title.strip()}\n\n## What you'll get\n{user}\n\n## How it will be built\n{builder}\n"
-            decision = WorkflowDecision(kind="plan", summary=summary, plan=plan)
-            await workspace.write({PLAN_FILE: decision.plan})
-            return {"ok": True, "changed_files": [PLAN_FILE], "decision": decision.model_dump()}
-
-        tools[write_plan.name] = write_plan
+    tools = {t.name: t for t in definitions(workspace, read_database, planning=planning)}
     paths = await list_files(sandbox)
     skills.add_project(await project_skills(workspace, paths))
     skill_prompt = skills.prompt()
@@ -339,7 +304,7 @@ async def run_editor(
     for mcp_tool in () if planning else (mcp.search_tool(), mcp.call_tool()):
         tools[mcp_tool.name] = mcp_tool
     if memory is not None:
-        history_tool = memory.tool()
+        history_tool = history_search(memory.search)
         tools[history_tool.name] = history_tool
     # Runaway backstops, not work limits. Stuck detection plus a cost ceiling stop a run; a turn count low
     # enough to interrupt healthy work is the wrong instrument. Spend is bounded by the user's monthly budget,
@@ -430,17 +395,17 @@ async def run_editor(
     mcp.preload(prompt, raw_prior, defers=entry_for(model).defers_tools)
     # The previous run may have used another model; its signed replay data is not ours.
     prior = for_model(raw_prior, entry_for(model).id)
-    builtin_tools = [convert_to_openai_tool(t) for name, t in tools.items() if name != "call_mcp_tool"]
+    builtin = [t for name, t in tools.items() if name != "call_mcp_tool"]
 
     def tool_list(chosen):
         """The tool list for a model never changes during a run, so the cached prefix holds. A model that defers
         tools gets every approved one, the unloaded ones deferred; another gets the fixed call_mcp_tool.
         Plan mode has no connected services."""
         if planning:
-            return builtin_tools
+            return tool_schemas(chosen, builtin)
         if entry_for(chosen).defers_tools:
-            return [*builtin_tools, *mcp.with_deferred()]
-        return [*builtin_tools, convert_to_openai_tool(tools["call_mcp_tool"])]
+            return [*tool_schemas(chosen, builtin), *mcp.with_deferred()]
+        return tool_schemas(chosen, [*builtin, tools["call_mcp_tool"]])
 
     def schema_of(listed):
         # A deferred definition reaches the context only when a tool_reference loads it.
@@ -690,7 +655,22 @@ async def run_editor(
                     elif step in _LOADS and data_check == "used":
                         data_check = "done"
         except Exception as exc:
-            result = {"ok": False, "error": str(exc)[:2000]}
+            if isinstance(exc, ValidationError):
+                # The errors as JSON with what the model sent, without Pydantic's documentation links. Each input is
+                # cut, and the instruction comes first, so one large file cannot push the rest past the cap below.
+                errors = exc.errors(include_url=False, include_context=False)
+                for item in errors:
+                    item["input"] = str(item.get("input"))[:200]
+                error = (
+                    f"Fix the errors and try again. {len(errors)} validation error{'s' if len(errors) != 1 else ''}:"
+                    f"\n```json\n{json.dumps(errors, indent=2, default=str)}\n```"
+                )
+            elif isinstance(exc, TimeoutException):
+                # E2B's text advises calling set_timeout, which the model cannot do.
+                error = "The project's sandbox did not answer in time. Retry once; if it fails again, stop."
+            else:
+                error = str(exc)
+            result = {"ok": False, "error": error[:2000]}
             if isinstance(exc, (CommandStateError, FileWriteError)):
                 fatal_error = exc
                 result.update(error_type=type(exc).__name__, status="unknown")
@@ -949,7 +929,7 @@ async def run_editor(
                 defers = call["name"] == "tool_search" and entry_for(model).defers_tools
                 messages.append(
                     ToolMessage(
-                        content=mcp.references(result) if defers else json.dumps(result, ensure_ascii=False),
+                        content=(mcp.references(result) if defers else as_text(for_the_model(call["name"], result))),
                         tool_call_id=call["id"],
                         status="success" if result.get("ok") else "error",
                     )

@@ -9,8 +9,8 @@ from pathlib import PurePosixPath
 from typing import Any
 
 import httpx
-from e2b import SandboxException
-from pydantic import BaseModel
+from e2b import FileNotFoundException, SandboxException
+from pydantic import BaseModel, Field
 
 from . import command_policy
 from .commands import MAX_OUTPUT, run_command
@@ -36,6 +36,60 @@ MAX_SCREENSHOT_BYTES = 3_000_000
 _IMAGE_TYPES = {b"\x89PNG": "image/png", b"\xff\xd8\xff": "image/jpeg", b"GIF8": "image/gif", b"RIFF": "image/webp"}
 # Project images read_files hands over as pictures, not text.
 IMAGE_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".gif", ".webp"})
+# An edit whose old_string matches nowhere exactly matches again with typographic quotes, dashes and spaces made
+# plain, then line by line ignoring trailing whitespace. Each plain character replaces one, so offsets hold.
+_PLAIN = str.maketrans(
+    {
+        **dict.fromkeys(map(ord, "\u2018\u2019\u201a\u201b"), "'"),
+        **dict.fromkeys(map(ord, "\u201c\u201d\u201e\u201f"), '"'),
+        **dict.fromkeys(map(ord, "\u2010\u2011\u2012\u2013\u2014\u2015\u2212"), "-"),
+        **dict.fromkeys(
+            map(ord, "\u00a0\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u202f\u205f\u3000"), " "
+        ),
+    }
+)
+_LINE = re.compile(r"[^\n]*(?:\n|$)")
+
+
+def _occurrences(content: str, search: str) -> list[tuple[int, int]]:
+    """Each non-overlapping (start, end) of `search` in `content`."""
+    found, offset = [], content.find(search)
+    while offset != -1:
+        found.append((offset, offset + len(search)))
+        offset = content.find(search, offset + len(search))
+    return found
+
+
+def _line_occurrences(content: str, search: str) -> list[tuple[int, int]]:
+    """Whole-line runs of `content` equal to the lines of `search` once each is made plain and loses trailing
+    whitespace; a run that would overlap an earlier one is skipped."""
+    trailing_newline = search.endswith("\n")
+    expected = search.split("\n")
+    if trailing_newline:
+        expected.pop()
+    lines = []
+    for match in _LINE.finditer(content):
+        if not match[0]:
+            continue
+        newline = match[0].endswith("\n")
+        text = match[0][:-1] if newline else match[0]
+        lines.append((match.start(), match.end(), text, match.start() + len(text) - text.endswith("\r"), newline))
+    found: list[tuple[int, int]] = []
+    for index in range(len(lines)):
+        actual = lines[index : index + len(expected)]
+        if len(actual) != len(expected):
+            continue
+        if any(
+            line[2].rstrip().translate(_PLAIN) != want.rstrip().translate(_PLAIN)
+            for line, want in zip(actual, expected, strict=True)
+        ):
+            continue
+        if trailing_newline and not actual[-1][4]:
+            continue
+        start, end = actual[0][0], actual[-1][1] if trailing_newline else actual[-1][3]
+        if not any(other_end > start and other_start < end for other_start, other_end in found):
+            found.append((start, end))
+    return found
 
 
 # What the model sees in place of a key (events.hide_secrets). Defined here, where writes are guarded, because
@@ -69,10 +123,10 @@ def project_path(path: str) -> str:
 
 
 class FileEdit(BaseModel):
-    path: str
-    old_string: str
-    new_string: str
-    replace_all: bool = False
+    path: str = Field(description="Path relative to the project root.")
+    old_string: str = Field(description="Exact text to replace, unique in the file unless replace_all is set.")
+    new_string: str = Field(description="The replacement text.")
+    replace_all: bool = Field(default=False, description="Replace every match of old_string.")
 
 
 class Workspace:
@@ -90,9 +144,15 @@ class Workspace:
     async def read(self, path: str) -> str:
         path = project_path(path)
         if path not in self.cache:
-            info = await self.sandbox.files.get_info(f"{ROOT}/{path}", request_timeout=10)
+            try:
+                info = await self.sandbox.files.get_info(f"{ROOT}/{path}", request_timeout=10)
+            except FileNotFoundException:
+                raise ValueError(f"{path} does not exist; the request lists every project path") from None
             if info.size > MAX_FILE_BYTES:
-                raise ValueError("File exceeds the source-size limit")
+                raise ValueError(
+                    f"{path} is over {MAX_FILE_BYTES:,} bytes; read part of it with execute_command,"
+                    f" such as sed -n '1,200p' {path}"
+                )
             reader = await self.sandbox.files.read(
                 f"{ROOT}/{path}",
                 format="stream",
@@ -105,7 +165,10 @@ class Workspace:
                 async for chunk in reader:
                     # Metadata can race a file change; enforce the bound on decoded transfer bytes too.
                     if len(data) + len(chunk) > MAX_FILE_BYTES:
-                        raise ValueError("File exceeds the source-size limit")
+                        raise ValueError(
+                            f"{path} is over {MAX_FILE_BYTES:,} bytes; read part of it with execute_command,"
+                            f" such as sed -n '1,200p' {path}"
+                        )
                     data.extend(chunk)
             content = data.decode("utf-8")
             self.cache[path] = content
@@ -133,7 +196,7 @@ class Workspace:
         if len(set(paths)) != len(paths):
             raise ValueError("A batch must not write the same path twice")
         if sum(len(content.encode()) for _, content in files) > 500_000:
-            raise ValueError("Batch is too large")
+            raise ValueError("The files in one write_files call total over 500,000 bytes; split them across calls")
         changes = {path: content for path, (_, content) in zip(paths, files, strict=True)}
         before = dict(zip(paths, await asyncio.gather(*(self.previous(path) for path in paths)), strict=True))
         _refuse_hidden(before, changes)
@@ -245,11 +308,13 @@ class Workspace:
             self.sandbox, command, cwd=ROOT, timeout_seconds=timeout_seconds, max_output=max_output
         )
 
-    async def edit(self, edits: list[FileEdit]) -> tuple[dict[str, str | None], dict[str, str]]:
+    async def edit(self, edits: list[FileEdit]) -> tuple[dict[str, str | None], dict[str, str], list[tuple[str, int]]]:
         """Apply exact-text edits in order, several to one file allowed; all validate before any is written.
-        Returns each file's text before and after."""
+        Returns each file's text before and after, and where each edit landed: the file's text just after it and the
+        offset of its first replacement."""
         updated: dict[str, str] = {}
         originals: dict[str, str | None] = {}
+        landed: list[tuple[str, int]] = []
         for number, item in enumerate(edits, 1):
             path = project_path(item.path)
             if not item.old_string or item.old_string == item.new_string:
@@ -258,19 +323,31 @@ class Workspace:
                 content = updated[path]
             else:
                 content = originals[path] = await self.read(path)
-            count = content.count(item.old_string)
-            if count == 0:
+            spans = (
+                _occurrences(content, item.old_string)
+                or _occurrences(content.translate(_PLAIN), item.old_string.translate(_PLAIN))
+                or _line_occurrences(content, item.old_string)
+            )
+            if not spans:
                 raise ValueError(f"Edit {number} ({path}): old_string was not found; copy the text exactly")
-            if count > 1 and not item.replace_all:
+            if len(spans) > 1 and not item.replace_all:
                 raise ValueError(
-                    f"Edit {number} ({path}): old_string matches {count} places; add context or set replace_all"
+                    f"Edit {number} ({path}): old_string matches {len(spans)} places; add context or set replace_all"
                 )
-            updated[path] = content.replace(item.old_string, item.new_string, -1 if item.replace_all else 1)
+            pieces, kept = [], 0
+            for start, end in spans:
+                pieces += [content[kept:start], item.new_string]
+                kept = end
+            updated[path] = content = "".join(pieces) + content[kept:]
+            landed.append((content, spans[0][0]))
             if len(updated[path].encode()) > MAX_FILE_BYTES:
-                raise ValueError(f"Edit {number} ({path}): file exceeds the source-size limit")
+                raise ValueError(
+                    f"Edit {number} ({path}): the file would be over {MAX_FILE_BYTES:,} bytes; split it into smaller"
+                    " files"
+                )
         _refuse_hidden(originals, updated)
         await self.write(updated)
-        return originals, updated
+        return originals, updated, landed
 
     async def previous(self, path: str) -> str | None:
         """Text a write is about to replace: "" for a new file, None when it cannot be read."""

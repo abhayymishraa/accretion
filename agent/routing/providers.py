@@ -14,15 +14,18 @@ provider-specific kwargs directly.
 
 import asyncio
 import functools
+import logging
 from typing import Any
 
 import anthropic
 import httpx
 import httpx2
 from google.genai import Client, types
-from langchain_anthropic import ChatAnthropic
+from langchain_anthropic import ChatAnthropic, convert_to_anthropic_tool
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage
+from langchain_core.tools import BaseTool
+from langchain_core.utils.function_calling import convert_to_openai_tool
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
 
@@ -144,6 +147,72 @@ def bind_tools(model: BaseChatModel, tools: list[Any], *, parallel: bool = True,
     if not parallel and not isinstance(model, ChatGoogleGenerativeAI):
         kwargs["parallel_tool_calls"] = False
     return model.bind_tools(tools, **kwargs)
+
+
+# Wires whose strict tool mode was checked with a live call on every model listed for them: the model's arguments then
+# always match the schema. Gemini has no strict mode; OpenAI's is not yet checked live.
+_STRICT_WIRES = frozenset({"anthropic", "openrouter"})
+# Anthropic's ceilings per request for strict tools (structured outputs, "Explicit limits"): over one, every call
+# fails with "Schema is too complex for compilation". Checked before sending.
+_MAX_STRICT_TOOLS, _MAX_OPTIONAL_FIELDS, _MAX_UNION_FIELDS = 20, 24, 16
+
+logger = logging.getLogger("webbuilder.routing")
+
+
+def _optional_and_union_fields(schema: dict[str, Any]) -> tuple[int, int]:
+    """Fields left out of `required`, and fields that take one of several types, at every depth of a schema."""
+    optional = unions = 0
+    pending: list[Any] = [schema]
+    while pending:
+        node = pending.pop()
+        if isinstance(node, list):
+            pending.extend(node)
+            continue
+        if not isinstance(node, dict):
+            continue
+        if isinstance(node.get("properties"), dict):
+            optional += len(set(node["properties"]) - set(node.get("required", [])))
+        if "anyOf" in node or isinstance(node.get("type"), list):
+            unions += 1
+        pending.extend(node.values())
+    return optional, unions
+
+
+def tool_schemas(model: BaseChatModel, tools: list[BaseTool]) -> list[dict[str, Any]]:
+    """Our own tools as the model's wire takes them, strict where the wire accepts it. Never a connected service's
+    tool: its schema is not ours to vouch for."""
+    provider = entry_for(model).provider
+    if provider not in _STRICT_WIRES:
+        return [convert_to_openai_tool(tool) for tool in tools]
+    if provider != "anthropic":
+        return [convert_to_openai_tool(tool, strict=True) for tool in tools]
+    # LangChain drops `strict` from an OpenAI-shaped tool on this wire, so send Anthropic's own shape. Strict mode
+    # refuses limits such as maxItems (a 400 on every call): Anthropic's transform_schema moves them into the field's
+    # description, as its SDK does, and the tool's own validation still enforces them.
+    wire: list[dict[str, Any]] = []
+    strict = optional = unions = 0
+    for tool in tools:
+        anthropic_tool = convert_to_anthropic_tool(tool, strict=True)
+        try:
+            schema = anthropic.transform_schema(anthropic_tool["input_schema"])
+        except ValueError:
+            # A schema strict mode cannot express, such as an untyped field: this tool alone goes without strict.
+            logger.warning("Tool %r cannot be strict, sent without strict", tool.name)
+            wire.append(convert_to_openai_tool(tool))
+            continue
+        fields = _optional_and_union_fields(schema)
+        strict, optional, unions = strict + 1, optional + fields[0], unions + fields[1]
+        wire.append({**anthropic_tool, "input_schema": schema})
+    if strict > _MAX_STRICT_TOOLS or optional > _MAX_OPTIONAL_FIELDS or unions > _MAX_UNION_FIELDS:
+        # Without strict the calls still work, only unchecked by the provider; with it, none would.
+        logger.warning(
+            "Tools over Anthropic's strict limits, sent without strict tools=%d optional=%d unions=%d",
+            strict,
+            optional,
+            unions,
+        )
+        return [convert_to_openai_tool(tool) for tool in tools]
+    return wire
 
 
 def cache_options(model: BaseChatModel, key: str) -> dict[str, str]:

@@ -332,12 +332,20 @@ class RuntimeSkills:
         return {name: self.load(name) for name in dict.fromkeys(PICKED.findall(prompt)) if name in self.entries}
 
     def tool(self):
-        @tool
+        @tool(
+            description=(
+                "Load a skill's instructions from the catalog, or one resource file a loaded skill lists. Skills the"
+                " user picked with /name are already in picked_skills: do not load them again. Load only what the"
+                " task needs."
+            )
+        )
         async def read_skill(
-            name: Annotated[str, Field(min_length=1, max_length=64)],
-            resource: Annotated[str | None, Field(min_length=1, max_length=160)] = None,
+            name: Annotated[str, Field(min_length=1, max_length=64, description="A skill name from the catalog.")],
+            resource: Annotated[
+                str | None,
+                Field(min_length=1, max_length=160, description="A resource path the loaded skill lists."),
+            ] = None,
         ) -> dict[str, Any]:
-            """Load a catalog skill, or one exact resource path listed by a previously loaded skill."""
             return self.load(name, resource)
 
         return read_skill

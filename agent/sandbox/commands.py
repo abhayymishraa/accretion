@@ -8,11 +8,21 @@ from uuid import uuid4
 import httpx
 from e2b import CommandExitException, SandboxException
 
-MAX_OUTPUT = 12_000
+MAX_OUTPUT = 40_000
 MAX_STREAM_OUTPUT = 256_000
-# Keep the tail, save full text to a file named in the output.
+# Keep the head and the tail, save full text to a file named in the output.
 # ponytail: files die with the sandbox; a stale path means rerun the command.
 _FULL_OUTPUT_DIR = "/tmp/tool-output"
+
+
+def head_and_tail(text: str, limit: int, notice: str) -> str:
+    """`text` within `limit` characters, its middle replaced by `notice`: the start says what ran, the end how it
+    ended."""
+    if len(text) <= limit:
+        return text
+    room = max(0, limit - len(notice))
+    head = room - room // 2
+    return text[:head] + notice + text[len(text) - (room - head) :]
 
 
 async def _bounded_output(sandbox, text: str, stream: str, max_output: int) -> str:
@@ -25,7 +35,8 @@ async def _bounded_output(sandbox, text: str, stream: str, max_output: int) -> s
         where = "full output could not be saved"
     else:
         where = f"full output: {path}"
-    return text[-max_output:] + f"\n[showing the last {max_output} of {len(text)} characters; {where}]"
+    notice = f"\n[{len(text) - max_output} characters cut from the middle of {len(text)}; {where}]\n"
+    return head_and_tail(text, max_output + len(notice), notice)
 
 
 class CommandStateError(SandboxException):

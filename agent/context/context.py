@@ -4,7 +4,6 @@ import json
 import re
 from typing import Any
 
-from langchain_core.tools import tool
 from sqlalchemy import func, select, tuple_
 
 from db.base import AutocommitSessionLocal
@@ -173,7 +172,8 @@ class ProjectContext:
             _, current = await self.scope(db)
             if not terms:
                 return {"ok": True, "messages": [], "history_is_partial": True}
-            tsquery = func.to_tsquery("simple", " | ".join(terms))
+            # A prefix match, so "email" also finds "emails".
+            tsquery = func.to_tsquery("simple", " | ".join(f"{term}:*" for term in terms))
             vector = func.to_tsvector("simple", Message.content)
             rows = (
                 await db.execute(
@@ -200,17 +200,6 @@ class ProjectContext:
             "history_is_partial": True,
             "guidance": "Quotes are historical; later instructions can supersede them. Refine the query if needed.",
         }
-
-    def tool(self):
-        @tool
-        async def search_project_history(query: str) -> dict[str, Any]:
-            """Find earlier user decisions and run outcomes in this project. Use specific words or file names."""
-            if not 1 <= len(query.strip()) <= 200:
-                return {"ok": False, "error": "Use a history query of 1–200 characters"}
-            found: dict[str, Any] = await self.search(query)
-            return found
-
-        return search_project_history
 
     async def build(self, prompt, metrics):
         async with AutocommitSessionLocal() as db:
