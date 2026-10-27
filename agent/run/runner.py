@@ -34,7 +34,7 @@ from ..sandbox.workspace import FileWriteError, Workspace, list_files
 from ..tools.mcp_tools import McpTools
 from ..tools.public_tools import encode_public, public_tool_details
 from ..tools.skills import MAX_SKILL_BYTES, SKILL_NAME, RuntimeSkills, parse_skill
-from ..tools.tools import definitions, history_search
+from ..tools.tools import as_text, definitions, history_search
 from .agent import llm
 from .config import run_settings
 from .images import shrink_for_model
@@ -79,6 +79,19 @@ READ_ONLY = frozenset({"read_files", "read_skill", "search_project_history", "to
 MEMORY_FILE = ".accretion/memory.md"
 # Calls that end the run with a card for the user: each must be the only call in its reply.
 PAUSING = frozenset({"request_decision", "write_plan"})
+# How a command's process ran: the chat shows these, the model gains nothing from them.
+_PROCESS_FIELDS = frozenset({"status", "pid", "reconnected"})
+
+
+def for_the_model(name: str, result: dict[str, Any]) -> dict[str, Any]:
+    """A command's result without its process fields; output_may_be_incomplete only when it is true."""
+    if name != "execute_command":
+        return result
+    return {
+        key: value
+        for key, value in result.items()
+        if key not in _PROCESS_FIELDS and not (key == "output_may_be_incomplete" and not value)
+    }
 
 
 class RunLimitError(Exception):
@@ -906,7 +919,7 @@ async def run_editor(
                 defers = call["name"] == "tool_search" and entry_for(model).defers_tools
                 messages.append(
                     ToolMessage(
-                        content=mcp.references(result) if defers else json.dumps(result, ensure_ascii=False),
+                        content=(mcp.references(result) if defers else as_text(for_the_model(call["name"], result))),
                         tool_call_id=call["id"],
                         status="success" if result.get("ok") else "error",
                     )

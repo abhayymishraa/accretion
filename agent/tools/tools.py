@@ -2,6 +2,7 @@
 
 import asyncio
 import io
+import json
 import re
 import zipfile
 from collections.abc import Awaitable, Callable
@@ -31,6 +32,49 @@ _SNIPPET_CLIPPED = (
 MAX_FILE_CHARS = 20_000
 MAX_FILES_PER_READ = 6
 MAX_LISTED = 400
+
+
+_FILE_START = re.compile(r'<file path=("(?:[^"\\]|\\.)*") chars=(\d+)>\n')
+
+
+def as_text(result: dict[str, Any]) -> str:
+    """A result as the model reads it. File text and command output go raw, under one JSON line holding the rest:
+    JSON escaping costs about 14% more tokens and garbles the text the model copies into old_string."""
+    if isinstance(result.get("files"), dict) and all(isinstance(body, str) for body in result["files"].values()):
+        head = {key: value for key, value in result.items() if key != "files"}
+        # The length lets compaction cut each file out exactly, even one that contains "</file>".
+        blocks = [
+            f"<file path={json.dumps(path, ensure_ascii=False)} chars={len(body)}>\n{body}\n</file>"
+            for path, body in result["files"].items()
+        ]
+        return "\n".join([json.dumps(head, ensure_ascii=False), *blocks])
+    if isinstance(result.get("stdout"), str) and isinstance(result.get("stderr"), str):
+        head = {key: value for key, value in result.items() if key not in ("stdout", "stderr")}
+        streams = [f"<{name}>\n{result[name]}\n</{name}>" for name in ("stdout", "stderr") if result[name]]
+        return "\n".join([json.dumps(head, ensure_ascii=False), *streams])
+    return json.dumps(result, ensure_ascii=False)
+
+
+def read_files_of(text: str) -> tuple[dict[str, Any], dict[str, str]] | None:
+    """The head and file texts of a read written by as_text; None for any other text, or one cut by compaction."""
+    head_line, newline, rest = text.partition("\n")
+    try:
+        head = json.loads(head_line)
+    except ValueError:
+        return None
+    files: dict[str, str] = {}
+    position = 0
+    while newline and position < len(rest):
+        start = _FILE_START.match(rest, position)
+        if start is None:
+            return None
+        path, size = json.loads(start[1]), int(start[2])
+        files[path] = rest[start.end() : start.end() + size]
+        position = start.end() + size
+        if not rest.startswith("\n</file>", position):
+            return None
+        position += len("\n</file>\n")
+    return (head, files) if isinstance(head, dict) and files else None
 
 
 def edit_snippet(text: str, start: int, new_string: str) -> str:

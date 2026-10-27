@@ -29,6 +29,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, Tool
 from ..budget.budget import BudgetLimitError
 from ..budget.usage import invoke_with_usage, prompt_cache_key, record_usage
 from ..routing.providers import cache_options, limit_output
+from ..tools.tools import as_text, read_files_of
 from .config import context_settings
 
 logger = logging.getLogger("webbuilder.runs")
@@ -202,14 +203,17 @@ def tool_origins(messages):
 
 
 def _payload(message):
-    """The tool result as a dict, or None when it is not our JSON envelope."""
+    """The tool result as a dict, or None when it is not ours: the whole JSON envelope, or for a read or a command
+    sent as text (tools.as_text) the JSON line above its text, which holds the status."""
     if not isinstance(message.content, str):
         return None
-    try:
-        result = json.loads(message.content)
-    except ValueError:
-        return None
-    return result if isinstance(result, dict) else None
+    for text in (message.content, message.content.partition("\n")[0]):
+        try:
+            result = json.loads(text)
+        except ValueError:
+            continue
+        return result if isinstance(result, dict) else None
+    return None
 
 
 def _rewrite(message, payload):
@@ -232,11 +236,18 @@ def drop_superseded_reads(messages, origins):
     for message in reversed(messages):
         payload = _payload(message) if _is_tool_result(message, origins, "read_files") else None
         files = payload.get("files") if payload else None
+        as_read = None if isinstance(files, dict) or payload is None else read_files_of(message.content)
+        if as_read is not None:
+            payload, files = as_read
         if payload is not None and isinstance(files, dict):
             kept = {path: (SUPERSEDED if path in seen else content) for path, content in files.items()}
             seen.update(files)
             if kept != files:
-                message = _rewrite(message, {**payload, "files": kept})
+                message = (
+                    message.model_copy(update={"content": as_text({**payload, "files": kept})})
+                    if as_read
+                    else _rewrite(message, {**payload, "files": kept})
+                )
         rewritten.append(message)
     return list(reversed(rewritten))
 

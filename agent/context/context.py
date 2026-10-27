@@ -172,7 +172,8 @@ class ProjectContext:
             _, current = await self.scope(db)
             if not terms:
                 return {"ok": True, "messages": [], "history_is_partial": True}
-            tsquery = func.to_tsquery("simple", " | ".join(terms))
+            # A prefix match, so "email" also finds "emails".
+            tsquery = func.to_tsquery("simple", " | ".join(f"{term}:*" for term in terms))
             vector = func.to_tsvector("simple", Message.content)
             rows = (
                 await db.execute(
