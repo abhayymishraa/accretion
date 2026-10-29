@@ -26,7 +26,7 @@ from agent.storage import persistence
 from agent.storage.storage import StorageError
 from db.base import AutocommitSessionLocal
 from db.models import Chat
-from vercel_connect import bundle, client
+from vercel_connect import bundle, client, scan
 from vercel_connect.exceptions import (
     NotConnected,
     NothingToPublish,
@@ -97,6 +97,7 @@ def view(chat: Chat, row: ProjectPublish | None) -> PublishOut:
         dashboard_url=(_dashboard(name, "/stores") if status == "database" else _dashboard(name)) if name else None,
         logs_url=row.detail.get("logs_url"),
         log=row.detail.get("log", []) if status == "failed" else [],
+        findings=row.detail.get("findings", []),
         database=database,
     )
 
@@ -122,9 +123,9 @@ async def start(db: AsyncSession, user_id: int, chat: Chat) -> PublishOut:
             # The names of the variables this app set stay: the next publish removes the ones it no longer sets.
             set_={
                 "status": "uploading",
-                "detail": ProjectPublish.detail.op("-")(literal(["message", "log", "logs_url"], ARRAY(Text))).op("||")(
-                    literal(detail, JSONB)
-                ),
+                "detail": ProjectPublish.detail.op("-")(
+                    literal(["message", "log", "logs_url", "findings"], ARRAY(Text))
+                ).op("||")(literal(detail, JSONB)),
                 "updated_at": now,
             },
             where=or_(ProjectPublish.status.not_in(_RUNNING), ProjectPublish.updated_at < now - _STALE),
@@ -198,8 +199,9 @@ async def _publish(chat_id: str, user_id: int) -> None:
     if revision is None:
         raise bundle.NotPublishable(NothingToPublish.DETAIL)
     files = bundle.files(kit.id, await asyncio.to_thread(_unzip, await persistence.revision_bytes(revision)))
-    project_id, name = await _project(vercel, chat, kit, row)
-    await _save(chat_id, "uploading", vercel_project_id=project_id, project_name=name)
+    # The checks warn on the Publish tab; they run beside the project lookup and never stop the publish.
+    found, (project_id, name) = await asyncio.gather(scan.findings(chat_id, files), _project(vercel, chat, kit, row))
+    await _save(chat_id, "uploading", vercel_project_id=project_id, project_name=name, detail={"findings": found})
     values = await _environment(vercel, chat, kit, project_id, set(row.detail.get("env", [])))
     if values is None:
         await _save(chat_id, "database", _DATABASE_MESSAGES[kit.database])

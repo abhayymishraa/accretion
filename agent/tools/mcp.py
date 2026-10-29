@@ -160,7 +160,7 @@ async def require_public(url: str) -> None:
             raise AddressRefused(f"{parts.hostname!r} is not a public address.")
 
 
-class _PublicOnly(httpx2.AsyncHTTPTransport):
+class PublicOnly(httpx2.AsyncHTTPTransport):
     async def handle_async_request(self, request: httpx2.Request) -> httpx2.Response:
         try:
             await require_public(str(request.url))
@@ -172,7 +172,7 @@ class _PublicOnly(httpx2.AsyncHTTPTransport):
 def _http(auth: httpx2.Auth | None = None, headers: dict[str, str] | None = None) -> httpx2.AsyncClient:
     # Redirects are not followed: a server or its metadata cannot send us somewhere else unchecked.
     return httpx2.AsyncClient(
-        transport=_PublicOnly(), auth=auth, headers=headers, follow_redirects=False, timeout=CONNECT_SECONDS
+        transport=PublicOnly(), auth=auth, headers=headers, follow_redirects=False, timeout=CONNECT_SECONDS
     )
 
 

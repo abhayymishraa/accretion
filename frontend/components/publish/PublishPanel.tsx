@@ -5,6 +5,7 @@ import { RemoveRow } from "@/components/github/RemoveRow";
 import { PANEL_LINK } from "@/components/github/RepoStatus";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { ErrorBox } from "@/components/ui/ErrorBox";
+import { Findings } from "@/components/ui/Findings";
 import { IconSwap } from "@/components/ui/IconSwap";
 import { Skeleton } from "@/components/ui/skeleton";
 import { usePublish } from "@/hooks/publish/usePublish";
@@ -30,6 +31,14 @@ function askText(publish: Publish) {
         : "";
     const reason = publish.message ?? "it stopped before it finished.";
     return `Publishing my app failed: ${reason}${log}\n\nPlease fix it so the app publishes.`;
+}
+
+/** The request the publish checks' findings hand the builder: each one with its suggested fix. */
+function fixFindingsText(publish: Publish) {
+    const items = publish.findings.map(
+        (finding) => `- ${finding.title}: ${finding.detail} ${finding.remediation}`,
+    );
+    return `The publish checks found these problems in my app:\n${items.join("\n")}\n\nPlease fix them.`;
 }
 
 /** Nothing on the web yet, laid out like the GitHub and Database tabs before they connect: a figure, a heading,
@@ -264,6 +273,18 @@ export function PublishPanel({
                 )}
                 <div className="flex flex-wrap gap-2 empty:hidden">{actions[state]}</div>
                 <ErrorBox message={error} className="text-xs" />
+                <Findings
+                    findings={publish.findings}
+                    footer={
+                        <Button
+                            variant="secondary"
+                            onClick={() => onAskBuilder(fixFindingsText(publish))}
+                            className={`mt-1 justify-self-start ${WIDE}`}
+                        >
+                            Ask the builder to fix these
+                        </Button>
+                    }
+                />
                 {removable && (
                     <RemoveRow
                         note="Take the app off the web. Its address stops working."

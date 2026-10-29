@@ -1,3 +1,5 @@
+import type { DatabaseFinding } from "@/types/supabase.type";
+
 export interface VercelAccount {
     configured: boolean;
     connected: boolean;
@@ -17,5 +19,7 @@ export interface Publish {
     logs_url: string | null;
     /** The end of a failed build's log, values hidden. */
     log: string[];
+    /** What the last publish's security checks found; a warning each, never a stop. */
+    findings: DatabaseFinding[];
     database: "postgres" | "mongo";
 }

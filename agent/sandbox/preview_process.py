@@ -17,6 +17,15 @@ ROOT = Path("/home/user/react-app")
 STACK = ROOT / ".accretion/stack.json"
 # Process groups this script started for a kit's services; stop only ever signals these.
 GROUPS = Path("/tmp/accretion-services.json")
+# Each kit service's output since its last start (workspace.SERVICE_LOGS reads it for the builder).
+LOGS = Path("/tmp/accretion-logs")
+
+
+def log_tail(name, lines=40):
+    path = LOGS / f"{name}.log"
+    if not path.is_file():
+        return ""
+    return "\n".join(path.read_text(errors="replace").splitlines()[-lines:])
 
 
 def kit_env():
@@ -75,6 +84,7 @@ def start_services(proxy):
             "start": shlex.join(["python3", script, port, str(web["port"]), origins]),
         }
     ]
+    LOGS.mkdir(exist_ok=True)
     try:
         for service in services:
             port = service["port"]
@@ -82,21 +92,25 @@ def start_services(proxy):
             with socket.socket() as probe:
                 probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                 probe.bind(("0.0.0.0", port))
+            # The proxy is host code: only the kit's services are logged. Each start truncates the log.
+            log = (LOGS / f"{service['name']}.log").open("wb") if service in stack["services"] else None
             process = subprocess.Popen(
                 ["/bin/bash", "-c", service["start"]],
                 cwd=ROOT / service["cwd"],
                 env=env,
                 stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                stdout=log or subprocess.DEVNULL,
+                stderr=subprocess.STDOUT,
                 start_new_session=True,
             )
+            if log:
+                log.close()
             groups.append(process.pid)
             GROUPS.write_text(json.dumps(groups))
             deadline = time.monotonic() + 60
             while True:
                 if process.poll() is not None:
-                    raise RuntimeError(service["name"] + " exited before it was ready")
+                    raise RuntimeError(service["name"] + " exited before it was ready:\n" + log_tail(service["name"]))
                 try:
                     with urlopen(f"http://127.0.0.1:{port}{service['ready']}", timeout=2) as response:
                         if response.status == 200:
@@ -104,7 +118,9 @@ def start_services(proxy):
                 except OSError:
                     pass
                 if time.monotonic() > deadline:
-                    raise RuntimeError(service["name"] + " was not ready within 60 seconds")
+                    raise RuntimeError(
+                        service["name"] + " was not ready within 60 seconds:\n" + log_tail(service["name"])
+                    )
                 time.sleep(0.3)
     except BaseException:
         stop_services()
@@ -127,4 +143,8 @@ def main(action, proxy):
 
 
 if __name__ == "__main__":
-    main(sys.argv[1], sys.argv[2:5])
+    try:
+        main(sys.argv[1], sys.argv[2:5])
+    except RuntimeError as exc:
+        # The reason alone on stderr, without a traceback: the host hands it to the builder.
+        sys.exit(str(exc))

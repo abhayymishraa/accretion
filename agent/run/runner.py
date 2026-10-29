@@ -36,12 +36,12 @@ from ..routing.providers import (
 from ..sandbox import migrations
 from ..sandbox.check_data import CheckData
 from ..sandbox.commands import CommandStateError
-from ..sandbox.preview import PROXY_PORT, ensure_preview_current
-from ..sandbox.workspace import FileWriteError, Workspace, list_files
+from ..sandbox.preview import PROXY_PORT, PreviewError, ensure_preview_current
+from ..sandbox.workspace import SERVICE_LOGS, FileWriteError, Workspace, list_files
 from ..tools.mcp_tools import McpTools
 from ..tools.public_tools import encode_public, public_tool_details
 from ..tools.skills import MAX_SKILL_BYTES, SKILL_NAME, RuntimeSkills, parse_skill
-from ..tools.tools import as_text, definitions, history_search
+from ..tools.tools import PLAN_FILE, as_text, definitions, history_search
 from .agent import llm
 from .config import run_settings
 from .images import shrink_for_model
@@ -53,6 +53,7 @@ _PROJECT_SKILL = re.compile(r"\.agents/skills/([^/]+)/SKILL\.md")
 # What a final reply written for a developer contains: code spans, API paths, a method with a path, file names.
 _TECHNICAL = re.compile(r"`|/api/|\b(?:GET|POST|PUT|PATCH|DELETE) /|\b[\w-]+\.(?:tsx?|jsx?|py|css|json|sql)\b")
 _BROWSER_STEP = re.compile(r"agent-browser\s+(\w+)")
+_OPEN_STEP = re.compile(r"^\s*- \[ \]", re.MULTILINE)
 # Browser steps that can submit or change data (typing into a field alone saves nothing), and those that load
 # the page afresh from the server.
 _ACTS = frozenset({"click", "press", "select", "check", "uncheck", "upload", "drag"})
@@ -81,7 +82,9 @@ async def project_skills(workspace, paths: list[str]) -> list[dict[str, str]]:
 REPEAT_LIMIT = 4
 ERROR_REPEAT_LIMIT = 3
 # Safe to run together: they only read (spec 5).
-READ_ONLY = frozenset({"read_files", "read_skill", "search_project_history", "tool_search"})
+READ_ONLY = frozenset(
+    {"read_files", "search_files", "web_fetch", "read_skill", "search_project_history", "tool_search"}
+)
 # The project's notes; they live in the project, so every revision keeps them.
 MEMORY_FILE = ".accretion/memory.md"
 # Calls that end the run with a card for the user: each must be the only call in its reply.
@@ -164,7 +167,10 @@ def workspace_map(stack, paths):
     return {
         "commands_run_from": "the project root",
         "packages": packages,
-        "services": [{"name": s["name"], "folder": s["cwd"], "port": s["port"]} for s in stack["services"]],
+        "services": [
+            {"name": s["name"], "folder": s["cwd"], "port": s["port"], "log": f"{SERVICE_LOGS}/{s['name']}.log"}
+            for s in stack["services"]
+        ],
         "install": stack["install"],
         "typecheck": stack["typecheck"],
         "build": stack["build"],
@@ -367,7 +373,10 @@ async def run_editor(
 
     async def before_browser():
         """agent-browser sees what the host would ship: current files served, migrations applied."""
-        await ensure_preview_current(workspace)
+        try:
+            await ensure_preview_current(workspace)
+        except PreviewError as exc:
+            raise ValueError(f"The app did not start, so the browser cannot open it. Fix this:\n{exc.output}") from None
         if migrate is not None:
             try:
                 applied = await migrate()
@@ -616,11 +625,14 @@ async def run_editor(
         nonlocal data_check
         stage = {
             "read_files": "Inspecting existing files",
+            "search_files": "Inspecting existing files",
             "read_skill": "Loading relevant guidance",
             "call_mcp_tool": "Using a connected service",
             "write_files": "Editing project files",
             "edit_file": "Editing project files",
             "edit_files": "Editing project files",
+            "delete_files": "Editing project files",
+            "rename_files": "Editing project files",
             "execute_command": "Running a workspace command",
             "write_plan": "Writing the plan",
         }.get(call["name"], "Using a connected service" if call["name"] in mcp.by_name else None)
@@ -828,6 +840,20 @@ async def run_editor(
                 await remember()
                 return await finished(response.text or "No plan was written.")
             # Each reminder once, and before the gate below discards the rows the browser check created.
+            if (
+                not calls
+                and (request_context or {}).get("plan_approved")
+                and "plan_steps" not in nudged
+                and _OPEN_STEP.search(await read_project_file(workspace, PLAN_FILE) or "")
+            ):
+                nudged.add("plan_steps")
+                messages.append(
+                    HumanMessage(
+                        content="The approved plan still has unticked steps (- [ ]). Build and check each one, then"
+                        " tick it, or delete a step that no longer holds. If one cannot be done, say so in your reply."
+                    )
+                )
+                continue
             if not calls and data_check != "done" and "data_check" not in nudged:
                 nudged.add("data_check")
                 messages.append(

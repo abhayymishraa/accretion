@@ -19,13 +19,25 @@ HTML_LIMIT = 8 * 1024 * 1024
 HEAD_TAG = re.compile(rb"<head(\s[^>]*)?>", re.I)
 
 # Reports each page change to the builder and follows its back/forward requests. Messages go only
-# to the builder's own origins.
+# to the builder's own origins. Uncaught errors, rejections and Vite's build-error overlay (added straight to
+# <body>) are reported too, for the preview's "Ask the builder to fix it".
 BRIDGE = (
     "<script>(() => {"
     "if (window.parent === window) return;"
     "const origins = " + json.dumps(ORIGINS) + ";"
     "const report = () => origins.forEach((origin) => window.parent.postMessage("
     '{type: "accretion:location", path: location.pathname + location.search + location.hash}, origin));'
+    "const fail = (problem) => {"
+    'const message = String(problem || "").slice(0, 2000);'
+    'if (message) origins.forEach((origin) => window.parent.postMessage({type: "accretion:error", message}, origin));'
+    "};"
+    'addEventListener("error", (event) => fail((event.error && event.error.stack) || event.message));'
+    'addEventListener("unhandledrejection", (event) => fail((event.reason && event.reason.stack) || event.reason));'
+    'addEventListener("DOMContentLoaded", () => new MutationObserver(() => {'
+    'const overlay = document.querySelector("vite-error-overlay");'
+    "const body = overlay && overlay.shadowRoot && overlay.shadowRoot.querySelector(\".message-body\");"
+    'if (overlay) fail((body && body.textContent) || "The app could not be built.");'
+    "}).observe(document.body, {childList: true}));"
     'for (const name of ["pushState", "replaceState"]) {'
     "const original = history[name];"
     "history[name] = function () { const result = original.apply(this, arguments); report(); return result; };"

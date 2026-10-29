@@ -10,7 +10,7 @@ from ..events import redact
 MAX_PUBLIC_BYTES = 4000
 MAX_COMMAND_CHARS = 600
 # Tools whose results list the files they changed.
-EDIT_TOOLS = ("write_files", "edit_file", "edit_files")
+EDIT_TOOLS = ("write_files", "edit_file", "edit_files", "delete_files", "rename_files")
 # What the chat shows of an edit, never what the model sees: one line of context around each change
 # and the whole diff, uncapped.
 _DIFF_CONTEXT = 1
@@ -56,7 +56,9 @@ def edit_summary(event):
     each diff without its hunks, which are most of the bytes. The full event stays in run_events."""
     details = event["details"]
     diffs = [
-        {key: diff.get(key) for key in ("path", "created", "added", "removed")} | {"hunks": []}
+        {key: diff.get(key) for key in ("path", "created", "added", "removed")}
+        | {key: diff[key] for key in ("deleted", "renamed_from") if key in diff}
+        | {"hunks": []}
         for diff in details.get("diffs") or []
     ]
     return {
@@ -125,6 +127,11 @@ def public_tool_details(name, *, args=None, result=None, diffs=None, screenshots
         elif name == "edit_files":
             edits = args.get("edits") if isinstance(args.get("edits"), list) else []
             paths = list(dict.fromkeys(item.get("path") for item in edits if isinstance(item, dict)))
+        elif name == "delete_files":
+            paths = args.get("paths", [])
+        elif name == "rename_files":
+            renames = args.get("renames") if isinstance(args.get("renames"), list) else []
+            paths = [item.get("to_path") for item in renames if isinstance(item, dict)]
         paths = [path for path in paths if isinstance(path, str)] if isinstance(paths, list) else []
         if paths:
             fields.update(paths=paths, file_count=len(paths))
@@ -180,6 +187,12 @@ def public_tool_details(name, *, args=None, result=None, diffs=None, screenshots
             fields["error_type"] = result["error_type"]
     if name == "execute_command" and isinstance(args.get("command"), str):
         fields["command"] = args["command"].strip()[:MAX_COMMAND_CHARS]
+    if name == "web_fetch" and isinstance(args.get("url"), str):
+        fields["url"] = args["url"].strip()[:500]
+    if name == "search_files" and isinstance(args.get("searches"), list):
+        # What was looked for, never the matching lines: those are file text.
+        searches = [item for item in args["searches"] if isinstance(item, dict) and item.get("pattern")]
+        fields["patterns"] = [str(item["pattern"])[:200] for item in searches]
     bounded = _bounded(fields)
     if screenshots:
         bounded["screenshots"] = list(screenshots)

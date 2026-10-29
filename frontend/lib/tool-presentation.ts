@@ -3,9 +3,13 @@ import type { ToolCall } from "@/types/chat.type";
 const labels: Record<string, string> = {
     read_skill: "Loaded skill",
     read_files: "Read files",
+    search_files: "Search files",
+    web_fetch: "Read web page",
     write_files: "Edit files",
     edit_file: "Edit file",
     edit_files: "Edit files",
+    delete_files: "Delete files",
+    rename_files: "Rename files",
     execute_command: "Run command",
     run_command: "Run command",
     search_project_history: "Search project history",
@@ -110,6 +114,8 @@ export function presentTool(tool: ToolCall) {
         stderr,
         error,
         exitCode,
+        patterns: strings(record?.patterns),
+        url: text("url"),
         changed: Boolean(record?.changed_files),
     };
 }

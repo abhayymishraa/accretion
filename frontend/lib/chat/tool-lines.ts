@@ -4,13 +4,25 @@ import type { ActivityItem, ToolCall } from "@/types/chat.type";
 
 // One row of the run timeline: "Read x", "Ran y", "Edited z +3 -1".
 export type LineKind =
-    "read" | "view" | "edit" | "create" | "run" | "search" | "list" | "guide" | "other";
+    | "read"
+    | "view"
+    | "edit"
+    | "create"
+    | "delete"
+    | "rename"
+    | "run"
+    | "search"
+    | "list"
+    | "guide"
+    | "other";
 
 /** [sign, line number, text]; the number is the new file's for " " and "+", the old file's for "-". */
 type DiffLine = [" " | "+" | "-", number, string];
 export type FileDiff = {
     path: string;
     created: boolean;
+    deleted?: boolean;
+    renamed_from?: string;
     added: number;
     removed: number;
     hunks: DiffLine[][];
@@ -44,6 +56,8 @@ const TOOL_STAGES = new Set([
 ]);
 
 const TOKEN = /"([^"]*)"|'([^']*)'|(\S+)/g;
+// The tools that change project files (agent/tools/public_tools.py EDIT_TOOLS).
+const EDITS = new Set(["write_files", "edit_file", "edit_files", "delete_files", "rename_files"]);
 // The image files read_files hands over as pictures (agent/tools/tools.py IMAGE_SUFFIXES).
 const IMAGE = /\.(?:png|jpe?g|gif|webp)$/i;
 
@@ -119,12 +133,20 @@ function toolLines(tool: ToolCall): ToolLine[] {
             return line("view", path, { path, screenshots: shown }, index);
         });
     }
-    if (["write_files", "edit_file", "edit_files"].includes(tool.name) && !failed) {
+    if (tool.name === "web_fetch" && result.url) return [line("read", result.url)];
+    if (tool.name === "search_files" && result.patterns.length)
+        return result.patterns.map((pattern, index) => line("search", pattern, {}, index));
+    if (EDITS.has(tool.name) && !failed) {
         const diffs = diffsOf(tool);
         if (diffs.length)
-            return diffs.map((diff, index) =>
-                line(diff.created ? "create" : "edit", diff.path, { path: diff.path, diff }, index),
-            );
+            return diffs.map((diff, index) => {
+                // A deleted file has nothing to open, so it is named, not linked.
+                if (diff.deleted) return line("delete", diff.path, { diff }, index);
+                if (diff.renamed_from)
+                    return line("rename", diff.path, { path: diff.path, diff }, index);
+                const kind = diff.created ? "create" : "edit";
+                return line(kind, diff.path, { path: diff.path, diff }, index);
+            });
         if (result.files.length)
             return result.files.map((path, index) => line("edit", path, { path }, index));
     }
@@ -182,6 +204,8 @@ const PHRASES: Record<LineKind, [string, string]> = {
     view: ["viewed an image", "viewed images"],
     edit: ["edited a file", "edited files"],
     create: ["created a file", "created files"],
+    delete: ["deleted a file", "deleted files"],
+    rename: ["renamed a file", "renamed files"],
     run: ["ran a command", "ran commands"],
     search: ["searched the code", "searched the code"],
     list: ["listed files", "listed files"],

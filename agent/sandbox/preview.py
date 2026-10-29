@@ -17,7 +17,10 @@ _PROXY_PATH = "/home/user/.accretion-preview-proxy.py"
 
 
 class PreviewError(Exception):
-    pass
+    def __init__(self, message: str, output: str = "") -> None:
+        super().__init__(message)
+        # Which service failed and its last log lines, for the builder; the message is the user's.
+        self.output = output
 
 
 async def control_preview(sandbox, action):
@@ -31,7 +34,9 @@ async def control_preview(sandbox, action):
         "python3 -c " + shlex.quote(script) + " " + " ".join(map(shlex.quote, args)), timeout_seconds=150
     )
     if not result["ok"]:
-        raise PreviewError("Preview server could not " + action + ". Saved project files are preserved.")
+        raise PreviewError(
+            "Preview server could not " + action + ". Saved project files are preserved.", result.get("stderr", "")
+        )
 
 
 async def ensure_preview_current(workspace) -> None:

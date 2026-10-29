@@ -6,6 +6,7 @@ from typing import Literal
 from pydantic import Field
 
 from models import CustomModel
+from supabase_connect.schemas import Finding
 from vercel_connect.models import Status
 
 
@@ -36,5 +37,7 @@ class PublishOut(CustomModel):
     logs_url: str | None = None
     # The end of a failed build's log, values hidden: shown to the user, and handed to the builder to fix.
     log: list[str] = Field(default_factory=list)
+    # What the last publish's checks found (vercel_connect/scan.py): a warning each, never a stop.
+    findings: list[Finding] = Field(default_factory=list)
     # Which database the app needs on Vercel.
     database: Literal["postgres", "mongo"]

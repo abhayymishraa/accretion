@@ -29,6 +29,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, Tool
 from ..budget.budget import BudgetLimitError
 from ..budget.usage import invoke_with_usage, prompt_cache_key, record_usage
 from ..routing.providers import cache_options, limit_output
+from ..sandbox.workspace import split_range
 from ..tools.tools import as_text, read_files_of
 from .config import context_settings
 
@@ -463,13 +464,17 @@ def _touched(call):
     """("read" | "written" | None, paths) for one tool call."""
     args = call.get("args") or {}
     if call["name"] == "read_files":
-        return "read", args.get("paths") or []
+        return "read", [split_range(p)[0] if isinstance(p, str) else p for p in args.get("paths") or []]
     if call["name"] == "write_files":
         return "written", [f.get("path") for f in args.get("files") or [] if f.get("path")]
     if call["name"] == "edit_file":
         return "written", [args["path"]] if args.get("path") else []
     if call["name"] == "edit_files":
         return "written", [e["path"] for e in args.get("edits") or [] if isinstance(e, dict) and e.get("path")]
+    if call["name"] == "delete_files":
+        return "written", args.get("paths") or []
+    if call["name"] == "rename_files":
+        return "written", [r["to_path"] for r in args.get("renames") or [] if isinstance(r, dict) and r.get("to_path")]
     return None, []
 
 

@@ -14,7 +14,8 @@ import { Button } from "@/components/ui/button";
 import { ErrorBox } from "@/components/ui/ErrorBox";
 import { TetrisLoader } from "@/components/ui/loader-tetris";
 import type { PreviewPhase } from "@/types/preview.type";
-import { Eye } from "lucide-react";
+import { Eye, X } from "lucide-react";
+import { usePreviewError } from "@/hooks/preview/usePreviewError";
 import { usePreviewHistory } from "@/hooks/preview/usePreviewHistory";
 import { useEffect, useRef, useState } from "react";
 import { PreviewAddressBar } from "./PreviewAddressBar";
@@ -37,9 +38,13 @@ interface PreviewPanelProps {
     chatHidden: boolean;
     onToggleChat: () => void;
     projectSkills: ProjectSkills;
-    // Puts a request in the composer, for the builder to fix a publish that failed.
+    // Puts a request in the composer, for the builder to fix a publish that failed or an error the preview hit.
     onAskBuilder: (text: string) => void;
 }
+
+/** The request a preview error hands the builder. Four backticks, so a stack line holding three cannot end it. */
+const fixText = (message: string) =>
+    `My app shows this error in the preview:\n\`\`\`\`\n${message}\n\`\`\`\`\n\nPlease fix it.`;
 // Loaded only when switched on: img-fx brings three.js with it.
 const PreviewReveal = dynamic(() => import("@/components/effects/PreviewReveal"), { ssr: false });
 
@@ -81,6 +86,7 @@ export function PreviewPanel({
     const [paintedKey, setPaintedKey] = useState<string | null>(null);
     const [retainPreview, setRetainPreview] = useState(false);
     const building = isBuilding || phase === "building";
+    const pageError = usePreviewError(frame, appUrl, `${frameKey}:${building}:${revisionId}`);
     const live = Boolean(appUrl) && phase === "active" && !building;
     const previewReady = visible && live;
     // Reset before children render so a stale retention flag cannot mount an iframe.
@@ -189,6 +195,39 @@ export function PreviewPanel({
                                     {LOADING_DESCRIPTION}
                                 </p>
                             </div>
+                            {pageError.message && (
+                                <div
+                                    role="alert"
+                                    className="absolute inset-x-3 bottom-[max(0.75rem,env(safe-area-inset-bottom))] flex flex-wrap items-center gap-2 rounded-[12px] border border-border bg-card p-3 text-left shadow-lg"
+                                >
+                                    <p
+                                        className="min-w-0 flex-1 basis-48 text-[12.5px] text-foreground"
+                                    >
+                                        Your app hit an error.
+                                        <span
+                                            className="mt-0.5 block truncate font-mono text-[11.5px] text-muted-foreground"
+                                            title={pageError.message}
+                                        >
+                                            {pageError.message.trim().split("\n")[0]}
+                                        </span>
+                                    </p>
+                                    <Button
+                                        onClick={() => {
+                                            onAskBuilder(fixText(pageError.message ?? ""));
+                                            pageError.dismiss();
+                                        }}
+                                    >
+                                        Ask the builder to fix it
+                                    </Button>
+                                    <Button
+                                        variant="icon"
+                                        aria-label="Dismiss the error"
+                                        onClick={pageError.dismiss}
+                                    >
+                                        <X size={15} aria-hidden="true" />
+                                    </Button>
+                                </div>
+                            )}
                         </>
                     ) : (
                         <div className={STATE_CLASS}>

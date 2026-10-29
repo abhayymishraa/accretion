@@ -5,10 +5,10 @@ import { RemoveRow } from "@/components/github/RemoveRow";
 import { PANEL_LINK, StatusLine } from "@/components/github/RepoStatus";
 import { buttonVariants } from "@/components/ui/button";
 import { ErrorBox } from "@/components/ui/ErrorBox";
+import { Findings } from "@/components/ui/Findings";
 import { Skeleton } from "@/components/ui/skeleton";
 import { databaseBusy, useProjectDatabase } from "@/hooks/supabase/useProjectDatabase";
-import type { ProjectDatabase } from "@/types/supabase.type";
-import { ExternalLink, ShieldAlert } from "lucide-react";
+import { ExternalLink } from "lucide-react";
 import Link from "next/link";
 import { type ReactNode, useState } from "react";
 import { mount } from "./hairline/bolt.js";
@@ -16,36 +16,6 @@ import { LinkDatabaseForm } from "./LinkDatabaseForm";
 import { WorkspaceTabPanel } from "@/components/chat/WorkspaceTabPanel";
 
 const NOTE = "text-xs leading-[1.5] text-muted-foreground";
-
-/** What Supabase's own checks found, such as a table anyone can read, with how to fix each. */
-function Findings({ findings }: { findings: ProjectDatabase["findings"] }) {
-    if (!findings.length) return null;
-    return (
-        <section aria-label="Things to fix" className="grid gap-1.5">
-            <h3 className="text-xs font-semibold">Things to fix</h3>
-            <ul className="grid gap-1.5">
-                {findings.map((finding) => (
-                    <li
-                        key={`${finding.title}:${finding.detail}`}
-                        className="rounded-[10px] border border-border bg-surface-2 px-3 py-2.5"
-                    >
-                        <p className="flex items-start gap-1.5 text-[13px] font-medium">
-                            <ShieldAlert
-                                size={14}
-                                aria-hidden="true"
-                                className={`mt-0.5 shrink-0 ${finding.level === "ERROR" ? "text-destructive" : "text-amber-700 dark:text-amber-300"}`}
-                            />
-                            {finding.title}
-                        </p>
-                        <p className={`${NOTE} mt-1`}>{finding.detail}</p>
-                        <p className={`${NOTE} mt-1 text-foreground/85`}>{finding.remediation}</p>
-                    </li>
-                ))}
-            </ul>
-            <p className={NOTE}>You can ask the builder in chat to fix these.</p>
-        </section>
-    );
-}
 
 /** The workspace's Database tab: keep the app's data in Supabase, see its status, and act on it. */
 export function ProjectDatabasePanel({ projectId }: { projectId: string }) {
@@ -135,7 +105,10 @@ export function ProjectDatabasePanel({ projectId }: { projectId: string }) {
                         </a>
                     )}
                 </div>
-                <Findings findings={database.findings} />
+                <Findings
+                    findings={database.findings}
+                    footer={<p className={NOTE}>You can ask the builder in chat to fix these.</p>}
+                />
                 <RemoveRow
                     note="Go back to the built-in database. Your data on Supabase stays there."
                     label="Disconnect"

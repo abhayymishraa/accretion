@@ -9,7 +9,7 @@ from pathlib import PurePosixPath
 from typing import Any
 
 import httpx
-from e2b import FileNotFoundException, SandboxException
+from e2b import FileNotFoundException, FileType, SandboxException
 from pydantic import BaseModel, Field
 
 from . import command_policy
@@ -31,6 +31,8 @@ _NOT_PAGE = frozenset({"skills", "close", "install", "session", "profiles", "hel
 BROWSER_TIMEOUT = 50
 _PROJECT_ENV = "set -a; [ -f .env ] && . ./.env; set +a; "
 _SCREENSHOT = re.compile(r"Screenshot saved to (\S+)")
+# preview_process.py writes each kit service's output here, one <name>.log per service, new at each start.
+SERVICE_LOGS = "/tmp/accretion-logs"
 MAX_SCREENSHOTS = 4
 MAX_SCREENSHOT_BYTES = 3_000_000
 _IMAGE_TYPES = {b"\x89PNG": "image/png", b"\xff\xd8\xff": "image/jpeg", b"GIF8": "image/gif", b"RIFF": "image/webp"}
@@ -122,6 +124,16 @@ def project_path(path: str) -> str:
     return str(p)
 
 
+# A read_files entry "path:START-END" reads those lines only, 1-based and inclusive.
+_LINE_RANGE = re.compile(r"(.+):(\d+)-(\d+)")
+
+
+def split_range(entry: str) -> tuple[str, tuple[int, int] | None]:
+    """A read_files entry's path, and the line range it asks for, if any."""
+    match = _LINE_RANGE.fullmatch(entry)
+    return (entry, None) if match is None else (match[1], (int(match[2]), int(match[3])))
+
+
 class FileEdit(BaseModel):
     path: str = Field(description="Path relative to the project root.")
     old_string: str = Field(description="Exact text to replace, unique in the file unless replace_all is set.")
@@ -140,6 +152,8 @@ class Workspace:
         self.browser_timeouts = 0
         # agent-browser's page-error log only grows (its --clear leaves it, 0.38.1): count what was reported.
         self.page_errors_reported = 0
+        # Bytes of each service log already reported, by service name.
+        self.logs_reported: dict[str, int] = {}
 
     async def read(self, path: str) -> str:
         path = project_path(path)
@@ -200,6 +214,7 @@ class Workspace:
         changes = {path: content for path, (_, content) in zip(paths, files, strict=True)}
         before = dict(zip(paths, await asyncio.gather(*(self.previous(path) for path in paths)), strict=True))
         _refuse_hidden(before, changes)
+        await self.refuse_broken_syntax(changes)
         await self.write(changes)
         return before, changes
 
@@ -207,15 +222,31 @@ class Workspace:
         """Text files as text; images take the screenshot path: stored, shown, attached for the model."""
         result = {}
         images = []
-        for path in paths:
-            if PurePosixPath(path).suffix.lower() not in IMAGE_SUFFIXES:
-                result[path] = await self.read(path)
+        total_lines = {}
+        for entry in paths:
+            path, lines = split_range(entry)
+            if PurePosixPath(path).suffix.lower() in IMAGE_SUFFIXES:
+                image = await self.image(f"{ROOT}/{project_path(path)}")
+                result[entry] = "[image, shown to the user]" if image else "[not a readable image under 3 MB]"
+                if image:
+                    images.append(image)
                 continue
-            image = await self.image(f"{ROOT}/{project_path(path)}")
-            result[path] = "[image, shown to the user]" if image else "[not a readable image under 3 MB]"
-            if image:
-                images.append(image)
-        return {"ok": True, "files": result, **({"_screenshots": images} if images else {})}
+            text = await self.read(path)
+            if lines is None:
+                result[entry] = text
+                continue
+            start, end = lines
+            if not 1 <= start <= end:
+                raise ValueError(f"{entry}: a line range is START-END with 1 <= START <= END")
+            every = text.splitlines(keepends=True)
+            result[entry] = "".join(every[start - 1 : end])
+            total_lines[entry] = len(every)
+        return {
+            "ok": True,
+            **({"total_lines": total_lines} if total_lines else {}),
+            "files": result,
+            **({"_screenshots": images} if images else {}),
+        }
 
     async def image(self, path: str) -> tuple[bytes, str] | None:
         """An image file as (bytes, media type); None when it is missing, too large or not an image."""
@@ -283,11 +314,16 @@ class Workspace:
 
     async def page_check(self) -> dict[str, Any]:
         """What the page reported since the last check: a page can look right and still throw."""
-        result = await self.command("timeout 25 python3 -c " + shlex.quote(_PAGE_CHECK), timeout_seconds=30)
+        result = await self.command(
+            "timeout 25 python3 -c "
+            + " ".join(map(shlex.quote, (_PAGE_CHECK, json.dumps(self.logs_reported), SERVICE_LOGS))),
+            timeout_seconds=30,
+        )
         try:
             found = json.loads(result["stdout"])
         except ValueError:
             return {"summary": "The page's errors could not be read"}
+        self.logs_reported = found.pop("log_sizes")
         counts = found.pop("counts")
         total = found.pop("page_errors_total")
         # A shorter log means a new browser session, whose errors are all new.
@@ -302,6 +338,52 @@ class Workspace:
         ]
         summary = ", ".join(f"{count} {label}{'' if count == 1 else 's'}" for count, label in parts)
         return {"summary": summary, **{key: value for key, value in found.items() if value}}
+
+    async def refuse_broken_syntax(self, changes: dict[str, str]) -> None:
+        """Refuse a batch that would leave a parse error in a file that parses now (or is new). A check that cannot
+        run never refuses: it only stops edits that would break the app's build for certain."""
+        checked = [path for path in changes if PurePosixPath(path).suffix in _PARSED]
+        if not checked:
+            return
+        copies = [[path, f"{_SYNTAX_DIR}/{number}{PurePosixPath(path).suffix}"] for number, path in enumerate(checked)]
+        try:
+            await self.sandbox.files.write_files(
+                [{"path": copy, "data": changes[path]} for path, copy in copies], request_timeout=20
+            )
+        except (SandboxException, httpx.HTTPError):
+            return
+        result = await self.command(
+            "timeout 25 python3 -c " + " ".join(map(shlex.quote, (_SYNTAX, json.dumps(copies), ROOT, _SYNTAX_JS))),
+            timeout_seconds=30,
+        )
+        try:
+            report = json.loads(result["stdout"])
+        except ValueError:
+            return
+        broken = [
+            f"{path}:\n" + "\n".join(f"  {error}" for error in found["new"])
+            for path, found in report.items()
+            if found["new"] and not found["old"]
+        ]
+        if broken:
+            raise ValueError(
+                "Nothing was written: these files would no longer parse.\n"
+                + "\n".join(broken)
+                + "\nFix the edits and send the whole batch again."
+            )
+
+    async def search(self, queries: list[tuple[str, str]]) -> list[dict[str, Any]]:
+        """Matching lines for each (pattern, glob), searched in one sandbox call."""
+        result = await self.command(
+            "timeout 25 python3 -c " + " ".join(map(shlex.quote, (_SEARCH, json.dumps(queries)))),
+            timeout_seconds=30,
+            # Four searches of 50 lines fit whole: a cut would break the JSON.
+            max_output=100_000,
+        )
+        try:
+            return list(json.loads(result["stdout"]))
+        except ValueError:
+            raise ValueError("The search did not finish; narrow the glob and try again") from None
 
     async def command(self, command: str, timeout_seconds: int = 60, max_output: int = MAX_OUTPUT) -> dict[str, Any]:
         return await run_command(
@@ -346,8 +428,55 @@ class Workspace:
                     " files"
                 )
         _refuse_hidden(originals, updated)
+        await self.refuse_broken_syntax(updated)
         await self.write(updated)
         return originals, updated, landed
+
+    async def existing_file(self, path: str) -> str:
+        """The project path of a file that exists; a folder or a missing path is refused."""
+        path = project_path(path)
+        try:
+            info = await self.sandbox.files.get_info(f"{ROOT}/{path}", request_timeout=10)
+        except FileNotFoundException:
+            raise ValueError(f"{path} does not exist; the request lists every project path") from None
+        if info.type != FileType.FILE:
+            raise ValueError(f"{path} is not a file; name each file in the folder")
+        return path
+
+    async def delete(self, paths: list[str]) -> dict[str, str | None]:
+        """Remove files; the text each one held, None when it could not be read."""
+        paths = [await self.existing_file(path) for path in paths]
+        if len(set(paths)) != len(paths):
+            raise ValueError("A batch must not name the same path twice")
+        before = {path: await self.previous(path) for path in paths}
+        self.cache.clear()
+        self.revision += 1
+        try:
+            for path in paths:
+                await self.sandbox.files.remove(f"{ROOT}/{path}", request_timeout=10)
+        except (SandboxException, httpx.HTTPError):
+            raise FileWriteError("File removal did not complete; sandbox cleanup is required") from None
+        return before
+
+    async def rename(self, moves: list[tuple[str, str]]) -> list[tuple[str, str]]:
+        """Move files to new paths, creating folders; a target that exists is refused."""
+        checked = [(await self.existing_file(old), project_path(new)) for old, new in moves]
+        sources, targets = {old for old, _ in checked}, [new for _, new in checked]
+        if len(set(targets)) != len(targets) or len(sources) != len(checked) or sources & set(targets):
+            raise ValueError("Each file is renamed once, to a path no other rename in the batch uses")
+        for _, new in checked:
+            if await self.sandbox.files.exists(f"{ROOT}/{new}"):
+                raise ValueError(f"{new} already exists; delete it first or pick another path")
+        self.cache.clear()
+        self.revision += 1
+        steps = " && ".join(
+            f"mkdir -p {shlex.quote(str(PurePosixPath(new).parent))} && mv -n -- {shlex.quote(old)} {shlex.quote(new)}"
+            for old, new in checked
+        )
+        result = await self.command(steps, timeout_seconds=30)
+        if not result["ok"]:
+            raise FileWriteError("File rename did not complete; sandbox cleanup is required")
+        return checked
 
     async def previous(self, path: str) -> str | None:
         """Text a write is about to replace: "" for a new file, None when it cannot be read."""
@@ -372,6 +501,126 @@ function walk(dir){for(const e of fs.readdirSync(dir,{withFileTypes:true})){
 """
 
 
+# Runs in the sandbox: each [pattern, glob] in argv[1] over the project's text files, skipping what list_files skips
+# plus lockfiles, which match almost anything. Python regex syntax; a glob matches the whole relative path, with one
+# {a,b} group expanded. Each search stops after LIMIT lines and says so.
+_SEARCH = r"""
+import fnmatch, json, os, re, sys
+LIMIT, WIDTH = 50, 250
+SKIP = {"node_modules", ".git", ".venv", "dist", ".next", ".cache", "__pycache__"}
+LOCKS = {"package-lock.json", "pnpm-lock.yaml", "yarn.lock", "bun.lockb", "poetry.lock"}
+def globs(glob):
+    group = re.search(r"\{([^{}]*)\}", glob)
+    return [glob[:group.start()] + alt + glob[group.end():] for alt in group[1].split(",")] if group else [glob]
+files = []
+for top, dirs, names in os.walk("."):
+    dirs[:] = sorted(d for d in dirs if d not in SKIP and not d.startswith(".env"))
+    for name in sorted(names):
+        if not name.startswith(".env") and name not in LOCKS:
+            files.append(os.path.join(top, name)[2:])
+results = []
+for pattern, glob in json.loads(sys.argv[1]):
+    try:
+        regex = re.compile(pattern)
+    except re.error as exc:
+        results.append({"pattern": pattern, "error": f"Not a valid regular expression: {exc}"})
+        continue
+    wanted = globs(glob) if glob else None
+    lines, more = [], False
+    for path in files:
+        if wanted and not any(fnmatch.fnmatchcase(path, g) for g in wanted):
+            continue
+        try:
+            if os.path.getsize(path) > 1_000_000:
+                continue
+            with open(path, encoding="utf-8") as handle:
+                for number, line in enumerate(handle, 1):
+                    if regex.search(line):
+                        if len(lines) == LIMIT:
+                            more = True
+                            break
+                        lines.append(f"{path}:{number}: {line.rstrip()[:WIDTH]}")
+        except (OSError, UnicodeDecodeError):
+            continue
+        if more:
+            break
+    result = {"pattern": pattern, "glob": glob, "matches": "\n".join(lines) or "No matches"}
+    if more:
+        result["truncated"] = f"Only the first {LIMIT} matching lines are shown; narrow the pattern or the glob."
+    results.append(result)
+print(json.dumps(results))
+"""
+
+
+# Files an edit must leave parseable: Python by ast, the rest by the TypeScript compiler of the nearest package.
+_PARSED = frozenset({".py", ".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"})
+# Outside the project tree, so checkpoints never hold the copies under check.
+_SYNTAX_DIR = "/home/user/.accretion-syntax"
+# Runs in the sandbox: argv[1] is [[project path, copy path], ...]; prints each path's syntax errors in the copy
+# ("new") and in the file as it is now ("old", null when it does not exist). A file with no TypeScript nearby is left
+# out, so it is never refused.
+_SYNTAX = r"""
+import ast, json, os, subprocess, sys
+root, script = sys.argv[2], sys.argv[3]
+def python_errors(file, name):
+    try:
+        text = open(file, encoding="utf-8").read()
+    except OSError:
+        return None
+    try:
+        ast.parse(text, filename=name)
+        return []
+    except SyntaxError as exc:
+        return [f"line {exc.lineno}: {exc.msg}"]
+def typescript_of(path):
+    folder = os.path.dirname(os.path.join(root, path))
+    while True:
+        found = os.path.join(folder, "node_modules", "typescript")
+        if os.path.isfile(os.path.join(found, "package.json")):
+            return found
+        if folder == root or not folder.startswith(root):
+            return None
+        folder = os.path.dirname(folder)
+report, groups = {}, {}
+for path, copy in json.loads(sys.argv[1]):
+    real = os.path.join(root, path)
+    if path.endswith(".py"):
+        report[path] = {"new": python_errors(copy, path), "old": python_errors(real, path)}
+    elif found := typescript_of(path):
+        groups.setdefault(found, []).append((path, copy, real))
+for found, items in groups.items():
+    files = [[path, file] for path, copy, real in items for file in (copy, real)]
+    try:
+        out = subprocess.run(
+            ["node", "-e", script], input=json.dumps({"typescript": found, "files": files}),
+            capture_output=True, text=True, timeout=20,
+        )
+        parsed = json.loads(out.stdout)
+    except (subprocess.TimeoutExpired, ValueError):
+        continue
+    for path, copy, real in items:
+        report[path] = {"new": parsed.get(copy), "old": parsed.get(real)}
+print(json.dumps(report))
+"""
+_SYNTAX_JS = r"""
+const fs = require("fs");
+const input = JSON.parse(fs.readFileSync(0, "utf8"));
+const ts = require(input.typescript);
+const out = {};
+for (const [name, file] of input.files) {
+    let text;
+    try { text = fs.readFileSync(file, "utf8"); } catch { out[file] = null; continue; }
+    const { diagnostics } = ts.transpileModule(text, {
+        fileName: name, reportDiagnostics: true, compilerOptions: { jsx: ts.JsxEmit.Preserve },
+    });
+    out[file] = diagnostics.filter((d) => d.file).slice(0, 5).map((d) =>
+        `line ${d.file.getLineAndCharacterOfPosition(d.start).line + 1}: ` +
+        ts.flattenDiagnosticMessageText(d.messageText, " "));
+}
+console.log(JSON.stringify(out));
+"""
+
+
 async def list_files(sandbox) -> list[str]:
     result = await sandbox.commands.run("node -e " + shlex.quote(LIST_FILES_JS), cwd=ROOT, timeout=20)
     return [project_path(p) for p in json.loads(result.stdout)]
@@ -380,8 +629,25 @@ async def list_files(sandbox) -> list[str]:
 # Runs in the sandbox after a page command. agent-browser 0.38.1 prints uncaught errors as empty
 # lines in its text output, so this reads --json. Console and request logs are cleared, so the next
 # check sees only new entries; the page-error log cannot be, so the host counts it (page_check).
+# Service logs: the tail of what each wrote since the sizes in argv[1]; a shorter log is a restart, all new.
 _PAGE_CHECK = r"""
-import json, subprocess
+import json, re, subprocess, sys
+from pathlib import Path
+reported = json.loads(sys.argv[1])
+noise = re.compile(r"\b(hmr update|page reload)\b")
+sizes, server = {}, {}
+for log in sorted(Path(sys.argv[2]).glob("*.log")):
+    size = sizes[log.stem] = log.stat().st_size
+    start = reported.get(log.stem, 0)
+    start = 0 if start > size else start
+    if size > start:
+        with log.open("rb") as handle:
+            handle.seek(max(start, size - 6000))
+            text = re.sub(r"\x1b\[[0-9;]*m", "", handle.read().decode("utf-8", "replace"))
+        # Reload notices follow every edit and say nothing about the app's health.
+        lines = [line for line in text.splitlines() if line.strip() and not noise.search(line)]
+        if lines:
+            server[log.stem] = "\n".join(lines[-40:])
 def read(*command):
     try:
         out = subprocess.run(["agent-browser", *command, "--json"], capture_output=True, text=True, timeout=8)
@@ -398,6 +664,8 @@ failed = [
 for command in (["errors"], ["console"], ["network", "requests"]):
     subprocess.run(["agent-browser", *command, "--clear"], capture_output=True, timeout=8)
 print(json.dumps({
+    "log_sizes": sizes,
+    "server_output": server,
     "page_errors_total": len(errors),
     "counts": {
         "console_errors": sum(m.get("type") == "error" for m in messages),
