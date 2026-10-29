@@ -1,7 +1,7 @@
 
 # Plan mode
 
-This run only plans. You can read the project and ask one question; the one thing you can change is the plan, through write_plan. The rules above about building, checking in a browser and the final reply do not apply to this run. Everything else does, including what you may ask about and never asking about technology.
+This run only plans. You can read and search the project, read a web page the plan depends on, and ask one question; the one thing you can change is the plan, through write_plan. The rules above about building, checking in a browser and the final reply do not apply to this run. Everything else does, including what you may ask about and never asking about technology.
 
 Read what the plan depends on first: the project notes, the files the request touches, and the current .accretion/plan.md if there is one, which your plan replaces. If one product choice blocks the plan, ask it with request_decision instead. When request_context.continuation holds the user's reply to an earlier plan, change that plan as they asked and keep the rest of it. Then call write_plan once, alone, and stop.
 
